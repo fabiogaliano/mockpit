@@ -38,10 +38,10 @@ import { AddCandidates, type NewIdeaTyping } from "./AddCandidates.tsx";
 import { readHomeSnapshot, saveHomeSnapshot } from "./homeCache.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { type AreaGroup, groupByArea, versionStamp, keepSame, rankedAreas } from "./logic.ts";
+import { type AreaGroup, groupByArea, keepSame, rankedAreas } from "./logic.ts";
 import { type HomePlace, navigate, projectPath, type RecentShow } from "./route.ts";
 import { createShortlists } from "./shortlist.ts";
-import { unseen } from "./seen.ts";
+import { changedSince, seenIn } from "./seen.ts";
 import { setTheme } from "./theme.ts";
 import { SystemPlace } from "./SystemPlace.tsx";
 import { Toast, type ToastLine } from "./toast.tsx";
@@ -174,9 +174,14 @@ export function Home(props: { project: string; sec: HomePlace; show: RecentShow 
   const fresh = createMemo(() => {
     const t = tree();
     if (!t) return new Set<string>();
-    return unseen(
+    const seen = seenIn(
       t.project,
-      t.tree.map((n) => ({ id: n.id, stamp: versionStamp(n.alternatives) })),
+      t.tree.flatMap((n) => n.alternatives.map((v) => ({ post: v.postId, version: v.version }))),
+    );
+    return new Set(
+      t.tree
+        .filter((n) => n.alternatives.some((v) => changedSince(seen, v.postId, v.version)))
+        .map((n) => n.id),
     );
   });
 

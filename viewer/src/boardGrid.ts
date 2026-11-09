@@ -13,6 +13,8 @@ interface GridCell {
   alternative: string;
   state: string | null;
   poster?: string;
+  post: string;
+  version: number;
   archived: boolean;
   inUse: boolean;
   description?: string;
@@ -46,6 +48,8 @@ export function gridOf(node: TreeNode, titleOf: (slug: string) => string | undef
       alternative: v.alternative,
       state: v.state,
       ...(v.poster ? { poster: v.poster } : {}),
+      post: v.postId,
+      version: v.version,
       archived: !isLive(v.status),
       inUse: v.status === "inUse",
       ...(v.description ? { description: v.description } : {}),

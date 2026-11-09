@@ -1,6 +1,6 @@
 // A phone's bottom panel, opened from the version label: the state's History (one
 // line per alternative, its versions along it, the one in use marked), the design's Spec
-// where it has them, and the Thread with the agent.
+// where it has them, and Activity, the thread with the agent.
 
 import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
 import { surfaceUrl } from "./api.ts";
@@ -36,7 +36,7 @@ export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number)
   });
   const tab = () => s.panel() ?? "history";
   return (
-    <section class="bpanel" aria-label="History and thread" ref={(e) => (el = e)}>
+    <section class="bpanel" aria-label="History and activity" ref={(e) => (el = e)}>
       <div class="bphead">
         <div class="ptabs" role="tablist">
           <button
@@ -66,7 +66,7 @@ export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number)
             classList={{ on: tab() === "thread" }}
             onClick={() => s.setPanel("thread")}
           >
-            Thread
+            Activity
           </button>
         </div>
         <Show when={tab() === "history"}>
@@ -76,7 +76,7 @@ export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number)
         <button
           type="button"
           class="ib"
-          aria-label="Close history and thread"
+          aria-label="Close history and activity"
           onClick={() => s.setPanel(null)}
         >
           <Icon name="close" />

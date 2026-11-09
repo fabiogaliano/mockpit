@@ -8,7 +8,9 @@
 // Space held, or by scrolling; zoom with ⌘-scroll, a pinch or +/-; Shift 1 fits the page,
 // Shift 2 the selection, Esc lets go of it, ⌘/ hides the rail and the cards. The page's
 // card holds its coverage map (server/coverage.ts), what's left to design there; a cell
-// is a way to its frame.
+// is a way to its frame. What the agent does shows on the frames: "agent…" on one it is
+// publishing to until its still lands, and a dot on each changed since this browser last
+// had it on screen (seen.ts), which the card's "Since you were here" steps through.
 // The address is the place: `?page=` and `?sel=` (route.ts), so a link or a reload opens
 // fit to the same frame.
 
@@ -54,6 +56,7 @@ import { BoardRail, libraryOf, type RailLayer } from "./BoardRail.tsx";
 import { FIELD } from "./flowKeys.ts";
 import { Home, NewIdea } from "./Home.tsx";
 import { readHomeProjects, saveHomeProjects } from "./homeCache.ts";
+import { changedSince, markSeen, seenIn } from "./seen.ts";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { keepSame, rankedAreas } from "./logic.ts";
@@ -166,6 +169,9 @@ export function Board(props: {
   const holds = (d: BoardPage, w: Want) =>
     d.project === w.p && (w.unsorted ? d.area === null : w.area ? d.area === w.area : false);
   let seq = 0;
+  // The newest read on the canvas, by the number it started with: a write the agent made
+  // before a read started is in it.
+  const [loaded, setLoaded] = createSignal(0);
   const load = async (w: Want) => {
     const n = ++seq;
     try {
@@ -173,6 +179,7 @@ export function Board(props: {
       if (n !== seq) return;
       setFailed(null);
       setData(d);
+      setLoaded(n);
     } catch (e) {
       if (n === seq) setFailed(e instanceof Error ? e.message : String(e));
     }
@@ -200,7 +207,10 @@ export function Board(props: {
   onCleanup(() => host().window.clearTimeout(refetchTimer));
   // A design's own events say whose project they are; an alternative's don't, and are few.
   const stop = subscribe((e) => {
-    if (e.type.startsWith("post-")) refetchSoon();
+    if (e.type === "post-created" || e.type === "post-updated") {
+      if (e.by === "agent") startWriting(e.id);
+      refetchSoon();
+    } else if (e.type === "post-deleted") refetchSoon();
     else if ("project" in e && e.type.startsWith("design-") && e.project === data()?.project)
       refetchSoon();
   });
@@ -374,6 +384,99 @@ export function Board(props: {
     }
     return out;
   });
+  // The alternatives the agent is publishing to, by post id: "agent…" sits on their frames
+  // from the publish until a read made after it shows the frame with a still. A new page
+  // has none until the poster worker brings it a few seconds later; a write that brings
+  // its own, or redraws nothing (hiding older versions), shows one at once. It gives up on
+  // a still that never comes.
+  type Writing = { seq: number };
+  const [writing, setWriting] = createSignal<ReadonlyMap<string, Writing>>(new Map());
+  // The sections outlined for a moment as a write lands in them.
+  const [outlined, setOutlined] = createSignal<ReadonlySet<string>>(new Set());
+  const writeTimers = new Set<number>();
+  onCleanup(() => writeTimers.forEach((t) => host().window.clearTimeout(t)));
+  const later = (ms: number, fn: () => void) => {
+    const t = host().window.setTimeout(() => {
+      writeTimers.delete(t);
+      fn();
+    }, ms);
+    writeTimers.add(t);
+  };
+  const stopWriting = (post: string, entry: Writing) => {
+    if (writing().get(post) !== entry) return;
+    const next = new Map(writing());
+    next.delete(post);
+    setWriting(next);
+  };
+  const startWriting = (post: string) => {
+    const entry: Writing = { seq };
+    setWriting(new Map(writing()).set(post, entry));
+    later(WRITING_MAX_MS, () => stopWriting(post, entry));
+  };
+  // Each write outlines its section once, when its frame is first on the page, and ends
+  // once.
+  const outlinedFor = new WeakSet<Writing>();
+  const landing = new WeakSet<Writing>();
+  const outline = (id: string) => {
+    setOutlined(new Set(outlined()).add(id));
+    later(OUTLINE_MS, () => {
+      const next = new Set(outlined());
+      next.delete(id);
+      setOutlined(next);
+    });
+  };
+  createEffect(() => {
+    const n = loaded();
+    const shown = sections();
+    for (const [post, entry] of writing()) {
+      const at = shown.find((x) => framesOf(x).some((f) => f.post === post));
+      const f = at && framesOf(at).find((x) => x.post === post);
+      if (!at || !f) continue;
+      if (!outlinedFor.has(entry)) {
+        outlinedFor.add(entry);
+        untrack(() => outline(at.id));
+      }
+      if (n <= entry.seq || !f.poster || landing.has(entry)) continue;
+      landing.add(entry);
+      later(WRITING_MIN_MS, () => stopWriting(post, entry));
+    }
+  });
+  const writingOn = (f: Frame) => !!f.post && writing().has(f.post);
+
+  // Changed since this browser last had the frame on screen: its dot, and the card's count.
+  const seen = createMemo(() => {
+    const t = tree();
+    const p = project();
+    if (!t || t.project !== p) return null;
+    return seenIn(
+      p,
+      t.tree.flatMap((n) => n.alternatives.map((v) => ({ post: v.postId, version: v.version }))),
+    );
+  });
+  const isChanged = (f: Frame) =>
+    !f.missing &&
+    !f.planned &&
+    !!f.post &&
+    f.version !== undefined &&
+    changedSince(seen(), f.post, f.version);
+  const changedFrames = createMemo(() => allFrames().filter(isChanged));
+  // Stepping through them: the list as it stood at the first step, so seeing one doesn't
+  // move the rest.
+  const [tour, setTour] = createSignal<{ keys: string[]; at: number } | null>(null);
+  // A memo, since every refetch is a new page object and only another page ends the tour.
+  const pageKey = createMemo(() => `${data()?.project}|${data()?.area}|${props.sec}`);
+  createEffect(on(pageKey, () => setTour(null)));
+  const step = () => {
+    const t = tour();
+    const keys = t ? t.keys : changedFrames().map((f) => f.key);
+    const at = t ? t.at + 1 : 0;
+    if (at >= keys.length) {
+      setTour(null);
+      return;
+    }
+    setTour({ keys, at });
+    pickFrame(keys[at]!);
+  };
   const pageWidth = createMemo(() => allFrames().find((f) => f.width)?.width ?? DEFAULT_WIDTH);
   const widthOf = (f: Frame) => f.width ?? pageWidth();
 
@@ -394,6 +497,18 @@ export function Board(props: {
       null
     );
   });
+  // A frame picked is a frame seen, at the version it shows then: one the agent redraws
+  // while it stays picked is dotted again.
+  createEffect(
+    on(
+      () => selected()?.key,
+      () => {
+        const f = untrack(selected);
+        const p = untrack(project);
+        if (f?.post && f.version !== undefined && p) markSeen(p, f.post, f.version);
+      },
+    ),
+  );
   const selOf = (f: Frame): BoardSel => ({
     slug: f.slug,
     state: f.state,
@@ -715,6 +830,13 @@ export function Board(props: {
     host().window.requestAnimationFrame(settle);
   };
 
+  const sinceLine = () => {
+    const t = tour();
+    return t
+      ? `Since you were here: ${t.at + 1} of ${t.keys.length} ›`
+      : `Since you were here: ${changedFrames().length} changed ›`;
+  };
+
   const ideaAsks = () => sections().reduce((n, s) => n + (s.kind === "grid" ? s.grid.open : 0), 0);
   // New idea, from the Ideas page: one design's ideas start one for it.
   const [gathering, setGathering] = createSignal(false);
@@ -797,6 +919,7 @@ export function Board(props: {
           missing: !!f.missing,
           cmp: component(),
           archived: !!f.archived,
+          writing: writingOn(f),
         }}
         data-key={f.key}
         ref={(el) => {
@@ -807,9 +930,17 @@ export function Board(props: {
         }}
         style={{ width: `${w()}px` }}
       >
-        <div class="bf-nm" title={f.name}>
+        <div class="bf-nm" title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}>
+          <Show when={isChanged(f)}>
+            <i class="bf-dot" aria-label="Changed since you were here" />
+          </Show>
           {f.name}
         </div>
+        <Show when={writingOn(f)}>
+          <span class="bf-agent" role="status">
+            agent…
+          </span>
+        </Show>
         <Show when={asksOn().get(f.key)}>
           {(n) => (
             <span
@@ -1022,7 +1153,11 @@ export function Board(props: {
     return (
       <section
         class="bsec"
-        classList={{ idea: !!grid()?.grid.idea, under: !!grid()?.under }}
+        classList={{
+          idea: !!grid()?.grid.idea,
+          under: !!grid()?.under,
+          writing: outlined().has(id),
+        }}
         ref={(el) => {
           sectionEls.set(id, el);
           onCleanup(() => {
@@ -1177,6 +1312,16 @@ export function Board(props: {
                       </span>
                     )}
                   </For>
+                  <Show when={tour() || changedFrames().length}>
+                    <button
+                      type="button"
+                      class="bsince"
+                      title="Fit to each frame changed since you last had it on screen"
+                      onClick={step}
+                    >
+                      {sinceLine()}
+                    </button>
+                  </Show>
                   <Show when={c().states.length}>
                     <button
                       type="button"
@@ -1321,6 +1466,11 @@ export function Board(props: {
 }
 
 const MAP_KEY = "mockpit:board-map";
+// "agent…" stays this long after the still lands, so a write that brings its own still is
+// seen too, and gives up after the longest the poster worker could take.
+const WRITING_MIN_MS = 1500;
+const WRITING_MAX_MS = 60_000;
+const OUTLINE_MS = 1800;
 
 const CELL_CLASS: Record<Cell, string> = {
   Ready: "r",

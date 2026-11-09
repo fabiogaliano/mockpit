@@ -8991,6 +8991,21 @@ a.ideas-row {
   border-radius: 16px;
   background: var(--panel);
 }
+/* Outlined for a moment as the agent's write lands in it, then it fades back. */
+.bsec {
+  outline: calc(2px / var(--kl)) solid transparent;
+  outline-offset: calc(4px / var(--kl));
+  transition: outline-color 0.6s ease-out;
+}
+.bsec.writing {
+  outline-color: var(--accent-solid);
+  transition-duration: 0.12s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bsec {
+    transition: none;
+  }
+}
 .bsec-hd {
   position: absolute;
   top: 0;
@@ -9145,6 +9160,34 @@ button.bchip:hover {
   font-weight: 700;
   line-height: 1.4;
 }
+/* Changed since this browser last had the frame on screen. */
+.bf-dot {
+  display: inline-block;
+  width: calc(7px / var(--kl));
+  height: calc(7px / var(--kl));
+  margin-right: calc(5px / var(--kl));
+  border-radius: 50%;
+  background: var(--changed);
+  vertical-align: 0.05em;
+}
+/* The agent is publishing to this frame; it goes when the still lands. */
+.bf-agent {
+  position: absolute;
+  bottom: calc(14px / var(--kl));
+  left: 50%;
+  z-index: 1;
+  padding: calc(2px / var(--kl)) calc(9px / var(--kl));
+  border-radius: 99px;
+  background: var(--accent-solid);
+  color: #fff;
+  font-size: calc(12px / var(--kl));
+  font-weight: 600;
+  translate: -50% 0;
+  white-space: nowrap;
+}
+.bf.writing .bf-pic {
+  box-shadow: 0 0 0 calc(2px / var(--k, 1)) var(--accent-solid);
+}
 .bf-pic {
   overflow: hidden;
   border-radius: 18px;
@@ -9247,6 +9290,17 @@ button.bchip:hover {
 }
 .bcov .m b {
   color: var(--q);
+}
+/* Since you were here: it steps the view through what changed. */
+.bsince {
+  padding: 0 8px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--changed) 18%, transparent);
+  color: var(--changed);
+  font-weight: 600;
+}
+.bsince:hover {
+  background: color-mix(in srgb, var(--changed) 28%, transparent);
 }
 .bcov-link {
   color: var(--t2);

@@ -29,6 +29,10 @@ export interface BoardFrame {
   // The design's first width; null when it declares none.
   width: number | null;
   poster?: string;
+  // The alternative it shows and at which version, so the viewer can tell what changed
+  // since this browser last had it on screen (seen.ts).
+  post?: string;
+  version?: number;
   // Declared, with nothing drawn in it yet.
   planned?: true;
 }
@@ -83,10 +87,14 @@ export interface BoardInput {
   builtFrom: Map<string, string[]>;
 }
 
-// The poster of the version a state shows: what's in use, else what the agent
-// recommends, else the first drawn, at the version a product design shows (Ready's,
-// after a stay). The Board's still for it, the same choice Home's covers make.
-function posterOf(design: Design, posts: PostHead[], state: string | null): string | undefined {
+// The version a state shows: what's in use, else what the agent recommends, else the
+// first drawn, at the version a product design shows (Ready's, after a stay), with its
+// poster. The Board's still for it, the same choice Home's covers make.
+function shownOf(
+  design: Design,
+  posts: PostHead[],
+  state: string | null,
+): { post: string; version: number; poster?: string } | undefined {
   const inState = posts.filter((p) => p.state === state);
   const live = inState.filter((p) => isLive(p.status));
   const used = live.find((p) => p.status === "accepted");
@@ -96,7 +104,8 @@ function posterOf(design: Design, posts: PostHead[], state: string | null): stri
   const at = used?.acceptedVersion ?? shownVersion(design, p);
   const surfaces =
     at === p.version ? p.surfaces : (p.history.find((h) => h.version === at)?.surfaces ?? []);
-  return surfaces.find((s) => s.kind === "html")?.poster;
+  const poster = surfaces.find((s) => s.kind === "html")?.poster;
+  return { post: p.id, version: at, ...(poster ? { poster } : {}) };
 }
 
 // The project's pages in its order (`edit --areas`), then the rest alphabetical, each with
@@ -147,13 +156,12 @@ export function boardView(input: BoardInput) {
   const states = (d: Design) => (d.states.length ? d.states : [null]);
   const drawn = (d: Design, state: string | null) => posts(d).some((p) => p.state === state);
   const frame = (d: Design, state: string | null, name?: string): BoardFrame => {
-    const poster = posterOf(d, posts(d), state);
     return {
       slug: d.slug,
       state,
       name: name ?? state ?? d.title,
       width: d.widths[0] ?? null,
-      ...(poster ? { poster } : {}),
+      ...shownOf(d, posts(d), state),
       ...(drawn(d, state) ? {} : { planned: true as const }),
     };
   };

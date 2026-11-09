@@ -29,6 +29,8 @@ export function CompareTwo(props: {
   s: DesignScreenState;
   before: VersionStep;
   after: VersionStep;
+  // The one on the left is what this browser last had on screen (seen.ts).
+  saw?: boolean;
   onClose: () => void;
 }) {
   const s = props.s;
@@ -70,7 +72,9 @@ export function CompareTwo(props: {
       style={{ "--cmp-w": `${width()}px` }}
     >
       <div class="cmp2-head">
-        <span class="cmp2-side">{`◀ ${s.nameOf(props.before)}`}</span>
+        <span class="cmp2-side">
+          {`◀ ${props.saw ? "What you saw, " : ""}${s.nameOf(props.before)}`}
+        </span>
         <span class="cmp2-side cmp2-after">{`${s.nameOf(props.after)} ▶`}</span>
         <button
           type="button"

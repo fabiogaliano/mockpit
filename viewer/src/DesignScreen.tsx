@@ -21,6 +21,7 @@ import {
   onCleanup,
   onMount,
   Show,
+  untrack,
 } from "solid-js";
 import { isProduct } from "../../server/spec.ts";
 import { isLive } from "../../server/types.ts";
@@ -66,7 +67,7 @@ import { Present } from "./Present.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { SideBySide, sideAsk } from "./SideBySide.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
-import { markSeen } from "./seen.ts";
+import { markSeen, sawBefore } from "./seen.ts";
 import {
   boardPath,
   designPath,
@@ -99,6 +100,9 @@ import {
   win,
 } from "./viewport.ts";
 import { setPeek } from "./systemRev.ts";
+
+// One version of one alternative, across every design this screen shows.
+const stepKeyOf = (st: VersionStep) => `${st.postId}@${st.version}`;
 
 // Where a design lives on the Board, which Esc and the path go back to: its page, fit to
 // the frame on stage and selected (an idea's on the Ideas page, at the alternative on
@@ -237,10 +241,26 @@ export function DesignScreen(props: {
       return m ? `${m.updatedAt}:${versionStamp(m.alternatives)}` : null;
     },
   );
-  // On screen is seen: Home's dot for this design goes until a newer version.
+  // On stage is seen (seen.ts): the Board's dot on its frame goes until a newer version.
+  // What came before is read first, once for each version that comes on stage, so a changed
+  // one keeps offering "Compare with what you saw" while the user is here. An answer's own
+  // page isn't the alternative's version, so looking at one sees nothing.
+  const [saw, setSaw] = createSignal<ReadonlyMap<string, number | undefined>>(new Map());
   createEffect(() => {
     const m = s.design();
-    if (m) markSeen(m.project, m.id, versionStamp(m.alternatives));
+    const st = s.stageStep();
+    if (!m || !st || st.hidden) return;
+    const before = untrack(saw);
+    const at = stepKeyOf(st);
+    if (!before.has(at))
+      setSaw(new Map(before).set(at, sawBefore(m.project, st.postId, st.version)));
+    markSeen(m.project, st.postId, st.version, true);
+  });
+  const sawStep = createMemo(() => {
+    const st = s.stageStep();
+    const v = st ? saw().get(stepKeyOf(st)) : undefined;
+    if (!st || v === undefined) return null;
+    return comparable(s).find((x) => x.postId === st.postId && x.version === v) ?? null;
   });
   createEffect(() => {
     const id = s.design()?.id;
@@ -455,6 +475,7 @@ export function DesignScreen(props: {
                   s={s}
                   before={comparing()!}
                   after={s.stageStep()!}
+                  saw={comparing() === sawStep()}
                   onClose={() => setComparing(null)}
                 />
               </Show>
@@ -504,7 +525,13 @@ export function DesignScreen(props: {
               <>
                 <ToolStrip s={s} m={m} />
                 <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
-                  <VersionCaption s={s} m={m} reading={false} onCompare={setComparing} />
+                  <VersionCaption
+                    s={s}
+                    m={m}
+                    reading={false}
+                    saw={sawStep()}
+                    onCompare={setComparing}
+                  />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
                 <RightMargin s={s} t={t} m={m} sl={shortlists} />
@@ -537,6 +564,8 @@ function VersionCaption(props: {
   s: DesignScreenState;
   m: Margins;
   reading: boolean;
+  // The version this browser last had on screen, when a newer one is on stage.
+  saw?: VersionStep | null;
   onCompare?: (with_: VersionStep) => void;
 }) {
   const s = props.s;
@@ -582,6 +611,18 @@ function VersionCaption(props: {
             listNames="states and versions"
             onList={props.m.toggleLeft}
           />
+        </Show>
+        <Show when={props.onCompare && props.saw}>
+          {(saw) => (
+            <button
+              type="button"
+              class="btn"
+              title={`${s.nameOf(saw())} was on your screen last. Compare it with this one, 2-up`}
+              onClick={() => props.onCompare?.(saw())}
+            >
+              Compare with what you saw
+            </button>
+          )}
         </Show>
         <Show when={props.onCompare && comparable(s).length}>
           <select

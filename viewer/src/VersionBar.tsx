@@ -196,7 +196,7 @@ export function VersionBar(props: { s: DesignScreenState; reading?: boolean }) {
       <VersionStepper
         s={s}
         listOpen={!!s.panel()}
-        listNames="history and thread"
+        listNames="history and activity"
         onList={() => s.setPanel(s.panel() ? null : "history")}
       />
       {/* A document is read and answered, not put in use, and has no page to try. */}

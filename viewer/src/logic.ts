@@ -1488,8 +1488,7 @@ export const nothingLeft = (node: Pick<TreeNode, "open" | "alternatives">): bool
   node.open === 0 && !node.alternatives.some((v) => isLive(v.status));
 
 // How far a design has come, as one number: every alternative's version summed, so
-// any publish (a new version or a new alternative) raises it. Home's "new" dot
-// compares it against the last one this browser opened.
+// any publish (a new version or a new alternative) raises it.
 export const versionStamp = (alternatives: { version: number }[]): number =>
   alternatives.reduce((n, v) => n + v.version, 0);
 

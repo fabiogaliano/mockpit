@@ -168,9 +168,11 @@ export function ChangedNote(props: { s: DesignScreenState }) {
                   </>
                 }
               >
-                <Show when={c().marked}>
-                  <span class="changed-name changed-text">Changed since Ready</span>
-                </Show>
+                {/* Said first, so "Back to" reads as the way out of something: the mark
+                    the design moved past, else the newer version now on stage. */}
+                <span class="changed-name changed-text">
+                  {c().marked ? "Changed since Ready" : `New version · ${name(c().to)}`}
+                </span>
                 <button type="button" class="btn" onClick={goBack}>
                   <span class="changed-name">{`Back to ${name(c().use)}`}</span>
                 </button>
