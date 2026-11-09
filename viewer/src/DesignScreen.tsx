@@ -73,6 +73,7 @@ import { AnswerPills } from "./Kept.tsx";
 import { Portal } from "solid-js/web";
 import { AnswerBoard, boardAsk } from "./AnswerBoard.tsx";
 import { LIST_ABOVE } from "./Questions.tsx";
+import { Present } from "./Present.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { SideBySide, sideAsk } from "./SideBySide.tsx";
 import { Reader, ReaderSend } from "./Reader.tsx";
@@ -121,7 +122,13 @@ export function DesignScreen(props: {
   flow?: string | null;
 }) {
   const opening = new URLSearchParams(host().window.location.search);
-  const s = createDesignScreen(props.project, props.slug, props.open ?? null, opening.has("owed"));
+  const s = createDesignScreen(
+    props.project,
+    props.slug,
+    props.open ?? null,
+    opening.has("owed"),
+    opening.get("question"),
+  );
   // See before is a look from this screen's note; nowhere else says it is on.
   onCleanup(() => setPeek(null));
   const shortlists = createShortlists(props.project, s.setToast);
@@ -242,6 +249,7 @@ export function DesignScreen(props: {
       put("version", pick?.version);
       put("view", shownView());
       q.delete("owed");
+      q.delete("question");
       const next = `?${q}`;
       if (next !== w.location.search) replaceUrl(`${w.location.pathname}${next}`);
     }, 0);
@@ -306,6 +314,10 @@ export function DesignScreen(props: {
     return ideas?.length ? <IdeasForMenu project={props.project} ideas={ideas} /> : null;
   };
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
+  // Played from the Board's ▶ or P: the flow full screen, ended back on the Board.
+  const presenting = opening.has("present");
+  const endPresent = () =>
+    navigate(designPath(props.project, props.slug, { state: s.activeState(), alternative: null }));
   const t = createTune(s);
   const m = createMargins(
     s,
@@ -683,6 +695,9 @@ export function DesignScreen(props: {
       <div class="sr-only" role="status">
         {s.reactStatus()}
       </div>
+      <Show when={presenting && s.design()}>
+        <Present s={s} nav={nav} onEnd={endPresent} />
+      </Show>
     </div>
   );
 }
@@ -861,7 +876,7 @@ function TopRow(props: {
   return (
     <div class="mtop">
       <div class="mzone">
-        <SideOver project={props.project} />
+        <SideOver project={props.project} area={s.design()?.area ?? null} />
         <a
           class="ib mup"
           href={up().href}

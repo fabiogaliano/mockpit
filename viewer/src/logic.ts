@@ -1558,16 +1558,6 @@ export function shortSource(path: string): string {
   return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }
 
-// A flow's area is obvious only when every screen it walks is in the same one.
-export function flowArea(
-  steps: FlowStep[],
-  areaOf: (slug: string) => string | null | undefined,
-): string | null {
-  const areas = new Set(steps.map((x) => areaOf(x.design) ?? null));
-  const [only] = areas;
-  return areas.size === 1 ? (only ?? null) : null;
-}
-
 type QueueDesign = { slug: string; open: number; createdAt: string };
 
 // An agent publishes designs in the order it wants them answered, so the queue
@@ -2077,7 +2067,14 @@ export function missingStates(
   design: Pick<DesignDetail, "kind" | "states" | "archivedAt" | "stateOutlines">,
   alternatives: { surfaces: { kind?: unknown }[] }[],
 ): StateOutlineRow[] {
-  if (!canOutline(design, alternatives)) return [];
+  return canOutline(design, alternatives) ? owedStates(design) : [];
+}
+
+// What a screen that can be outlined is still owed: the Board reads whether it can from
+// the server, which has its pages.
+export function owedStates(
+  design: Pick<DesignDetail, "states" | "stateOutlines">,
+): StateOutlineRow[] {
   const said = design.stateOutlines ?? {};
   const has = (name: string) =>
     design.states.some((st) => st.toLowerCase().includes(name.toLowerCase()));

@@ -126,9 +126,15 @@ export function createFlowNav(
     w.history.replaceState(w.history.state, "", `${w.location.pathname}?${here}`);
     carryTry = s.trying();
     // Walking a flow keeps the view it is walked in.
-    navigate(
-      designPath(project, to.design, { state: to.state, alternative: null }, via, here.get("view")),
+    const path = designPath(
+      project,
+      to.design,
+      { state: to.state, alternative: null },
+      via,
+      here.get("view"),
     );
+    // A flow being presented stays presented across its designs.
+    navigate(here.has("present") ? `${path}&present=1` : path);
   }
   const step = (by: 1 | -1) => {
     const to = near(by);

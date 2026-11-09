@@ -20,7 +20,7 @@ import { questions } from "./albums.ts";
 import { FIELD } from "./flowKeys.ts";
 import { host, root } from "./host.ts";
 import { Icon, type IconName } from "./icons.tsx";
-import { linkClick, designPath, navigate, projectPath, questionPath, route } from "./route.ts";
+import { boardPath, linkClick, designPath, navigate, questionPath, route } from "./route.ts";
 
 const [isOpen, setOpen] = createSignal(false);
 export const openJump = () => setOpen(true);
@@ -48,7 +48,7 @@ export function rememberRecent(id: string) {
 }
 
 const hitPath = (hit: JumpHit): string => {
-  if (hit.slug === null) return projectPath(hit.project, null, hit.area);
+  if (hit.slug === null) return boardPath(hit.project, { page: hit.area });
   if (hit.match === "question" && hit.open > 0) return questionPath(hit.project, hit.slug);
   return designPath(
     hit.project,

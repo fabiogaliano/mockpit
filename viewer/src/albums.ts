@@ -7,7 +7,6 @@ import { isLive } from "../../server/types.ts";
 import type { TreeNode } from "./api.ts";
 import {
   designWidth,
-  groupByArea,
   designStatus,
   type DesignStatus,
   nothingLeft,
@@ -151,11 +150,6 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
 // in use, so the rest give way to its mark.
 const ACTIVITY = new Set<TurnKind>(["open", "draft", "unseen", "working", "sent"]);
 
-// A project this small is one or two things to look at, not a place to navigate.
-export const SIDEBAR_FROM = 3;
-// Up to this many designs in a lone section, the sidebar lists them by name.
-const TREE_UP_TO = 12;
-
 // One way off the shelf, however it got there: archived by hand, or with every alternative
 // archived. A plan has nothing live because nothing is drawn yet, which is not the same.
 export const inArchive = (n: TreeNode) => !!n.archivedAt || (nothingLeft(n) && !n.planned);
@@ -173,13 +167,6 @@ export function sidebarOf(nodes: TreeNode[], flows: number, order: string[]) {
     flows,
   };
   const lit = litSections(counts);
-  // The lone section, whose designs the sidebar can list by name: there's no section
-  // choice to make there, and the shelf beside it is the same few things larger. A
-  // dated list already is the names.
-  const lone =
-    lit.rows.length === 1 && !lit.foot && lit.rows[0] !== "flows" && lit.rows[0] !== "documents"
-      ? inSection(lit.rows[0] as ShelfSection)
-      : null;
   return {
     onShow,
     archived: nodes.filter(inArchive),
@@ -189,10 +176,6 @@ export function sidebarOf(nodes: TreeNode[], flows: number, order: string[]) {
       onShow.flatMap((n) => (n.area ? [n.area] : [])),
       order,
     ),
-    tree:
-      lone && lone.length <= TREE_UP_TO
-        ? groupByArea(lone, (n) => n.area, order).map((g) => ({ area: g.area, nodes: g.rows }))
-        : null,
   };
 }
 

@@ -1,6 +1,6 @@
 import { createMemo, Match, Switch } from "solid-js";
 import { startBadge } from "./badge.ts";
-import { Home } from "./Home.tsx";
+import { Board } from "./Board.tsx";
 import { Jump } from "./Jump.tsx";
 import { DesignScreen } from "./DesignScreen.tsx";
 import { NotFound } from "./NotFound.tsx";
@@ -11,11 +11,11 @@ import { CarriedToast } from "./toast.tsx";
 export function App() {
   startNotifier();
   startBadge();
-  // Home stays mounted across its sections and projects, so moving between them
-  // keeps what is loaded and only swaps what it shows.
-  const home = createMemo(() => {
+  // The Board stays mounted across its pages, selections and projects, so moving between
+  // them keeps what is loaded and only swaps what it shows.
+  const board = createMemo(() => {
     const r = route();
-    return r.screen === "home" ? r : null;
+    return r.screen === "board" ? r : null;
   });
   // A design's URL moves as its state and version do; only another design or flow
   // is another screen, or every tab would reload the design.
@@ -33,12 +33,14 @@ export function App() {
         <Match when={design()} keyed>
           {(r) => <DesignScreen project={r.project} slug={r.slug} open={r.open} flow={r.flow} />}
         </Match>
-        <Match when={home()}>
+        <Match when={board()}>
           {(r) => (
-            <Home
+            <Board
               project={r().project}
+              page={r().page}
+              unsorted={r().unsorted}
+              sel={r().sel}
               sec={r().sec}
-              area={r().area}
               show={r().show}
               for={r().for}
             />

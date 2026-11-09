@@ -9,6 +9,7 @@ import type {
   treeNodeView,
   alternativeView,
 } from "../../server/apiViews.ts";
+import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
 import type { FeedEvent } from "../../server/events.ts";
 import type {
@@ -73,6 +74,8 @@ export type DesignDetail = ReturnType<typeof designDetailView> & {
 export type TreeNode = ReturnType<typeof treeNodeView>;
 // One area as `read --area` returns it: the area page draws the same.
 export type AreaView = ReturnType<typeof areaView>;
+export type BoardPage = ReturnType<typeof boardView> & { onBoard?: boolean };
+export type { BoardFrame, BoardSection } from "../../server/board.ts";
 // A project's area in the order Home lists them, with what it is for. An `alphabetical`
 // one is in no order: it is listed for its description alone.
 export type AreaLine = { name: string; description?: string; alphabetical?: true };
@@ -246,6 +249,17 @@ export const api = {
       areas: AreaLine[];
       description?: string;
     }>(`/api/projects/${encodeURIComponent(project)}/tree`).then(seenRev),
+  // One page of the Board: an area, the screens no area claims, or the page a design is on.
+  board: (project: string, page: { area?: string | null; unsorted?: boolean; design?: string }) => {
+    const q = new URLSearchParams();
+    if (page.design) q.set("design", page.design);
+    else if (page.unsorted) q.set("unsorted", "1");
+    else if (page.area) q.set("area", page.area);
+    const qs = q.toString();
+    return call<BoardPage>(
+      `/api/projects/${encodeURIComponent(project)}/board${qs ? `?${qs}` : ""}`,
+    );
+  },
   area: (project: string, area: string) =>
     call<AreaView>(
       `/api/projects/${encodeURIComponent(project)}/areas/${encodeURIComponent(area)}`,

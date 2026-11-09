@@ -1,3 +1,4 @@
+import { boardPages, boardView, pageOf } from "./board.ts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
@@ -3951,6 +3952,60 @@ export function createApp({
         builtFrom,
       }),
     );
+  }
+
+  // One page of the Board (server/board.ts): `area` names it, `unsorted` is the screens
+  // no area claims, and `design` asks for the page that design is drawn on. With none, the
+  // project's first page.
+  async function boardFlow(query: {
+    project?: unknown;
+    area?: unknown;
+    unsorted?: unknown;
+    design?: unknown;
+  }): Promise<FlowResult> {
+    const project = str(query.project, MAX_TITLE);
+    if (!project) return fail(400, 'provide "project"');
+    const designs = await store.listDesigns(project);
+    const mode = await workspaceMode();
+    const rev = (await systemFor(project))?.rev ?? 0;
+    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode, rev));
+    const areas = await areasOf(project);
+    const { pages } = boardPages({ areas, designs, heads });
+    const slug = str(query.design, MAX_LABEL);
+    const wanted = slug ? designs.find((d) => d.slug === slug) : undefined;
+    const placed = wanted ? pageOf(wanted, heads.get(wanted.id) ?? []) : undefined;
+    const asked = str(query.area, MAX_LABEL);
+    const area: string | null =
+      placed !== undefined
+        ? placed
+        : query.unsorted
+          ? null
+          : asked && pages.some((p) => p.name === asked)
+            ? asked
+            : (pages[0]?.name ?? null);
+    const builtFrom = new Map<string, string[]>();
+    for (const d of designs) {
+      if (d.kind !== "screen" || (area === null ? !!d.area : d.area !== area)) continue;
+      const posts = await store.listPosts({ designId: d.id });
+      builtFrom.set(
+        d.slug,
+        (await shownInstances(d, posts)).map((e) => e.slug),
+      );
+    }
+    return ok({
+      ...boardView({
+        project,
+        area,
+        areas,
+        designs,
+        heads,
+        flows: await flowsView(project, designs),
+        builtFrom,
+      }),
+      // The design asked for has no page (an idea, a document, a shared component): it
+      // opens on its own.
+      ...(slug ? { onBoard: placed !== undefined } : {}),
+    });
   }
 
   // The flows and what names a step, without the tree's pictures and counts:
@@ -9081,6 +9136,17 @@ export function createApp({
   );
   app.get("/api/projects/:name/areas/:area", async (c) =>
     send(c, await areaFlow({ project: c.req.param("name"), area: c.req.param("area") })),
+  );
+  app.get("/api/projects/:name/board", async (c) =>
+    send(
+      c,
+      await boardFlow({
+        project: c.req.param("name"),
+        area: c.req.query("area"),
+        unsorted: c.req.query("unsorted"),
+        design: c.req.query("design"),
+      }),
+    ),
   );
   app.get("/api/projects/:name/flows", async (c) =>
     send(c, await flowOutlineFlow(c.req.param("name"))),

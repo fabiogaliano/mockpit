@@ -1,13 +1,10 @@
-// The project name, and from it every project, each saying whether it waits on
-// the user. Where there's no sidebar, the name carries a number, the one mark that
-// reaches past the project on screen. In the sidebar it would sit above that project's
-// own count and read as this project's, so there the menu says it. Recent first; a project with no work in 30 days folds under Older,
-// unless it waits on the user, which never folds away.
+// The project name, and from it every project, each with when it was last worked on. What
+// waits on the user is said in one place, the Board's Needs you, not here as well. Recent
+// first; a project with no work in 30 days folds under Older.
 
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import type { ProjectSummary } from "./api.ts";
-import { questions } from "./albums.ts";
-import { host, readonly, root } from "./host.ts";
+import { host, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { timeAgo } from "./logic.ts";
 import { homePath, linkClick } from "./route.ts";
@@ -55,14 +52,8 @@ export function ProjectSwitcher(props: {
     });
   });
 
-  // A public read-only viewer owes nothing to anyone.
-  const waitingOn = (p: ProjectSummary) => (readonly() ? 0 : p.open);
-  const total = createMemo(() => props.projects.reduce((n, p) => n + waitingOn(p), 0));
-  const waitingProjects = createMemo(() => props.projects.filter((p) => waitingOn(p) > 0).length);
   const isOlder = (p: ProjectSummary) =>
-    !waitingOn(p) &&
-    p.name !== props.current &&
-    Date.now() - Date.parse(p.lastActiveAt || "1970-01-01") > OLDER_MS;
+    p.name !== props.current && Date.now() - Date.parse(p.lastActiveAt || "1970-01-01") > OLDER_MS;
   const narrowed = createMemo(() => {
     const f = filter().trim().toLowerCase();
     return f ? props.projects.filter((p) => p.name.toLowerCase().includes(f)) : null;
@@ -76,8 +67,6 @@ export function ProjectSwitcher(props: {
     return cut > 0 ? name.slice(0, cut) : null;
   };
   const shortName = () => (props.current ?? "").split("/").pop() ?? "";
-  const summary = () =>
-    `${questions(total())} across ${waitingProjects()} ${waitingProjects() === 1 ? "project" : "projects"}`;
 
   const row = (p: ProjectSummary) => {
     const href = homePath(p.name);
@@ -93,15 +82,8 @@ export function ProjectSwitcher(props: {
         }}
       >
         <span class="proj-row-name">{p.name}</span>
-        <Show
-          when={waitingOn(p) > 0}
-          fallback={
-            <Show when={p.lastActiveAt}>
-              {(at) => <span class="proj-row-ago">{timeAgo(at())}</span>}
-            </Show>
-          }
-        >
-          <span class="proj-row-waits">{questions(waitingOn(p))}</span>
+        <Show when={p.lastActiveAt}>
+          {(at) => <span class="proj-row-ago">{timeAgo(at())}</span>}
         </Show>
       </a>
     );
@@ -119,12 +101,7 @@ export function ProjectSwitcher(props: {
           ref={(el) => (btn = el)}
           aria-haspopup="true"
           aria-expanded={open()}
-          aria-label={
-            total() > 0
-              ? `Project: ${props.current ?? "none"}. ${summary()}`
-              : `Project: ${props.current ?? "none"}`
-          }
-          title={total() > 0 ? summary() : undefined}
+          aria-label={`Project: ${props.current ?? "none"}`}
           onClick={() => setOpen(!open())}
         >
           <span class="proj-label">
@@ -135,9 +112,6 @@ export function ProjectSwitcher(props: {
               <span class="proj-title">{props.stacked ? shortName() : (props.current ?? "")}</span>
             </Show>
           </span>
-          <Show when={total() > 0 && !props.stacked}>
-            <span class="proj-total">{total()}</span>
-          </Show>
           <Icon name="down" />
         </button>
       </Show>

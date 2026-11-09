@@ -192,6 +192,8 @@ export function createDesignScreen(
   slug: string,
   open: ScreenOpen | null = null,
   toOwed = false,
+  // One question by id, from Needs you: it opens on that one, wherever it is.
+  question: string | null = null,
 ) {
   const [design, putDesign] = createSignal<DesignDetail | null>(null);
   const setDesign = (m: DesignDetail) =>
@@ -941,6 +943,11 @@ export function createDesignScreen(
     // from Send.
     // A pick made while this loaded keeps the user where they made it.
     if (lastLocalWrite) return;
+    const named = question ? flow().find((e) => e.ask.id === question) : undefined;
+    if (named) {
+      goQuestion(entriesIn(named.state).indexOf(named), { quiet: true, state: named.state });
+      return;
+    }
     // Only an agent's question outranks the memory; a link is never overruled.
     const asked = firstOwed((a) => !isBuiltinAsk(a));
     if (heldBy === "link" || (heldBy === "place" && !asked)) {

@@ -17,17 +17,18 @@ import {
   stackDepth,
   turnWord,
 } from "./albums.ts";
-import { host, readonly } from "./host.ts";
+import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import {
-  designWidth,
-  screenPicture,
-  shortSource,
-  type ScreenPicture,
-  type StatusNode,
-} from "./logic.ts";
-import { linkClick, designPath } from "./route.ts";
+import { designWidth, shortSource, type ScreenPicture, type StatusNode } from "./logic.ts";
+import { linkClick, designPath, focusPath } from "./route.ts";
 import { Thumb } from "./Thumb.tsx";
+
+// A screen, or a component of an area, has a frame on the Board, where a link lands fit to
+// it; anything else (an idea, a document, a shared component) opens on its own.
+const coverPath = (project: string, n: Pick<TreeNode, "slug" | "kind" | "area">) =>
+  n.kind === "screen" || (n.kind === "component" && n.area)
+    ? designPath(project, n.slug)
+    : focusPath(project, n.slug);
 
 // The picture of one version: its poster where the agent gave one, else the page
 // itself, shrunk in a sandboxed frame that starts only when near the screen.
@@ -172,10 +173,9 @@ export function Album(props: {
   const pic = createMemo(() => albumPicture(n()));
   const depth = createMemo(() => stackDepth(n()));
   const widths = createMemo(() => bothWidths(n()));
-  const href = () => designPath(props.project, n().slug);
-  const waiting = () => n().open > 0 && !readonly();
+  const href = () => coverPath(props.project, n());
   return (
-    <div class="alb" classList={{ waiting: waiting() }} data-shape={shape()}>
+    <div class="alb" data-shape={shape()}>
       <div class="alb-front">
         {/* One stop per album for the keyboard: the title below carries it, except on
           a text cover, where the title is the cover. */}
@@ -272,7 +272,7 @@ export function DocRow(props: {
   menu: JSX.Element | undefined;
 }) {
   const n = () => props.node;
-  const href = () => designPath(props.project, n().slug);
+  const href = () => coverPath(props.project, n());
   return (
     <li class="home-doc">
       <a
@@ -287,57 +287,5 @@ export function DocRow(props: {
       </a>
       {props.menu}
     </li>
-  );
-}
-
-// A state of a declared screen as a step of a flow: the one picture that still opens
-// its state directly, with the check that says it's the design in use.
-export function FlowStepTile(props: {
-  project: string;
-  node: TreeNode;
-  state: string | null;
-  flow: string;
-}) {
-  const pic = createMemo(() => screenPicture(props.node, props.state));
-  const href = () =>
-    designPath(
-      props.project,
-      props.node.slug,
-      props.state === null ? null : { state: props.state, alternative: null },
-      props.flow,
-    );
-  const width = () => designWidth(props.node);
-  // Drawn with nothing to picture (an image, some json) isn't the same as not drawn.
-  const planned = () => !props.node.alternatives.some((v) => v.state === props.state);
-  return (
-    <a
-      class="home-step"
-      classList={{ phone: width() < 700, planned: planned() }}
-      href={href()}
-      onClick={(e) => linkClick(e, href())}
-      data-design={props.node.slug}
-      data-state={props.state ?? ""}
-    >
-      <span class="home-pic">
-        <Show when={pic()} fallback={planned() ? <span class="alb-plan">Not drawn</span> : null}>
-          {(p) => <Picture pic={p()} width={width()} whole={false} />}
-        </Show>
-        <Show when={pic()?.inUse}>
-          <span class="mk cur" aria-hidden="true">
-            <Icon name="check" />
-          </span>
-        </Show>
-      </span>
-      <span class="home-lbl">
-        <b>{props.node.title}</b>
-        {props.state === null ? "" : ` · ${props.state}`}
-        <Show when={pic()?.inUse}>
-          <span class="sr-only">, in use</span>
-        </Show>
-        <Show when={planned()}>
-          <span class="sr-only">, not drawn</span>
-        </Show>
-      </span>
-    </a>
   );
 }
