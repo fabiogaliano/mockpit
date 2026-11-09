@@ -12,7 +12,9 @@
 // publishing to until its still lands, and a dot on each changed since this browser last
 // had it on screen (seen.ts), which the card's "Since you were here" steps through.
 // The address is the place: `?page=` and `?sel=` (route.ts), so a link or a reload opens
-// fit to the same frame.
+// fit to the same frame. On a tablet the canvas takes touch (a finger pans, two pinch, a
+// double tap opens) and the rail slides in from ☰. A phone has no free canvas: the page
+// is its sections as rows a finger swipes, and a tap on a frame opens it.
 
 import {
   createEffect,
@@ -75,6 +77,7 @@ import {
   rootPath,
 } from "./route.ts";
 import { openJump } from "./Jump.tsx";
+import { coarse, phoneLayout, railSlides } from "./viewport.ts";
 
 // A frame as the Board draws it: the server's, a state the screen is still owed, or one
 // alternative's cell in a grid.
@@ -98,6 +101,18 @@ const frameKey = (slug: string, state: string | null, missing = false, alternati
 
 const framesOf = (s: Section): Frame[] =>
   s.kind === "flow" ? s.steps.flatMap((x) => [x.frame, ...x.below]) : s.frames;
+
+// A grid's frame at one alternative and state, and the rows its filter leaves.
+const cellIn = (frames: Frame[], alternative: string, state: string | null) =>
+  frames.find((f) => f.alternative === alternative && f.state === state);
+const rowsIn = (grid: Grid, frames: Frame[]) => {
+  const names = new Set(frames.map((f) => f.alternative));
+  return grid.rows.filter((n) => names.has(n));
+};
+// A flow's steps are numbered as the canvas's arrows read them: 1, 2, 3, and the states
+// stacked under a step 3b, 3c.
+const stepNumber = (i: number, below?: number) =>
+  below === undefined ? String(i + 1) : `${i + 1}${String.fromCharCode(98 + below)}`;
 
 const reducedMotion = () =>
   host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -520,6 +535,29 @@ export function Board(props: {
     replaceUrl(here(d, f ? selOf(f) : null));
   };
 
+  // The rail, where it slides in from ☰ rather than standing beside the page: a pick in it
+  // closes it, and so do Esc and a tap beside it.
+  const [railOpen, setRailOpen] = createSignal(false);
+  let railEl: HTMLElement | undefined;
+  let menuBtn: HTMLButtonElement | undefined;
+  const closeRail = () => setRailOpen(false);
+  createEffect(() => {
+    if (!railOpen()) return;
+    railEl?.querySelector<HTMLElement>("button, a")?.focus({ preventScroll: true });
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeRail();
+      menuBtn?.focus();
+    };
+    root().addEventListener("keydown", onKey, true);
+    onCleanup(() => root().removeEventListener("keydown", onKey, true));
+  });
+  createEffect(() => {
+    if (!railSlides()) closeRail();
+  });
+
   // --- the canvas ---
   const [view, setView] = createSignal<View>({ x: 0, y: 0, k: 0.5 });
   const [animating, setAnimating] = createSignal(false);
@@ -615,6 +653,16 @@ export function Board(props: {
   onCleanup(() => (gone = true));
   const settle = () => {
     if (touched || !opened || gone) return;
+    if (phoneLayout()) {
+      // Rows have no view to keep fitting: the page opens at its top, or at the frame the
+      // address names, once.
+      touched = true;
+      const f = untrack(() => props.sel) && selected();
+      const el = f && frameEls.get(f.key);
+      if (el) el.scrollIntoView({ block: "center", inline: "center" });
+      else rowsEl?.scrollTo(0, 0);
+      return;
+    }
     if (untrack(() => props.sel) && selected()) fitSel(false);
     else fitPage(false);
   };
@@ -732,8 +780,68 @@ export function Board(props: {
   // swallows the click it ends in, so it never selects or lets go.
   let drag: { id: number; x: number; y: number; from: View; moved: boolean } | null = null;
   let swallow = false;
+  // Fingers on the canvas: one pans once it has moved past TAP_SLOP, two pinch about their
+  // midpoint, and either swallows the click it ends in. A tap that moved less is a click,
+  // and a second tap on the same frame soon after opens it, as a double-click does.
+  const touches = new Map<number, { x: number; y: number }>();
+  let gesture:
+    | { kind: "pan"; x: number; y: number; from: View; moved: boolean }
+    | { kind: "pinch"; dist: number; mid: { x: number; y: number }; from: View }
+    | null = null;
+  let byFinger = false;
+  let lastTap: { key: string; at: number } | null = null;
+  const pairOf = () => {
+    const [a, b] = [...touches.values()] as [{ x: number; y: number }, { x: number; y: number }];
+    const r = stage!.getBoundingClientRect();
+    return {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      mid: { x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top },
+    };
+  };
+  const fingerDown = (e: PointerEvent) => {
+    if (!stage || (e.target as Element).closest(".bcard, .bselbar, button, a, input")) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (touches.size === 1) {
+      // A new gesture: a click the last one swallowed in advance, and which never came
+      // because the browser saw a pan, mustn't take this tap's.
+      swallow = false;
+      gesture = { kind: "pan", x: e.clientX, y: e.clientY, from: view(), moved: false };
+    } else if (touches.size === 2) {
+      swallow = true;
+      gesture = { kind: "pinch", ...pairOf(), from: view() };
+    }
+  };
+  const fingerMove = (e: PointerEvent) => {
+    if (!touches.has(e.pointerId) || !gesture) return;
+    touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (gesture.kind === "pan" && touches.size === 1) {
+      const dx = e.clientX - gesture.x;
+      const dy = e.clientY - gesture.y;
+      if (!gesture.moved && Math.hypot(dx, dy) < TAP_SLOP) return;
+      gesture.moved = true;
+      swallow = true;
+      moved({ ...gesture.from, x: gesture.from.x + dx, y: gesture.from.y + dy });
+    } else if (gesture.kind === "pinch" && touches.size === 2) {
+      // The midpoint's own travel pans; the spread zooms about where it is now.
+      const p = pairOf();
+      const from = gesture.from;
+      const panned = {
+        ...from,
+        x: from.x + p.mid.x - gesture.mid.x,
+        y: from.y + p.mid.y - gesture.mid.y,
+      };
+      moved(zoomAbout(panned, p.dist / gesture.dist, p.mid.x, p.mid.y));
+    }
+  };
+  const fingerUp = (e: PointerEvent) => {
+    if (!touches.delete(e.pointerId)) return;
+    // Lifting one finger of a pinch carries on as a pan from where the other is.
+    const [rest] = [...touches.values()];
+    gesture = rest ? { kind: "pan", x: rest.x, y: rest.y, from: view(), moved: true } : null;
+  };
   const onPointerDown = (e: PointerEvent) => {
-    if (e.pointerType === "touch") return;
+    byFinger = e.pointerType === "touch";
+    if (byFinger) return fingerDown(e);
     const target = e.target as Element;
     if (target.closest(".bcard, .bselbar, .bhint, button, a, input")) return;
     const onFrame = !!target.closest(".bf");
@@ -744,6 +852,7 @@ export function Board(props: {
     setPanning(true);
   };
   const onPointerMove = (e: PointerEvent) => {
+    if (e.pointerType === "touch") return fingerMove(e);
     if (!drag || e.pointerId !== drag.id) return;
     const dx = e.clientX - drag.x;
     const dy = e.clientY - drag.y;
@@ -752,6 +861,7 @@ export function Board(props: {
     moved({ ...drag.from, x: drag.from.x + dx, y: drag.from.y + dy });
   };
   const onPointerUp = (e: PointerEvent) => {
+    if (e.pointerType === "touch") return fingerUp(e);
     if (!drag || e.pointerId !== drag.id) return;
     swallow = drag.moved;
     drag = null;
@@ -771,9 +881,20 @@ export function Board(props: {
       return;
     }
     const f = allFrames().find((x) => x.key === el.dataset.key);
-    if (f) select(f);
+    if (!f) return;
+    if (byFinger) {
+      if (lastTap?.key === f.key && e.timeStamp - lastTap.at < DOUBLE_TAP_MS) {
+        lastTap = null;
+        open(f);
+        return;
+      }
+      lastTap = { key: f.key, at: e.timeStamp };
+    }
+    select(f);
   };
   const onDblClick = (e: MouseEvent) => {
+    // A finger's double tap is the click's to open, or it would open twice.
+    if (byFinger) return;
     const el = (e.target as Element).closest<HTMLElement>(".bf");
     const f = el && allFrames().find((x) => x.key === el.dataset.key);
     if (f) open(f);
@@ -793,12 +914,6 @@ export function Board(props: {
       moved({ ...v, x: v.x - e.deltaX, y: v.y - e.deltaY });
     }
   };
-  createEffect(() => {
-    const el = stage;
-    if (!el || !onCanvas()) return;
-    el.addEventListener("wheel", onWheel, { passive: false });
-    onCleanup(() => el.removeEventListener("wheel", onWheel));
-  });
   // The window changing size keeps what was fit, fit.
   onMount(() => {
     const onResize = () => {
@@ -878,11 +993,15 @@ export function Board(props: {
       ).map(({ f, label }) => ({ key: f.key, label })),
     })),
   );
+  // On a phone a section or a frame is scrolled to, its row too.
+  const scrollTo = (el: HTMLElement, block: ScrollLogicalPosition) =>
+    el.scrollIntoView({ block, inline: "center", behavior: reducedMotion() ? "auto" : "smooth" });
   const fitSection = (id: string) => {
     const el = sectionEls.get(id);
     if (!el) return;
     touch();
-    fit(boxOf(el), { animate: true, frame: false, pad: 60 });
+    if (phoneLayout()) scrollTo(el, "start");
+    else fit(boxOf(el), { animate: true, frame: false, pad: 60 });
   };
   const pickFrame = (key: string) => {
     const f = allFrames().find((x) => x.key === key);
@@ -891,7 +1010,9 @@ export function Board(props: {
     touch();
     host().window.requestAnimationFrame(() => {
       const el = frameEls.get(f.key);
-      if (el) fit(boxOf(el), { animate: true, frame: true, pad: 120 });
+      if (!el) return;
+      if (phoneLayout()) scrollTo(el, "center");
+      else fit(boxOf(el), { animate: true, frame: true, pad: 120 });
     });
   };
   // A cell of the map is its frame on the page: a Missing cell its dashed frame. A state
@@ -907,6 +1028,18 @@ export function Board(props: {
   };
 
   // --- drawing ---
+  const keepFrame = (key: string) => (el: HTMLElement) => {
+    frameEls.set(key, el);
+    onCleanup(() => {
+      if (frameEls.get(key) === el) frameEls.delete(key);
+    });
+  };
+  const keepSection = (id: string) => (el: HTMLElement) => {
+    sectionEls.set(id, el);
+    onCleanup(() => {
+      if (sectionEls.get(id) === el) sectionEls.delete(id);
+    });
+  };
   const frameView = (f: Frame) => {
     const w = () => widthOf(f);
     const component = () => designOf(f.slug)?.kind === "component";
@@ -922,12 +1055,7 @@ export function Board(props: {
           writing: writingOn(f),
         }}
         data-key={f.key}
-        ref={(el) => {
-          frameEls.set(f.key, el);
-          onCleanup(() => {
-            if (frameEls.get(f.key) === el) frameEls.delete(f.key);
-          });
-        }}
+        ref={keepFrame(f.key)}
         style={{ width: `${w()}px` }}
       >
         <div class="bf-nm" title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}>
@@ -1103,10 +1231,10 @@ export function Board(props: {
       return x?.kind === "grid" ? x : null;
     };
     const cell = (alternative: string, state: string | null) =>
-      frames().find((f) => f.alternative === alternative && f.state === state);
+      cellIn(frames(), alternative, state);
     const shownRows = () => {
-      const names = new Set(frames().map((f) => f.alternative));
-      return (grid()?.grid.rows ?? []).filter((n) => names.has(n));
+      const g = grid();
+      return g ? rowsIn(g.grid, frames()) : [];
     };
     const colName = (c: string | null) => c ?? grid()?.grid.title ?? "";
     const gridView = (g: () => Extract<Section, { kind: "grid" }>) => (
@@ -1158,12 +1286,7 @@ export function Board(props: {
           under: !!grid()?.under,
           writing: outlined().has(id),
         }}
-        ref={(el) => {
-          sectionEls.set(id, el);
-          onCleanup(() => {
-            if (sectionEls.get(id) === el) sectionEls.delete(id);
-          });
-        }}
+        ref={keepSection(id)}
       >
         <Show when={s()}>{(x) => sectionHead(x())}</Show>
         <Show
@@ -1211,6 +1334,186 @@ export function Board(props: {
     );
   };
 
+  // --- a phone's rows ---
+  // A frame as a still a finger can take in at once; a tap opens it.
+  const tileView = (f: Frame, label?: JSX.Element) => {
+    const component = () => designOf(f.slug)?.kind === "component";
+    return (
+      <button
+        type="button"
+        class="ptile"
+        classList={{
+          cmp: component(),
+          wide: !component() && widthOf(f) >= 700,
+          missing: !!f.missing,
+          planned: !!f.planned,
+          archived: !!f.archived,
+          sel: selected()?.key === f.key,
+          writing: writingOn(f),
+        }}
+        data-key={f.key}
+        ref={keepFrame(f.key)}
+        title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}
+        onClick={() => open(f)}
+      >
+        <span class="ptile-pic">
+          <Switch
+            fallback={
+              <span class="bf-ph">
+                <small>No still yet</small>
+              </span>
+            }
+          >
+            <Match when={f.missing || f.planned}>
+              <span class="bf-ph">
+                <small>{f.missing ? "missing, not drawn" : "planned, not drawn"}</small>
+              </span>
+            </Match>
+            <Match when={f.poster}>
+              {(id) => (
+                <img
+                  src={assetUrl(id())}
+                  alt=""
+                  draggable={false}
+                  decoding="async"
+                  loading="lazy"
+                />
+              )}
+            </Match>
+          </Switch>
+          <Show when={asksOn().get(f.key)}>
+            {(n) => (
+              <span
+                class="bf-q"
+                title={n() === 1 ? "A question waits here" : `${n()} questions wait here`}
+              >
+                ?
+              </span>
+            )}
+          </Show>
+          <Show when={writingOn(f)}>
+            <span class="bf-agent" role="status">
+              agent…
+            </span>
+          </Show>
+        </span>
+        <span class="ptile-nm">
+          <Show when={isChanged(f)}>
+            <i class="bf-dot" aria-label="Changed since you were here" />
+          </Show>
+          {label ?? f.name}
+        </span>
+      </button>
+    );
+  };
+  // A section as the canvas has it, its frames in one row that snaps frame by frame; a
+  // grid a row per alternative (or per state, where its alternatives don't line up).
+  const rowSection = (id: string) => {
+    const s = () => sectionById().get(id);
+    const flow = () => {
+      const x = s();
+      return x?.kind === "flow" ? x : null;
+    };
+    const grid = () => {
+      const x = s();
+      return x?.kind === "grid" ? x : null;
+    };
+    const frames = () => {
+      const x = s();
+      return x && x.kind !== "flow" ? x.frames : [];
+    };
+    const colName = (c: string | null) => c ?? grid()?.grid.title ?? "";
+    const numbered = (n: string, f: Frame) => (
+      <>
+        <i>{n}</i>
+        {f.name}
+      </>
+    );
+    return (
+      <section
+        class="psec"
+        classList={{ idea: !!grid()?.grid.idea, writing: outlined().has(id) }}
+        ref={keepSection(id)}
+      >
+        <Show when={s()}>{(x) => sectionHead(x())}</Show>
+        <Switch
+          fallback={
+            <div class="prow">
+              <For each={frames()}>{(f) => tileView(f)}</For>
+            </div>
+          }
+        >
+          <Match when={flow()}>
+            {(fl) => (
+              <div class="prow">
+                <Index each={fl().steps}>
+                  {(x, i) => (
+                    <>
+                      {tileView(x().frame, numbered(stepNumber(i), x().frame))}
+                      <For each={x().below}>
+                        {(b, j) => tileView(b, numbered(stepNumber(i, j()), b))}
+                      </For>
+                    </>
+                  )}
+                </Index>
+              </div>
+            )}
+          </Match>
+          <Match when={grid()}>
+            {(g) => (
+              <Show
+                when={g().grid.aligned}
+                fallback={
+                  <For each={g().grid.cols}>
+                    {(c) => (
+                      <Show when={frames().some((f) => f.state === c)}>
+                        <div class="palt">{colName(c)}</div>
+                        <div class="prow">
+                          <For each={frames().filter((f) => f.state === c)}>
+                            {(f) => tileView(f, f.alternative)}
+                          </For>
+                        </div>
+                      </Show>
+                    )}
+                  </For>
+                }
+              >
+                <For each={rowsIn(g().grid, frames())}>
+                  {(name) => (
+                    <>
+                      <div class="palt">{name}</div>
+                      <div class="prow">
+                        <For each={g().grid.cols}>
+                          {(c) => (
+                            <Show when={cellIn(frames(), name, c)} keyed>
+                              {(f) => tileView(f, colName(c))}
+                            </Show>
+                          )}
+                        </For>
+                      </div>
+                    </>
+                  )}
+                </For>
+              </Show>
+            )}
+          </Match>
+        </Switch>
+      </section>
+    );
+  };
+  let rowsEl: HTMLDivElement | undefined;
+  const rows = (): JSX.Element => (
+    <div class="prows" ref={(el) => (rowsEl = el)}>
+      <div class="pbhead">{pageHead(true)}</div>
+      <For each={sectionIds()}>{rowSection}</For>
+      <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
+        <p class="bempty">
+          {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
+        </p>
+      </Show>
+    </div>
+  );
+
   // --- the selection bar ---
   const selName = () => {
     const f = selected();
@@ -1239,173 +1542,238 @@ export function Board(props: {
     );
   };
 
-  const canvas = (): JSX.Element => (
-    <div
-      class="bstage"
-      classList={{ space: space(), panning: panning() }}
-      ref={(el) => (stage = el)}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onClick={onClick}
-      onDblClick={onDblClick}
-    >
-      <div
-        class="bworld"
-        classList={{ anim: animating(), moving: moving() }}
-        ref={(el) => (world = el)}
-        style={{
-          transform: `translate(${view().x}px, ${view().y}px) scale(${view().k})`,
-          "--k": String(view().k),
-        }}
+  // What the page says about itself: over the canvas a card, its map under it; above a
+  // phone's rows the same words, the map's summary line alone.
+  const pageHead = (rows: boolean) => (
+    <>
+      <h2>{pageName()}</h2>
+      <Show
+        when={ideasPage()}
+        fallback={<Show when={data()?.description}>{(t) => <p>{t()}</p>}</Show>}
       >
-        <For each={sectionIds()}>{sectionView}</For>
-        <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
-          <p class="bempty">
-            {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
-          </p>
-        </Show>
-      </div>
-      <Show when={!hideUi()}>
-        <div class="bcard" ref={(el) => (card = el)}>
-          <h2>{pageName()}</h2>
-          <Show
-            when={ideasPage()}
-            fallback={<Show when={data()?.description}>{(t) => <p>{t()}</p>}</Show>}
-          >
-            <p>Explorations, each for a product design or what it would become.</p>
+        <p>Explorations, each for a product design or what it would become.</p>
+        <div class="bcov">
+          <span>
+            <b>{sections().length}</b>
+            {sections().length === 1 ? " idea" : " ideas"}
+          </span>
+          <span>
+            <b>{ideaAsks()}</b>
+            {ideaAsks() === 1 ? " question" : " questions"}
+          </span>
+          <Show when={props.for}>
+            <a
+              class="bcov-link"
+              href={boardPath(project() ?? "", { ideas: true })}
+              onClick={(e) => linkClick(e, boardPath(project() ?? "", { ideas: true }))}
+            >
+              All ideas
+            </a>
+          </Show>
+          <Show when={!readonly()}>
+            <button type="button" class="bcov-link" onClick={() => setGathering(true)}>
+              New idea
+            </button>
+          </Show>
+        </div>
+      </Show>
+      <Show when={!ideasPage() && data()?.coverage}>
+        {(c) => (
+          <>
             <div class="bcov">
-              <span>
-                <b>{sections().length}</b>
-                {sections().length === 1 ? " idea" : " ideas"}
-              </span>
-              <span>
-                <b>{ideaAsks()}</b>
-                {ideaAsks() === 1 ? " question" : " questions"}
-              </span>
-              <Show when={props.for}>
-                <a
-                  class="bcov-link"
-                  href={boardPath(project() ?? "", { ideas: true })}
-                  onClick={(e) => linkClick(e, boardPath(project() ?? "", { ideas: true }))}
+              <For each={coverageSummary(c())}>
+                {(p) => (
+                  <span classList={{ m: !!p.missing }}>
+                    <b>{p.n}</b>
+                    {p.text}
+                  </span>
+                )}
+              </For>
+              <Show when={tour() || changedFrames().length}>
+                <button
+                  type="button"
+                  class="bsince"
+                  title="Fit to each frame changed since you last had it on screen"
+                  onClick={step}
                 >
-                  All ideas
-                </a>
+                  {sinceLine()}
+                </button>
               </Show>
-              <Show when={!readonly()}>
-                <button type="button" class="bcov-link" onClick={() => setGathering(true)}>
-                  New idea
+              <Show when={!rows && c().states.length}>
+                <button
+                  type="button"
+                  class="bcov-link"
+                  aria-expanded={mapOpen()}
+                  title={mapOpen() ? "Fold the map to this line" : "Each design's states"}
+                  onClick={foldMap}
+                >
+                  {mapOpen() ? "Hide map" : "Map"}
                 </button>
               </Show>
             </div>
-          </Show>
-          <Show when={!ideasPage() && data()?.coverage}>
-            {(c) => (
-              <>
-                <div class="bcov">
-                  <For each={coverageSummary(c())}>
-                    {(p) => (
-                      <span classList={{ m: !!p.missing }}>
-                        <b>{p.n}</b>
-                        {p.text}
-                      </span>
-                    )}
-                  </For>
-                  <Show when={tour() || changedFrames().length}>
-                    <button
-                      type="button"
-                      class="bsince"
-                      title="Fit to each frame changed since you last had it on screen"
-                      onClick={step}
-                    >
-                      {sinceLine()}
-                    </button>
-                  </Show>
-                  <Show when={c().states.length}>
-                    <button
-                      type="button"
-                      class="bcov-link"
-                      aria-expanded={mapOpen()}
-                      title={mapOpen() ? "Fold the map to this line" : "Each design's states"}
-                      onClick={foldMap}
-                    >
-                      {mapOpen() ? "Hide map" : "Map"}
-                    </button>
-                  </Show>
-                </div>
-                <Show when={mapOpen() && c().states.length}>
-                  <CoverageMap coverage={c()} onCell={pickCell} onFlow={fitSection} />
-                </Show>
-              </>
-            )}
-          </Show>
-        </div>
-        <Show when={selected()}>
-          <div class="bselbar">
-            <span>{selName()}</span>
-            <button type="button" class="btn" onClick={copyLink}>
-              {copied() ?? "Copy link"}
-            </button>
-            <button type="button" class="btn go" onClick={() => open(selected())}>
-              Open ↵
-            </button>
-          </div>
-        </Show>
-        <div class="bhint">
-          <span>
-            <kbd>dbl-click</kbd>/<kbd>↵</kbd> open
-          </span>
-          <span>
-            <kbd>⇧1</kbd> fit page
-          </span>
-          <span>
-            <kbd>⇧2</kbd> fit selection
-          </span>
-          <span>
-            <kbd>Space</kbd>+drag or scroll to pan
-          </span>
-          <span>
-            <kbd>⌘</kbd>+scroll or pinch to zoom
-          </span>
-          <span>
-            <kbd>⌘/</kbd> hide UI
-          </span>
-        </div>
+            <Show when={!rows && mapOpen() && c().states.length}>
+              <CoverageMap coverage={c()} onCell={pickCell} onFlow={fitSection} />
+            </Show>
+          </>
+        )}
       </Show>
-    </div>
+    </>
   );
 
+  const canvas = (): JSX.Element => {
+    // The window narrowed to a phone's: the rows take over, and nothing fits a stage gone.
+    onCleanup(() => {
+      stage = undefined;
+      world = undefined;
+      touches.clear();
+      gesture = null;
+    });
+    return (
+      <div
+        class="bstage"
+        classList={{ space: space(), panning: panning() }}
+        ref={(el) => {
+          stage = el;
+          el.addEventListener("wheel", onWheel, { passive: false });
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onClick={onClick}
+        onDblClick={onDblClick}
+      >
+        <div
+          class="bworld"
+          classList={{ anim: animating(), moving: moving() }}
+          ref={(el) => (world = el)}
+          style={{
+            transform: `translate(${view().x}px, ${view().y}px) scale(${view().k})`,
+            "--k": String(view().k),
+          }}
+        >
+          <For each={sectionIds()}>{sectionView}</For>
+          <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
+            <p class="bempty">
+              {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
+            </p>
+          </Show>
+        </div>
+        <Show when={!hideUi()}>
+          <div class="bcard" ref={(el) => (card = el)}>
+            {pageHead(false)}
+          </div>
+          <Show when={selected()}>
+            <div class="bselbar">
+              <span>{selName()}</span>
+              <button type="button" class="btn" onClick={copyLink}>
+                {copied() ?? "Copy link"}
+              </button>
+              <button type="button" class="btn go" onClick={() => open(selected())}>
+                Open ↵
+              </button>
+            </div>
+          </Show>
+          <Show
+            when={!coarse()}
+            fallback={
+              <div class="bhint touch">
+                Pinch to zoom · drag to pan · double-tap a frame to open
+              </div>
+            }
+          >
+            <div class="bhint">
+              <span>
+                <kbd>dbl-click</kbd>/<kbd>↵</kbd> open
+              </span>
+              <span>
+                <kbd>⇧1</kbd> fit page
+              </span>
+              <span>
+                <kbd>⇧2</kbd> fit selection
+              </span>
+              <span>
+                <kbd>Space</kbd>+drag or scroll to pan
+              </span>
+              <span>
+                <kbd>⌘</kbd>+scroll or pinch to zoom
+              </span>
+              <span>
+                <kbd>⌘/</kbd> hide UI
+              </span>
+            </div>
+          </Show>
+        </Show>
+      </div>
+    );
+  };
+
   return (
-    <div class="screen boardscreen" classList={{ "board-bare": hideUi() }}>
+    <div
+      class="screen boardscreen"
+      classList={{ "board-bare": hideUi(), "rail-slides": railSlides() }}
+    >
       <Show when={!hideUi() && project()}>
         {(p) => (
-          <BoardRail
-            project={p()}
-            projects={projects()}
-            pages={data()?.project === p() ? (data()?.pages ?? []) : []}
-            unsortedPage={data()?.project === p() ? (data()?.unsorted ?? null) : null}
-            onPage={props.sec ? null : data()?.project === p() ? (data()?.area ?? null) : null}
-            onUnsorted={!props.sec && data()?.project === p() && data()?.area === null}
-            sec={props.sec}
-            questions={data()?.project === p() ? (data()?.questions ?? []) : []}
-            library={libraryOf(tree())}
-            layers={onCanvas() ? layers() : []}
-            selected={selected()?.key ?? null}
-            onFitSection={fitSection}
-            onPickFrame={pickFrame}
-          />
+          <>
+            <Show when={railSlides()}>
+              <div
+                class="side-scrim"
+                classList={{ on: railOpen() }}
+                aria-hidden="true"
+                onClick={closeRail}
+              />
+            </Show>
+            <BoardRail
+              project={p()}
+              projects={projects()}
+              pages={data()?.project === p() ? (data()?.pages ?? []) : []}
+              unsortedPage={data()?.project === p() ? (data()?.unsorted ?? null) : null}
+              onPage={props.sec ? null : data()?.project === p() ? (data()?.area ?? null) : null}
+              onUnsorted={!props.sec && data()?.project === p() && data()?.area === null}
+              sec={props.sec}
+              questions={data()?.project === p() ? (data()?.questions ?? []) : []}
+              library={libraryOf(tree())}
+              layers={onCanvas() ? layers() : []}
+              selected={selected()?.key ?? null}
+              onFitSection={(id) => {
+                closeRail();
+                fitSection(id);
+              }}
+              onPickFrame={(key) => {
+                closeRail();
+                pickFrame(key);
+              }}
+              onNav={closeRail}
+              drawer={railSlides()}
+              inert={railSlides() && !railOpen()}
+              ref={(el) => (railEl = el)}
+            />
+          </>
         )}
       </Show>
       <div class="board-main">
         <header class="board-top">
+          <Show when={railSlides() && !hideUi()}>
+            <button
+              type="button"
+              class="ib board-menu"
+              aria-label="Open the pages"
+              aria-expanded={railOpen()}
+              title="Pages"
+              ref={(el) => (menuBtn = el)}
+              onClick={() => setRailOpen(true)}
+            >
+              <Icon name="menu" />
+            </button>
+          </Show>
           <Show when={hideUi()}>
             <ProjectSwitcher current={project()} known={!noSuchProject()} projects={projects()} />
             <span class="sep">/</span>
           </Show>
           <b class="board-crumb">{props.sec && !ideasPage() ? secName(props.sec) : pageName()}</b>
           <span class="grow" />
-          <Show when={onCanvas()}>
+          <Show when={onCanvas() && !phoneLayout()}>
             <button
               type="button"
               class="board-zoom"
@@ -1446,7 +1814,9 @@ export function Board(props: {
                 when={!failed()}
                 fallback={<p class="bempty">{`Couldn't read this page: ${failed()}`}</p>}
               >
-                {canvas()}
+                <Show when={phoneLayout()} fallback={canvas()}>
+                  {rows()}
+                </Show>
               </Show>
             }
           >
@@ -1466,6 +1836,9 @@ export function Board(props: {
 }
 
 const MAP_KEY = "mockpit:board-map";
+// A finger that moved less than this tapped; more, it pans.
+const TAP_SLOP = 6;
+const DOUBLE_TAP_MS = 350;
 // "agent…" stays this long after the still lands, so a write that brings its own still is
 // seen too, and gives up after the longest the poster worker could take.
 const WRITING_MIN_MS = 1500;

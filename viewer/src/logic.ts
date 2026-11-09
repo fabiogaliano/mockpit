@@ -1615,6 +1615,8 @@ export const BOARD_GAP = 64;
 // --- the open screen's margins ---
 
 export const LEFT_MARGIN_W = 184;
+// On a tablet the states are pictures alone, so the margin gives the design more room.
+export const LEFT_THUMBS_W = 120;
 export const RIGHT_MARGIN_W = 320;
 // The tool strip: 50 wide, 8 off the canvas's edge at its furthest. The canvas's own
 // pad is the gap between it and the design.
@@ -1640,11 +1642,11 @@ export function marginLayout(o: {
   tools: boolean;
   left: boolean;
   right: boolean;
+  leftW: number;
 }): { left: boolean; right: boolean } {
   const room = o.winW - (o.tools ? TOOL_BAND_W : 0) - 2 * BOARD_PAD;
   const fits = (left: boolean, right: boolean) =>
-    (room - (left ? LEFT_MARGIN_W : 0) - (right ? RIGHT_MARGIN_W : 0)) / o.designW >=
-    MARGIN_MIN_SCALE;
+    (room - (left ? o.leftW : 0) - (right ? RIGHT_MARGIN_W : 0)) / o.designW >= MARGIN_MIN_SCALE;
   if (o.left && o.right && fits(true, true)) return { left: true, right: true };
   if (o.right && fits(false, true)) return { left: false, right: true };
   if (o.left && fits(true, false)) return { left: true, right: false };

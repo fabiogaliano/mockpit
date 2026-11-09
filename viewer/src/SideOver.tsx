@@ -1,13 +1,11 @@
 // The Board's rail over an open design, one press away. It opens on top so the design
-// keeps its size, and so two lists never sit side by side with States and Versions. A
-// phone has its own way up, the arrow in the top row.
+// keeps its size, and so two lists never sit side by side with States and Versions.
 
-import { createEffect, createResource, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, createResource, createSignal, onCleanup } from "solid-js";
 import { api } from "./api.ts";
 import { BoardRail, libraryOf } from "./BoardRail.tsx";
 import { root } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { phoneLayout } from "./viewport.ts";
 
 export function SideOver(props: { project: string; area: string | null }) {
   const [open, setOpen] = createSignal(false);
@@ -45,7 +43,7 @@ export function SideOver(props: { project: string; area: string | null }) {
   });
 
   return (
-    <Show when={!phoneLayout()}>
+    <>
       <button
         type="button"
         class="ib mside"
@@ -88,6 +86,6 @@ export function SideOver(props: { project: string; area: string | null }) {
           inert={!open()}
         />
       </div>
-    </Show>
+    </>
   );
 }

@@ -3,9 +3,11 @@
 // its tools beside it, its states (or variants, or alternatives) in a margin on its left
 // and a panel on its right with Question, Spec and Activity (Margins.tsx). Esc and the
 // page in the path go back up to the Board, fit to the frame. A phone has no room beside
-// the design: its states are tabs above, one bar floats below (New version, the versions,
-// Use this, Try / Mark / Tune) with the question above that, and the version label opens
-// the history and the thread as a bottom panel.
+// the design: it is one frame a swipe walks through the states, named in tabs above with a
+// counter. Its foot is a bar of Question and Spec, each a sheet over the design's lower
+// part, the question's open by itself while one waits; above it one bar floats (New
+// version, the versions, Use this, Try / Mark / Tune) while no sheet is up, and the version
+// label opens the history and the activity as a bottom panel.
 
 import type { DesignDetail, Shortlist } from "./api.ts";
 import { rememberRecent } from "./Jump.tsx";
@@ -60,7 +62,7 @@ import {
 } from "./Margins.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
-import { QuestionCard, QuestionTab } from "./QuestionCard.tsx";
+import { PhoneBar, QuestionCard } from "./QuestionCard.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
 import { Present } from "./Present.tsx";
@@ -100,6 +102,11 @@ import {
   win,
 } from "./viewport.ts";
 import { setPeek } from "./systemRev.ts";
+
+// A phone's swipe: how far the finger goes before it is a step, and how long the frame
+// takes to leave and the next to come in.
+const SWIPE_STEP = 60;
+const SWIPE_MS = 170;
 
 // One version of one alternative, across every design this screen shows.
 const stepKeyOf = (st: VersionStep) => `${st.postId}@${st.version}`;
@@ -286,6 +293,19 @@ export function DesignScreen(props: {
   let bottom!: HTMLDivElement;
   const [panelH, setPanelH] = createSignal(0);
   const [bottomTop, setBottomTop] = createSignal(0);
+  // A phone's foot: the question's sheet and the bar under it, and the bar alone, which the
+  // history's panel sits on.
+  const [dockH, setDockH] = createSignal(0);
+  const [barH, setBarH] = createSignal(0);
+  const measured = (el: HTMLElement, set: (h: number) => void) => {
+    const ro = new ResizeObserver(() => set(el.offsetHeight));
+    ro.observe(el);
+    onCleanup(() => {
+      ro.disconnect();
+      set(0);
+    });
+  };
+  const sheetUp = () => !s.questionHidden() && !!s.curAsk() && !s.design()?.archivedAt;
 
   // The canvas starts under the top bar and the flow bar; the border box,
   // since the top padding is the safe-area inset, which Safari changes as its
@@ -306,7 +326,7 @@ export function DesignScreen(props: {
     });
   });
   createEffect(
-    on([panelH, () => s.questions().length, () => s.cardMin()], () =>
+    on([panelH, dockH, () => s.questions().length, () => s.cardMin()], () =>
       host().window.requestAnimationFrame(() => setBottomTop(bottom.getBoundingClientRect().top)),
     ),
   );
@@ -358,31 +378,90 @@ export function DesignScreen(props: {
     onCleanup(() => root().removeEventListener("keydown", onKey));
   });
 
-  // On a phone a swipe across the design moves between the steps.
+  // On a phone a swipe across the design walks the steps the tabs name, the frame following
+  // the finger: past SWIPE_STEP it goes on to the next and the next comes in from the other
+  // side, short of that it springs back, and past either end it only gives a little. Only
+  // the design takes it, so the answers' own row in the sheet still scrolls.
+  const [swipeX, setSwipeX] = createSignal(0);
+  const [gliding, setGliding] = createSignal(false);
   onMount(() => {
     let start: { x: number; y: number } | null = null;
+    let across = false;
+    let timer = 0;
+    const still = () =>
+      host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    const glide = (x: number, then: () => void) => {
+      setGliding(true);
+      setSwipeX(x);
+      timer = host().window.setTimeout(then, SWIPE_MS);
+    };
     const down = (e: TouchEvent) => {
       const t0 = e.touches[0];
+      const onDesign = !!(e.target as Element).closest?.(".stagewrap, .planned-stage");
       start =
-        phoneLayout() && e.touches.length === 1 && !s.trying() && s.zoom() === "fit"
+        phoneLayout() && onDesign && e.touches.length === 1 && !s.trying() && s.zoom() === "fit"
           ? { x: t0.clientX, y: t0.clientY }
           : null;
+      across = false;
+    };
+    const move = (e: TouchEvent) => {
+      const t0 = e.touches[0];
+      if (!start || !t0) return;
+      if (e.touches.length > 1) {
+        start = null;
+        setSwipeX(0);
+        return;
+      }
+      const dx = t0.clientX - start.x;
+      const dy = t0.clientY - start.y;
+      if (!across) {
+        if (Math.hypot(dx, dy) < 10) return;
+        if (Math.abs(dy) > Math.abs(dx)) {
+          start = null;
+          return;
+        }
+        across = true;
+      }
+      setGliding(false);
+      setSwipeX(nav.near(dx < 0 ? 1 : -1) ? dx : dx * 0.25);
     };
     const up = (e: TouchEvent) => {
       const t0 = e.changedTouches[0];
       if (!start || !t0) return;
       const dx = t0.clientX - start.x;
-      const dy = t0.clientY - start.y;
       start = null;
-      if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx) * 0.6) return;
-      nav.step(dx < 0 ? 1 : -1);
+      const by = dx < 0 ? 1 : -1;
+      const to = across && Math.abs(dx) >= SWIPE_STEP ? nav.near(by) : undefined;
+      if (!to || still()) {
+        setSwipeX(0);
+        if (to) nav.go(to);
+        return;
+      }
+      const w = win().w;
+      glide(-by * w, () => {
+        nav.go(to);
+        setGliding(false);
+        setSwipeX(by * w);
+        host().window.requestAnimationFrame(() =>
+          host().window.requestAnimationFrame(() => glide(0, () => setGliding(false))),
+        );
+      });
+    };
+    const cancel = () => {
+      start = null;
+      setSwipeX(0);
     };
     const el = root().querySelector(".design-screen");
     el?.addEventListener("touchstart", down as EventListener, { passive: true });
+    el?.addEventListener("touchmove", move as EventListener, { passive: true });
     el?.addEventListener("touchend", up as EventListener);
+    el?.addEventListener("touchcancel", cancel);
     onCleanup(() => {
+      host().window.clearTimeout(timer);
       el?.removeEventListener("touchstart", down as EventListener);
+      el?.removeEventListener("touchmove", move as EventListener);
       el?.removeEventListener("touchend", up as EventListener);
+      el?.removeEventListener("touchcancel", cancel);
     });
   });
   // A toast that offers an Undo stays until it is answered or dismissed.
@@ -404,8 +483,10 @@ export function DesignScreen(props: {
   return (
     <div
       class="screen design-screen"
-      classList={{ phone: phoneLayout(), sbsmode: !!sideRow() }}
+      classList={{ phone: phoneLayout(), sbsmode: !!sideRow(), gliding: gliding() }}
       style={{
+        "--swipe-x": `${swipeX()}px`,
+        "--pbar-h": `${barH()}px`,
         "--canvas-l": `${m.band().left}px`,
         "--canvas-r": `${m.band().right}px`,
         "--canvas-top": `${canvasTop()}px`,
@@ -433,7 +514,7 @@ export function DesignScreen(props: {
         />
         {/* Beside a docked left margin the same steps are its first list. */}
         <Show when={m.statesShown() && !m.leftDocked() && !sideRow()}>
-          <FlowBar nav={nav}>
+          <FlowBar nav={nav} count={phoneLayout()}>
             <Show when={outlining()}>
               <OutlineChips s={s} />
             </Show>
@@ -489,7 +570,9 @@ export function DesignScreen(props: {
         <div
           class="mbottom"
           ref={(el) => (bottom = el)}
-          style={{ bottom: `${(s.panel() ? panelH() : 0) + 12}px` }}
+          style={{
+            bottom: `${(s.panel() ? panelH() : 0) + (phoneLayout() ? dockH() : 0) + 12}px`,
+          }}
         >
           <Show when={s.tool()}>
             {(tool) => (
@@ -511,8 +594,7 @@ export function DesignScreen(props: {
               <Show when={reading()}>
                 <ReaderSend s={s} m={m} />
               </Show>
-              <QuestionCard s={s} />
-              <Show when={!undrawn()}>
+              <Show when={!undrawn() && !sheetUp()}>
                 <VersionBar s={s} reading={reading()} />
               </Show>
             </Show>
@@ -538,7 +620,10 @@ export function DesignScreen(props: {
               </>
             }
           >
-            <QuestionTab s={s} />
+            <div class="pdock" ref={(el) => measured(el, setDockH)}>
+              <QuestionCard s={s} />
+              <PhoneBar s={s} ref={(el) => measured(el, setBarH)} />
+            </div>
             <Show when={s.panel()}>
               <BottomPanel s={s} onHeight={setPanelH} />
             </Show>
@@ -953,7 +1038,7 @@ function ShortlistPill(props: { list: Shortlist; project: string }) {
 // The steps by name: the declared flow this screen is a step of, else the design's
 // own states in order. A step the agent still waits on is marked. The current
 // one stays in view however many there are, the next peeking past the edge.
-function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
+function FlowBar(props: { nav: FlowNav; count?: boolean; children?: JSX.Element }) {
   const nav = props.nav;
   let list!: HTMLDivElement;
   createEffect(() => {
@@ -1009,6 +1094,12 @@ function FlowBar(props: { nav: FlowNav; children?: JSX.Element }) {
         </Show>
         {props.children}
       </div>
+      {/* A phone's swipe walks them: where it is, of how many. */}
+      <Show when={props.count && nav.at() >= 0 && nav.steps().length > 1}>
+        <span class="fcount" aria-label={`Step ${nav.at() + 1} of ${nav.steps().length}`}>
+          {`${nav.at() + 1} / ${nav.steps().length}`}
+        </span>
+      </Show>
       {/* The way back to what they hold: each state's archived alternatives fold under it. */}
       <Show when={nav.emptied().length}>
         <select

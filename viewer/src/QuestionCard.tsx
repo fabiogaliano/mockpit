@@ -1,11 +1,12 @@
 // The agent's question: its words, the options, and Send. Beside the design it
-// fills the margin with pictures to read; on a phone it is one compact card above
-// the bottom bar, whose × tucks it into a tab on the canvas's edge, as does opening
-// the history. A tap puts an option on the stage as your pick; the same option
+// fills the margin with pictures to read; on a phone it is a sheet over the design's
+// lower part, its answers one row a finger swipes, opened and closed from the bar under
+// it (PhoneBar). A tap puts an option on the stage as your pick; the same option
 // again, or Send, moves on to the next question still owed, or sends the reply
 // when none is.
 
 import { createSignal, type JSX, Show } from "solid-js";
+import { specShown } from "./Spec.tsx";
 import type { Ask } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -152,17 +153,6 @@ export function QuestionCard(props: {
                     </Show>
                     <span class="qt">{ask().text}</span>
                   </div>
-                  <Show when={!props.beside}>
-                    <button
-                      type="button"
-                      class="ib qx"
-                      aria-label="Minimise the question"
-                      title="Minimise"
-                      onClick={() => s.setCardMin(true)}
-                    >
-                      <Icon name="close" />
-                    </button>
-                  </Show>
                 </div>
                 <Show when={props.beside}>
                   <div class="qlayout-row">
@@ -245,27 +235,42 @@ export function QuestionCard(props: {
   );
 }
 
-// The question tucked away on a phone: a tab on the canvas's right edge. It stays as
-// long as anything can still be sent, a question with a drafted answer too, or
-// minimising that one would leave no way back to its Send. A tap brings the card back.
-export function QuestionTab(props: { s: DesignScreenState }) {
+// A phone's foot: Question and Spec, each a sheet over the design's lower part. The
+// question's opens by itself while one waits (the card shows unless put away), and this
+// puts it away and brings it back, on the first question still owed. It stays while
+// anything can still be sent, a question with a drafted answer too, or putting that one
+// away would leave no way back to its Send. Spec is the bottom panel's Spec.
+export function PhoneBar(props: { s: DesignScreenState; ref?: (el: HTMLElement) => void }) {
   const s = props.s;
   const asks = () => new Set(s.flow().map((e) => e.ask.id));
   const n = () => [...asks()].filter((id) => !isBuiltinAsk({ id })).length;
-  const hidden = () => s.cardMin() || !!s.panel() || !s.curAsk();
+  const waiting = () => asks().size > 0 && !s.design()?.archivedAt;
+  const up = () => !s.questionHidden() && !!s.curAsk() && !s.design()?.archivedAt;
+  const spec = () => s.panel() === "spec";
   return (
-    <Show when={hidden() && asks().size > 0 && !s.design()?.archivedAt}>
+    <nav class="pbar" aria-label="Question and spec" ref={(el) => props.ref?.(el)}>
       <button
         type="button"
-        class="qtab"
-        aria-label={n() ? `Show the question, ${n()} open` : "Show the choice of alternative"}
-        onClick={() => s.goOwed()}
+        classList={{ q: waiting(), on: up() }}
+        aria-pressed={up()}
+        disabled={!waiting() && !up()}
+        title={waiting() || up() ? undefined : "Nothing waits on you here"}
+        onClick={() => (up() ? s.setCardMin(true) : s.goOwed())}
       >
-        <Show when={n()} fallback="Pick one">
-          <b>{n()}</b>
-          {n() === 1 ? "Question" : "Questions"}
+        <Show when={n()} fallback={waiting() ? "Pick one" : "Question"}>
+          {(k) => `Question · ${k()}`}
         </Show>
       </button>
-    </Show>
+      <Show when={specShown(s)}>
+        <button
+          type="button"
+          classList={{ on: spec() }}
+          aria-pressed={spec()}
+          onClick={() => s.setPanel(spec() ? null : "spec")}
+        >
+          Spec
+        </button>
+      </Show>
+    </nav>
   );
 }

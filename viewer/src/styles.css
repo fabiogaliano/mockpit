@@ -1602,7 +1602,7 @@ a {
   margin: 0 0 10px;
   overflow-wrap: anywhere;
 }
-@media (max-width: 640px) {
+@media (max-width: 699px) {
   .jump-scrim {
     padding: calc(8px + env(safe-area-inset-top)) 8px 8px;
   }
@@ -4065,15 +4065,12 @@ html:has(.design-screen) {
 .hthumb,
 .qcard .opt,
 .mini,
-.chip,
-.qtab {
+.chip {
   transition-property: scale, background-color, color, opacity;
   transition-duration: 150ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
-:is(.ib, .btn, .vlabel, .away, .ghost, .hthumb, .qcard .opt, .mini, .chip, .qtab):not(
-    :disabled
-  ):active {
+:is(.ib, .btn, .vlabel, .away, .ghost, .hthumb, .qcard .opt, .mini, .chip):not(:disabled):active {
   scale: 0.96;
 }
 @media (hover: hover) {
@@ -4626,14 +4623,6 @@ html:has(.design-screen) {
   font-size: 15px;
   font-weight: 500;
 }
-.qcard .qx {
-  width: 32px;
-  height: 32px;
-}
-.qcard .qx svg {
-  width: 16px;
-  height: 16px;
-}
 /* A phone's card scrolls its options alone (below), so the wrapper that scrolls
    beside the design is no box here. */
 .qcard:not(.beside) .qscroll {
@@ -4925,32 +4914,116 @@ html:has(.design-screen) {
   padding: 0 16px;
 }
 /* High on the edge: mid-height it sits on the next screen's picture. */
-.qtab {
+/* A phone's foot: the question's sheet over the design's lower part, and under it the bar
+   of Question and Spec, which the history's panel sits on. */
+.pdock {
   position: fixed;
-  top: 128px;
   right: 0;
-  z-index: 30;
-  display: grid;
-  place-items: center;
-  gap: 6px;
-  padding: 12px 8px;
-  border: 1px solid var(--edge);
-  border-right: 0;
-  border-radius: 12px 0 0 12px;
+  bottom: 0;
+  left: 0;
+  z-index: 36;
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
-  color: var(--t2);
-  font-size: 12px;
 }
-.qtab b {
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
+.pdock .qcard {
+  width: 100%;
+  max-width: none;
+  max-height: 46dvh;
+  padding: 12px 16px 8px;
+  border-width: 1px 0 0;
+  border-color: var(--line);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+/* Answers with pictures are one row a finger swipes, each stopping at the edge; a tap
+   picks one and puts it on the frame above. */
+.pdock .qcard .opts:has(.crop) {
+  display: flex;
+  gap: 10px;
+  margin: 0 -16px;
+  padding: 4px 16px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 16px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.pdock .qcard .opts:has(.crop)::-webkit-scrollbar {
+  display: none;
+}
+.pdock .qcard .opts:has(.crop) > * {
+  flex: 0 0 116px;
+  scroll-snap-align: start;
+}
+.pdock .qcard .opts:has(.crop) .opt {
+  flex-direction: column;
+  align-items: stretch;
+  height: 100%;
+  padding: 6px;
+}
+.pdock .qcard .opts:has(.crop) .opt .crop {
+  width: 100%;
+  height: 150px;
+}
+/* On a picture the actions sit on its top corners, as beside the design. */
+.pdock .qcard .opts:has(.crop) :is(.optleft, .optacts) {
+  top: 9px;
+  translate: none;
+}
+.pdock .qcard .opts:has(.crop) .optleft {
+  left: 9px;
+}
+.pdock .qcard .opts:has(.crop) :is(.optacts, .optw.on .optacts) {
+  right: 9px;
+}
+.pdock .qcard .opts:has(.crop) .optw .opt {
+  padding-right: 6px;
+}
+.pbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+}
+.pbar button {
+  flex: 1;
+  height: 40px;
   border-radius: 10px;
-  background: var(--pin-q);
-  color: #fff;
-  font-size: 11px;
+  background: var(--row);
+  color: var(--t2);
+  font-size: 14px;
+}
+.pbar button.q {
+  background: color-mix(in srgb, var(--q) 22%, var(--panel));
+  color: var(--q);
+  font-weight: 600;
+}
+.pbar button.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.pbar button:disabled {
+  opacity: 0.45;
+}
+.design-screen.phone .bpanel {
+  bottom: var(--pbar-h, 0px);
+}
+/* A phone's step counter, at the end of the tabs a swipe walks. */
+.fcount {
+  flex: none;
+  padding-left: 6px;
+  color: var(--t4);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+/* The design follows the finger across, and glides out and in on a step. */
+.design-screen.phone :is(.stagewrap.canvas, .planned-stage) {
+  translate: var(--swipe-x, 0px) 0;
+}
+.design-screen.phone.gliding :is(.stagewrap.canvas, .planned-stage) {
+  transition: translate 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 /* The bottom panel: history and thread. */
 .bpanel {
@@ -6323,7 +6396,6 @@ html:has(.design-screen) {
     justify-content: center;
     min-width: 40px;
   }
-  .qcard .qx,
   .home-more.ib {
     width: 40px;
     height: 40px;
@@ -6339,7 +6411,7 @@ html:has(.design-screen) {
 }
 /* Phone: the crumb is the design's name, the tabs scroll (and a swipe walks them),
    the bar keeps one line, and the drawers are sheets from the bottom. */
-@media (max-width: 640px) {
+@media (max-width: 699px) {
   .mtop {
     gap: 2px;
     padding: 0 4px;
@@ -6449,7 +6521,7 @@ html:has(.design-screen) {
   .toast {
     transition-property: opacity;
   }
-  :is(.ib, .btn, .vlabel, .away, .ghost, .hthumb, .qcard .opt, .mini, .chip, .qtab):active {
+  :is(.ib, .btn, .vlabel, .away, .ghost, .hthumb, .qcard .opt, .mini, .chip):active {
     scale: none;
   }
 }
@@ -6619,7 +6691,7 @@ html:has(.design-screen) {
   outline: 2px solid var(--accent);
   outline-offset: 0;
 }
-@media (max-width: 640px) {
+@media (max-width: 699px) {
   .about {
     top: auto;
     bottom: 0;
@@ -7390,6 +7462,38 @@ body:has(.sentnote .wake) {
   box-shadow: none;
   border: 1px dashed var(--t5);
 }
+/* A tablet's states: pictures alone, a column narrower than the names would need. */
+.lmargin.thumbs {
+  width: 120px;
+}
+.lmargin.thumbs .lm-states.pictured .lm-row {
+  position: relative;
+  justify-content: center;
+  padding: 4px;
+}
+.lmargin.thumbs .lm-states.pictured .lm-text {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.lmargin.thumbs .lm-states.pictured .lm-pic {
+  width: 44px;
+  height: 95px;
+}
+.lmargin.thumbs .lm-states.pictured .lm-pic.flat {
+  width: 84px;
+  height: 52px;
+}
+.lmargin.thumbs .lm-states.pictured .lm-row .ftab-q {
+  position: absolute;
+  top: 6px;
+  right: 14px;
+}
+.lmargin.thumbs .lm-states.pictured .lm-outline .lm-row {
+  padding-right: 4px;
+}
 .lm-outline .lm-row {
   padding-right: 28px;
   color: var(--t4);
@@ -7455,7 +7559,7 @@ body:has(.sentnote .wake) {
   flex-wrap: wrap;
   gap: 8px;
 }
-@media (min-width: 641px) {
+@media (min-width: 700px) {
   .stateask-name,
   .stateask-detail {
     font-size: 13px;
@@ -7704,7 +7808,7 @@ body:has(.sentnote .wake) {
 .spec-add {
   align-self: flex-start;
 }
-@media (min-width: 641px) {
+@media (min-width: 700px) {
   .spec-input,
   .spec-select,
   .spec-part {
@@ -9438,6 +9542,169 @@ button.bmc {
   .bhint {
     display: none;
   }
+  .bhint.touch {
+    display: block;
+  }
+}
+/* A tablet or a phone: the rail slides in over the page from ☰. */
+.screen.boardscreen.rail-slides {
+  grid-template-columns: minmax(0, 1fr);
+}
+.board-top .board-menu {
+  margin-left: -8px;
+}
+/* A phone: no free canvas. The page is its sections as rows a finger swipes, each
+   stopping on a frame, and the page's words above them. */
+.prows {
+  --kl: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 14px 0 calc(40px + env(safe-area-inset-bottom));
+}
+.pbhead {
+  padding: 0 16px 6px;
+}
+.pbhead h2 {
+  margin: 0;
+  color: var(--t1);
+  font-size: 20px;
+  font-weight: 600;
+}
+.pbhead p {
+  margin: 4px 0 0;
+  color: var(--t4);
+  font-size: 13px;
+}
+.pbhead .bcov {
+  font-size: 13px;
+}
+.psec {
+  margin-top: 22px;
+}
+.psec.writing .bsec-hd {
+  color: var(--accent);
+}
+.psec .bsec-hd {
+  position: static;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 16px;
+  margin-bottom: 9px;
+  font-size: 15px;
+  white-space: normal;
+}
+.psec.idea .bsec-nm {
+  color: #c3b8ff;
+}
+.palt {
+  margin: 10px 0 6px;
+  padding: 0 16px;
+  color: var(--t2);
+  font-size: 12px;
+  font-weight: 600;
+}
+.prow {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 2px 16px 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-inline: 16px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.prow::-webkit-scrollbar {
+  display: none;
+}
+.ptile {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 132px;
+  scroll-snap-align: start;
+  text-align: start;
+}
+.ptile.wide {
+  width: 240px;
+}
+.ptile.cmp {
+  width: 200px;
+}
+.ptile.archived {
+  opacity: 0.45;
+}
+.ptile-pic {
+  position: relative;
+  display: block;
+  height: 286px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--row);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25);
+}
+.ptile.wide .ptile-pic {
+  height: 150px;
+}
+.ptile.cmp .ptile-pic {
+  height: auto;
+  min-height: 90px;
+  max-height: 286px;
+}
+.ptile-pic img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+  pointer-events: none;
+  user-select: none;
+}
+.ptile.cmp .ptile-pic img {
+  height: auto;
+}
+.ptile .bf-ph {
+  min-height: 90px;
+}
+.ptile:is(.missing, .planned) .ptile-pic {
+  border: 2px dashed var(--t6);
+  background: transparent;
+  box-shadow: none;
+}
+.ptile.missing .ptile-pic {
+  border-color: #7a3a1c;
+}
+.ptile.missing .bf-ph {
+  color: #d0703c;
+}
+.ptile.sel .ptile-pic,
+.ptile.writing .ptile-pic {
+  box-shadow: 0 0 0 2px var(--board-sel, #0d99ff);
+}
+.ptile.writing .ptile-pic {
+  box-shadow: 0 0 0 2px var(--accent-solid);
+}
+.ptile-nm {
+  display: block;
+  margin-top: 6px;
+  overflow: hidden;
+  color: var(--t3);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ptile.sel .ptile-nm {
+  color: var(--board-sel, #0d99ff);
+}
+.ptile-nm i {
+  margin-right: 4px;
+  color: #5aa0ff;
+  font-style: normal;
+  font-weight: 600;
+}
+.ptile-nm .bf-dot {
+  margin-right: 5px;
 }
 /* The rail's layers: the open page's sections, then their frames. */
 .rail-layers {

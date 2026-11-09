@@ -69,10 +69,12 @@ export function BoardRail(props: {
   selected: string | null;
   onFitSection: (id: string) => void;
   onPickFrame: (key: string) => void;
-  // Over a design, where the rail opens as a drawer: a pick closes it.
+  // Where the rail opens as a drawer (over a design, or on a tablet or phone): a pick
+  // closes it.
   onNav?: () => void;
   drawer?: boolean;
   inert?: boolean;
+  ref?: (el: HTMLElement) => void;
 }) {
   const [inbox, setInbox] = createSignal(false);
   const link = (
@@ -147,6 +149,7 @@ export function BoardRail(props: {
       classList={{ "side-drawer": !!props.drawer }}
       aria-label="Pages"
       inert={props.inert || undefined}
+      ref={(el) => props.ref?.(el)}
     >
       <div class="side-top">
         <ProjectSwitcher

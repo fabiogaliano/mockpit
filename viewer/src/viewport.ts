@@ -29,8 +29,15 @@ export const coarse = media("(pointer: coarse)");
 // fitted to the width, the drawers are sheets from the bottom, and a swipe
 // across it moves between steps. One scroll and one zoom, so a finger never
 // has to guess which layer it moves.
-export const PHONE_W = 640;
+export const PHONE_W = 699;
 export const phoneLayout = () => win().w <= PHONE_W;
+
+// A tablet, or a narrow window: the Board keeps its canvas, but the rail would take a
+// quarter of it, so it slides in from ☰ instead of standing beside it. Focus's states
+// column keeps its pictures and drops their names.
+export const TABLET_W = 1099;
+export const tabletLayout = () => !phoneLayout() && win().w <= TABLET_W;
+export const railSlides = () => win().w <= TABLET_W;
 
 // Where the canvas starts: under the top bar and the flow bar, which measure themselves.
 const [canvasTopSignal, setCanvasTopSignal] = createRoot(() => createSignal(96));

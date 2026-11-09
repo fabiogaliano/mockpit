@@ -35,6 +35,7 @@ import {
   GHOST_W,
   isBuiltinAsk,
   LEFT_MARGIN_W,
+  LEFT_THUMBS_W,
   marginLayout,
   RIGHT_MARGIN_W,
   sameVersion,
@@ -60,7 +61,7 @@ import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
 import { CanvasTools } from "./VersionBar.tsx";
-import { NO_BOX, safeX, setCanvasBox, win } from "./viewport.ts";
+import { NO_BOX, safeX, setCanvasBox, tabletLayout, win } from "./viewport.ts";
 
 // "built" is Tune's: the panel while Tune is on, with no tabs.
 export type Side = "talk" | "spec" | "built" | "thread";
@@ -69,6 +70,8 @@ export type Margins = ReturnType<typeof createMargins>;
 // Past this many a list is names alone: every picture is a whole page loading, and
 // a lab has over a hundred.
 const PICTURED_UP_TO = 24;
+// A tablet's margin is narrower: its states are their pictures, the names in their labels.
+const leftW = () => (tabletLayout() ? LEFT_THUMBS_W : LEFT_MARGIN_W);
 
 export function createMargins(
   s: DesignScreenState,
@@ -136,6 +139,7 @@ export function createMargins(
       tools: page() || leftHas() || previewHas(),
       left,
       right,
+      leftW: leftW(),
     });
   };
   const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.instancesKey;
@@ -177,7 +181,7 @@ export function createMargins(
       ? TOOL_BAND_W
       : 0;
   const band = () => ({
-    left: leftDocked() ? LEFT_MARGIN_W : 0,
+    left: leftDocked() ? leftW() : 0,
     right: rightDocked() ? RIGHT_MARGIN_W : 0,
   });
   // The neighbouring steps never cost the design its size; a row of artboards
@@ -365,7 +369,11 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
   const m = props.m;
   return (
     <Show when={m.leftDocked() || m.leftFloats()}>
-      <aside class="lmargin" classList={{ float: m.leftFloats() }} aria-label="States and versions">
+      <aside
+        class="lmargin"
+        classList={{ float: m.leftFloats(), thumbs: tabletLayout() && !m.leftFloats() }}
+        aria-label="States and versions"
+      >
         <button
           type="button"
           class="ib lm-close"
@@ -454,6 +462,7 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
               ? `${nav.label(x)}, not drawn`
               : nav.label(x)
         }
+        title={nav.label(x)}
         onClick={() => nav.go(x)}
       >
         <Show when={pictured()}>
@@ -476,7 +485,11 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
     );
   };
   return (
-    <section class="lm-sec" ref={(el) => (list = el)}>
+    <section
+      class="lm-sec lm-states"
+      classList={{ pictured: pictured() }}
+      ref={(el) => (list = el)}
+    >
       <h3>{nav.flow() ? nav.name() : "States"}</h3>
       <For each={keys()}>{row}</For>
       <Show when={outsideKeys().length}>
