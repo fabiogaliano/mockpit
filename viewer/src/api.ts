@@ -3,7 +3,6 @@
 // viewer's typecheck instead of its runtime.
 
 import type {
-  areaView,
   designDetailView,
   designSummaryView,
   treeNodeView,
@@ -72,8 +71,6 @@ export type DesignDetail = ReturnType<typeof designDetailView> & {
   palettes?: PaletteChoice[];
 };
 export type TreeNode = ReturnType<typeof treeNodeView>;
-// One area as `read --area` returns it, coverage included; the Board draws its own read, `boardView`.
-export type AreaView = ReturnType<typeof areaView>;
 export type BoardPage = ReturnType<typeof boardView> & { onBoard?: boolean };
 export type { BoardFrame, BoardSection } from "../../server/board.ts";
 // A project's area in the order the Board lists its pages, with what it is for. An `alphabetical`
@@ -260,10 +257,6 @@ export const api = {
       `/api/projects/${encodeURIComponent(project)}/board${qs ? `?${qs}` : ""}`,
     );
   },
-  area: (project: string, area: string) =>
-    call<AreaView>(
-      `/api/projects/${encodeURIComponent(project)}/areas/${encodeURIComponent(area)}`,
-    ),
   // The user's words on what an area (or, with no area, the project) is for. They
   // stand against agents until the user clears them.
   describe: (project: string, body: { area?: string; description: string }) =>

@@ -1,5 +1,0 @@
----
-"mockpit": minor
----
-
-The viewer works by touch on a phone and a tablet. Under 700 px the Board is the page's sections as rows you swipe sideways, each frame a still that snaps into place, a flow's steps numbered 1, 2, 3, 3b; the coverage summary sits on top, "Ideas · N ▾" unfolds the idea rows, and ☰ opens the rail as a sheet whose pages and layers scroll to what you pick. Tapping a frame opens Focus as one frame you swipe through the states of, following the finger, with "2 / 6" after the state tabs. Question and Spec are a bar at the bottom: the question comes up as a sheet by itself when one is waiting, its answers a row you swipe, a tap picks one and shows it on the frame, and Send sits in the sheet; Question puts it away and brings it back, in place of the card's × and the tab on the canvas's edge, and side by side isn't offered. From 700 to 1099 px the canvas takes touch: one finger pans, two pinch, a tap selects only if the finger moved under 6 px and a pan or pinch never clicks, a double-tap opens Focus, and the rail slides in from ☰. Focus there keeps Side by side, and its states column shows pictures only.

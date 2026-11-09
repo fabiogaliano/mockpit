@@ -89,17 +89,17 @@ export interface BoardInput {
 
 // The version a state shows: what's in use, else what the agent recommends, else the
 // first drawn, at the version a product design shows (Ready's, after a stay), with its
-// poster. The Board's still for it, the same choice the Library's covers make.
+// poster. The Board's still for it, the same choice the Library's covers make. A state
+// whose alternatives were all archived shows none: it is drawn no more.
 function shownOf(
   design: Design,
   posts: PostHead[],
   state: string | null,
 ): { post: string; version: number; poster?: string } | undefined {
-  const inState = posts.filter((p) => p.state === state);
-  const live = inState.filter((p) => isLive(p.status));
+  const live = posts.filter((p) => p.state === state && isLive(p.status));
   const used = live.find((p) => p.status === "accepted");
   const rec = recommendedAlternative(design.asks, state);
-  const p = used ?? live.find((x) => x.alternative === rec) ?? live[0] ?? inState[0];
+  const p = used ?? live.find((x) => x.alternative === rec) ?? live[0];
   if (!p) return undefined;
   const at = used?.acceptedVersion ?? shownVersion(design, p);
   const surfaces =
@@ -154,7 +154,8 @@ export function boardView(input: BoardInput) {
   );
   const screens = here.filter((d) => d.kind === "screen" && posts(d).length > 0);
   const states = (d: Design) => (d.states.length ? d.states : [null]);
-  const drawn = (d: Design, state: string | null) => posts(d).some((p) => p.state === state);
+  const drawn = (d: Design, state: string | null) =>
+    posts(d).some((p) => p.state === state && isLive(p.status));
   const frame = (d: Design, state: string | null, name?: string): BoardFrame => {
     return {
       slug: d.slug,
@@ -255,17 +256,16 @@ export function boardView(input: BoardInput) {
       frames: components.map((d) => frame(d, states(d)[0], d.title)),
     });
 
-  const planned = here.filter((d) => isPlanned(d, posts(d).length));
-  if (planned.length)
-    sections.push({
-      kind: "planned",
-      id: "planned",
-      frames: planned.flatMap((d) =>
-        d.states.length
-          ? d.states.map((s) => frame(d, s, `${d.title} · ${s}`))
-          : [frame(d, null, d.title)],
-      ),
-    });
+  // A planned state a flow names is drawn at its step, not again here.
+  const plannedFrames = here
+    .filter((d) => isPlanned(d, posts(d).length))
+    .flatMap((d) =>
+      states(d)
+        .filter((s) => !isStep(d.slug, s))
+        .map((s) => frame(d, s, s === null ? d.title : `${d.title} · ${s}`)),
+    );
+  if (plannedFrames.length)
+    sections.push({ kind: "planned", id: "planned", frames: plannedFrames });
 
   // Every design a frame names, with what its section header says.
   const named = new Set(

@@ -84,7 +84,8 @@ const statesOf = (d: Pick<Design, "states">) => (d.states.length ? d.states : [n
 // Ready per state, not per design: a state drawn again since the mark is back in design
 // while the rest of the screen stays Ready.
 function cellOf(design: Design, posts: PostHead[], state: string | null): Cell {
-  if (!posts.some((p) => p.state === state)) return "Planned";
+  // Drawn means drawn now: a state whose alternatives were all archived is to draw again.
+  if (!posts.some((p) => p.state === state && isLive(p.status))) return "Planned";
   if (!design.ready) return "In design";
   const key = (c: { name: string; version: number }) => `${c.name}\n${c.version}`;
   const now = shownCovers(design, posts)

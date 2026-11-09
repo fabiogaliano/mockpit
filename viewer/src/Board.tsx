@@ -50,15 +50,19 @@ import {
   FIT_MS,
   fitView,
   frameHeight,
+  RESERVE_BOTTOM,
+  RESERVE_TOP,
   unionBox,
   type View,
+  WORLD_PAD,
+  wrapWidth,
   zoomAbout,
 } from "./boardLayout.ts";
 import { BoardRail, libraryOf, type RailLayer } from "./BoardRail.tsx";
 import { FIELD } from "./flowKeys.ts";
 import { Home, NewIdea } from "./Home.tsx";
 import { readHomeProjects, saveHomeProjects } from "./homeCache.ts";
-import { changedSince, markSeen, seenIn } from "./seen.ts";
+import { changedSince, markSeen, seenIn, versionShown } from "./seen.ts";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { keepSame, rankedAreas } from "./logic.ts";
@@ -94,10 +98,25 @@ type Section =
   | (Omit<Extract<BoardSection, { kind: "screen" }>, "frames"> & { frames: Frame[] })
   | { kind: "components" | "planned"; id: string; frames: Frame[] }
   // An idea or a variants design; `under` is the product design it was unfolded from.
-  | { kind: "grid"; id: string; grid: Grid; frames: Frame[]; under: string | null };
+  // `more` alternatives wait past its first rows, and `folded` is their frames while they do.
+  | {
+      kind: "grid";
+      id: string;
+      grid: Grid;
+      frames: Frame[];
+      under: string | null;
+      more: number;
+      folded: Frame[];
+    };
 
-const frameKey = (slug: string, state: string | null, missing = false, alternative?: string) =>
-  JSON.stringify([slug, state, missing, alternative ?? null]);
+// `at` tells apart the frames of one state a flow shows at two of its steps, or two flows do.
+const frameKey = (
+  slug: string,
+  state: string | null,
+  missing = false,
+  alternative?: string,
+  at?: string,
+) => JSON.stringify([slug, state, missing, alternative ?? null, ...(at ? [at] : [])]);
 
 const framesOf = (s: Section): Frame[] =>
   s.kind === "flow" ? s.steps.flatMap((x) => [x.frame, ...x.below]) : s.frames;
@@ -187,11 +206,14 @@ export function Board(props: {
   // The newest read on the canvas, by the number it started with: a write the agent made
   // before a read started is in it.
   const [loaded, setLoaded] = createSignal(0);
+  // The address the page on the canvas was read for.
+  let readFor = "";
   const load = async (w: Want) => {
     const n = ++seq;
     try {
       const d = await api.board(w.p, { area: w.area, unsorted: !!w.unsorted, design: w.design });
       if (n !== seq) return;
+      readFor = JSON.stringify(w);
       setFailed(null);
       setData(d);
       setLoaded(n);
@@ -207,27 +229,46 @@ export function Board(props: {
       void load(w);
     }),
   );
-  // What an agent publishes, and each poster the worker attaches, redraws the page.
+  // What an agent publishes, and each poster the worker attaches, redraws the page. The
+  // page's own read is small; the tree (a few hundred KB on a big project) is read again
+  // only when a design comes or goes, or one the canvas draws from the tree (an idea, a
+  // variants design) changes.
   let refetchTimer = 0;
-  const refetchSoon = () => {
+  let treeToo = false;
+  const refetchSoon = (tree: boolean) => {
+    treeToo ||= tree;
     if (refetchTimer) return;
     refetchTimer = host().window.setTimeout(() => {
       refetchTimer = 0;
-      const d = data();
-      if (d)
-        void load({ p: d.project, ...(d.area === null ? { unsorted: true } : { area: d.area }) });
-      void refetchTree();
+      // The page the address names now, so a redraw racing a move to another page doesn't
+      // bring the old one back.
+      const w = want();
+      if (w && data()) void load(w);
+      if (treeToo) void refetchTree();
+      treeToo = false;
     }, 300);
   };
   onCleanup(() => host().window.clearTimeout(refetchTimer));
-  // A design's own events say whose project they are; an alternative's don't, and are few.
+  const nodeById = createMemo(() => {
+    const t = tree();
+    return new Map((t && t.project === project() ? t.tree : []).map((n) => [n.id, n]));
+  });
+  const fromTree = (n: TreeNode) => n.kind === "idea" || !!n.variants;
+  // An alternative's events don't say whose project they are: one of a design this
+  // project's tree doesn't hold is another's (a design new here comes with design-created).
   const stop = subscribe((e) => {
-    if (e.type === "post-created" || e.type === "post-updated") {
-      if (e.by === "agent") startWriting(e.id);
-      refetchSoon();
-    } else if (e.type === "post-deleted") refetchSoon();
-    else if ("project" in e && e.type.startsWith("design-") && e.project === data()?.project)
-      refetchSoon();
+    if (e.type === "post-created" || e.type === "post-updated" || e.type === "post-deleted") {
+      const n = nodeById().get(e.designId);
+      if (!n) return;
+      if (e.type !== "post-deleted" && e.by === "agent") startWriting(e.id);
+      refetchSoon(fromTree(n));
+    } else if (
+      (e.type === "design-created" || e.type === "design-deleted" || e.type === "design-updated") &&
+      e.project === project()
+    ) {
+      const n = nodeById().get(e.id);
+      refetchSoon(e.type !== "design-updated" || !n || fromTree(n));
+    }
   });
   onCleanup(stop);
 
@@ -263,7 +304,13 @@ export function Board(props: {
         if (first) navigate(projectPath(d.project, first), { replace: true });
         return;
       }
-      if (!untrack(() => props.page) && !untrack(() => props.unsorted)) replaceUrl(here(d, sel));
+      // The address names the page served: one that named no page, and one that named a
+      // page there isn't (renamed, or mistyped), which shows the first, so the rail, a
+      // reload and a copied link all say the same page. Only for the read of this address.
+      const page = untrack(() => props.page);
+      const unsorted = untrack(() => props.unsorted);
+      const served = page ? d.area === page : unsorted ? d.area === null : false;
+      if (!served && readFor === JSON.stringify(untrack(want))) replaceUrl(here(d, sel));
     }),
   );
   const here = (d: BoardPage, sel: BoardSel | null) =>
@@ -288,7 +335,13 @@ export function Board(props: {
         return [
           {
             ...s,
-            steps: s.steps.map((x) => ({ frame: withKey(x.frame), below: x.below.map(withKey) })),
+            steps: s.steps.map((x, i) => ({
+              frame: {
+                ...x.frame,
+                key: frameKey(x.frame.slug, x.frame.state, false, undefined, `${s.id}#${i}`),
+              },
+              below: x.below.map(withKey),
+            })),
           },
         ];
       if (s.kind !== "screen") return [{ ...s, frames: s.frames.map(withKey) }];
@@ -311,11 +364,17 @@ export function Board(props: {
   const [unfolded, setUnfolded] = createSignal<ReadonlySet<string>>(new Set());
   const [archivedOn, setArchivedOn] = createSignal<ReadonlySet<string>>(new Set());
   const [filters, setFilters] = createSignal<Record<string, string>>({});
+  // The grids showing every row, past their first.
+  const [whole, setWhole] = createSignal<ReadonlySet<string>>(new Set());
   const flip = (set: ReadonlySet<string>, id: string) => {
     const next = new Set(set);
     if (!next.delete(id)) next.add(id);
     return next;
   };
+  // A grid shows its first rows, so one idea or one long variants design doesn't stretch
+  // the page into a column: a screen's first alternative across its states (a lab's first
+  // of each state), or the first GRID_COMPONENT_ROWS of a component's, which are short.
+  // "N more ▾" shows the rest, and a filter every match.
   const gridSection = (node: TreeNode, under: string | null): Section => {
     const grid = gridOf(node, titleOf);
     const id = under ? `idea:${under}:${node.slug}` : `grid:${node.slug}`;
@@ -324,7 +383,7 @@ export function Board(props: {
     const shown = grid.cells.filter((c) => (archived || !c.archived) && cellShown(c, query));
     // A row stays whole: one of its cells matching keeps the name's other states too.
     const names = new Set(shown.map((c) => c.alternative));
-    const frames = grid.cells
+    const all = grid.cells
       .filter((c) => names.has(c.alternative) && (archived || !c.archived))
       .map((c): Frame => ({
         slug: node.slug,
@@ -336,7 +395,25 @@ export function Board(props: {
         ...(c.archived ? { archived: true as const } : {}),
         key: frameKey(node.slug, c.state, false, c.alternative),
       }));
-    return { kind: "grid", id, grid, frames, under };
+    const cap = query ? Infinity : node.kind === "component" ? GRID_COMPONENT_ROWS : 1;
+    const firstRows = new Set(rowsIn(grid, all).slice(0, cap));
+    const inColumn = new Map<string | null, number>();
+    const kept = all.filter((f) => {
+      if (grid.aligned) return firstRows.has(f.alternative!);
+      const n = inColumn.get(f.state) ?? 0;
+      inColumn.set(f.state, n + 1);
+      return n < cap;
+    });
+    const past = all.filter((f) => !kept.includes(f));
+    return {
+      kind: "grid",
+      id,
+      grid,
+      frames: whole().has(id) ? all : kept,
+      under,
+      more: new Set(past.map((f) => f.alternative)).size,
+      folded: whole().has(id) ? [] : past,
+    };
   };
   // The ideas page's sections; or the page's, each variants design taken out of the
   // components into a grid of its own after them, and each unfolded design's ideas right
@@ -386,6 +463,28 @@ export function Board(props: {
     return keepSame(was, steady, (s) => s.id);
   }, []);
   const allFrames = createMemo(() => sections().flatMap(framesOf));
+  // By id, so a section a refetch changed keeps its element and only what changed in it
+  // is drawn again.
+  const sectionIds = createMemo(() => sections().map((x) => x.id), [], {
+    equals: (a, b) => a.join("\n") === b.join("\n"),
+  });
+  const sectionById = createMemo(() => new Map(sections().map((x) => [x.id, x])));
+  // A link to an alternative past a grid's first rows shows the whole grid, once: folded
+  // again by hand, it stays folded.
+  let wholeFor = "";
+  createEffect(() => {
+    const sel = props.sel;
+    const at = sel ? JSON.stringify(sel) : "";
+    if (!sel?.alternative || at === wholeFor) return;
+    const s = sections().find(
+      (x) =>
+        x.kind === "grid" &&
+        x.folded.some((f) => f.slug === sel.slug && f.alternative === sel.alternative),
+    );
+    if (!s) return;
+    wholeFor = at;
+    setWhole(new Set(untrack(whole)).add(s.id));
+  });
   // The questions open on each frame: one asked on a state sits on that state's frame,
   // one asked of the whole design on its first frame on the page. Answering is Focus's.
   const asksOn = createMemo(() => {
@@ -465,7 +564,9 @@ export function Board(props: {
     if (!t || t.project !== p) return null;
     return seenIn(
       p,
-      t.tree.flatMap((n) => n.alternatives.map((v) => ({ post: v.postId, version: v.version }))),
+      t.tree.flatMap((n) =>
+        n.alternatives.map((v) => ({ post: v.postId, version: versionShown(v) })),
+      ),
     );
   });
   const isChanged = (f: Frame) =>
@@ -509,31 +610,41 @@ export function Board(props: {
       allFrames().find(
         (f) => f.slug === sel.slug && (sel.state === undefined || f.state === sel.state),
       ) ??
+      // A state the page draws no frame of (a component shows its first): the design's.
+      allFrames().find((f) => f.slug === sel.slug && !f.missing && !f.archived) ??
+      allFrames().find((f) => f.slug === sel.slug) ??
       null
     );
   });
-  // A frame picked is a frame seen, at the version it shows then: one the agent redraws
-  // while it stays picked is dotted again.
+  // A frame picked is a frame seen, at the version it shows then. By its key, so one the
+  // agent redraws while it stays picked keeps its dot until it is picked again.
+  const selectedKey = createMemo(() => selected()?.key);
   createEffect(
-    on(
-      () => selected()?.key,
-      () => {
-        const f = untrack(selected);
-        const p = untrack(project);
-        if (f?.post && f.version !== undefined && p) markSeen(p, f.post, f.version);
-      },
-    ),
+    on(selectedKey, () => {
+      const f = untrack(selected);
+      const p = untrack(project);
+      if (f?.post && f.version !== undefined && p) markSeen(p, f.post, f.version);
+    }),
   );
   const selOf = (f: Frame): BoardSel => ({
     slug: f.slug,
     state: f.state,
     ...(f.alternative ? { alternative: f.alternative } : {}),
   });
+  // The selection made here by a click, as against one a link brought: only a link's moves
+  // the view.
+  let picked: string | undefined;
   const select = (f: Frame | null) => {
     const d = data();
     if (!d) return;
-    replaceUrl(here(d, f ? selOf(f) : null));
+    const sel = f ? selOf(f) : null;
+    picked = sel ? JSON.stringify(sel) : "";
+    replaceUrl(here(d, sel));
   };
+  const linkSel = createMemo<string>((was) => {
+    const at = props.sel ? JSON.stringify(props.sel) : "";
+    return at === picked ? was : at;
+  }, "");
 
   // The rail, where it slides in from ☰ rather than standing beside the page: a pick in it
   // closes it, and so do Esc and a tap beside it.
@@ -587,6 +698,25 @@ export function Board(props: {
     }
     return { x, y, w: el.offsetWidth, h: el.offsetHeight };
   };
+  // The page's width, at which its sections wrap into rows (wrapWidth): measured, since a
+  // section is as wide and tall as its frames and their names make it. The rows are shaped
+  // to the room a fit has, under the card as tall as it is now (its map open or folded).
+  const [wrapAt, setWrapAt] = createSignal<number | null>(null);
+  const relayout = () => {
+    if (!stage || !world) return;
+    const sizes = sectionIds().flatMap((id) => {
+      const el = sectionEls.get(id);
+      return el ? [{ w: el.offsetWidth, h: el.offsetHeight }] : [];
+    });
+    const room = {
+      w: stage.clientWidth - PAGE_FIT_PAD * 2,
+      h: stage.clientHeight - (cardBottom() ?? RESERVE_TOP) - RESERVE_BOTTOM,
+    };
+    setWrapAt(wrapWidth(sizes, room.w > 0 && room.h > 0 ? room.w / room.h : 1.6));
+  };
+  // The page card grows with its map, and what is fit sits below it.
+  const cardBottom = () =>
+    card?.isConnected ? card.offsetTop + card.offsetHeight + 18 : undefined;
   const pageBox = (): Box | null =>
     world ? { x: 0, y: 0, w: world.offsetWidth, h: world.offsetHeight } : null;
   const selBox = (): Box | null => {
@@ -610,8 +740,7 @@ export function Board(props: {
   onCleanup(() => host().window.clearTimeout(animTimer));
   const fit = (box: Box | null, opts: { animate: boolean; frame: boolean; pad?: number }) => {
     if (!box || !stage) return;
-    // The page card grows with its map, and what is fit sits below it.
-    const top = card?.isConnected ? card.offsetTop + card.offsetHeight + 18 : undefined;
+    const top = cardBottom();
     const next = fitView(
       box,
       { w: stage.clientWidth, h: stage.clientHeight },
@@ -624,33 +753,45 @@ export function Board(props: {
     }
     setView(next);
   };
-  const fitPage = (animate: boolean) => fit(pageBox(), { animate, frame: false, pad: 40 });
+  const fitPage = (animate: boolean) =>
+    fit(pageBox(), { animate, frame: false, pad: PAGE_FIT_PAD });
   const fitSel = (animate: boolean) => fit(selBox(), { animate, frame: true, pad: 120 });
 
-  // A new page opens fit to the frame the address names, else to the whole page.
+  // A new page, or a link to another frame, opens fit to the frame the address names, else
+  // to the whole page. By a string, so a redraw of the same page (every publish, every
+  // still the worker attaches) keeps the view the user has.
+  const openedAt = createMemo(() => {
+    const d = data();
+    if (!d) return null;
+    if (ideasPage())
+      return nodes().size ? `${d.project}|ideas|${props.for ?? ""}|${linkSel()}` : null;
+    return props.sec ? null : `${d.project}|${d.area}|${linkSel()}`;
+  });
   createEffect(
-    on(
-      () => {
-        const d = data();
-        if (!d) return null;
-        return ideasPage()
-          ? `${d.project}|ideas|${props.for ?? ""}|${nodes().size > 0}`
-          : props.sec
-            ? null
-            : `${d.project}|${d.area}`;
-      },
-      (page) => {
-        if (!page) return;
-        touched = false;
-        opened = true;
-        host().window.requestAnimationFrame(settle);
-      },
-    ),
+    on(openedAt, (at) => {
+      if (!at) return;
+      touched = false;
+      opened = true;
+      settleSoon();
+    }),
   );
+  // Until the view is moved, sections that come or go (the tree's grids arriving, a grid a
+  // link unfolds) lay the page out again.
+  createEffect(on(sectionIds, () => settleSoon(), { defer: true }));
   // A still that loads, or a frame queued, after Focus took over must not read the
   // Board's address, which is Focus's by then.
   let gone = false;
   onCleanup(() => (gone = true));
+  // Many stills land in one frame's time: one settle for them all.
+  let settleFrame = 0;
+  onCleanup(() => host().window.cancelAnimationFrame(settleFrame));
+  const settleSoon = () => {
+    if (touched || settleFrame) return;
+    settleFrame = host().window.requestAnimationFrame(() => {
+      settleFrame = 0;
+      settle();
+    });
+  };
   const settle = () => {
     if (touched || !opened || gone) return;
     if (phoneLayout()) {
@@ -663,6 +804,7 @@ export function Board(props: {
       else rowsEl?.scrollTo(0, 0);
       return;
     }
+    relayout();
     if (untrack(() => props.sel) && selected()) fitSel(false);
     else fitPage(false);
   };
@@ -986,7 +1128,10 @@ export function Board(props: {
       kind: s.kind === "grid" ? (s.grid.idea ? "idea" : "variants") : s.kind,
       name: sectionTitle(s),
       frames: (s.kind === "flow"
-        ? s.steps.map((x, i) => ({ f: x.frame, label: `${i + 1}. ${x.frame.name}` }))
+        ? s.steps.flatMap((x, i) => [
+            { f: x.frame, label: `${stepNumber(i)}. ${x.frame.name}` },
+            ...x.below.map((b, j) => ({ f: b, label: `${stepNumber(i, j)}. ${b.name}` })),
+          ])
         : s.kind === "grid"
           ? []
           : framesOf(s).map((f) => ({ f, label: f.name }))
@@ -1028,9 +1173,33 @@ export function Board(props: {
   };
 
   // --- drawing ---
+  // A still is fetched once its frame first comes within a stage's size of the view: a page
+  // of a few hundred frames would otherwise fetch and decode every one as it opens. Far
+  // ones are then left unpainted by the browser (`content-visibility` on `.bf-pic`).
+  const [near, setNear] = createSignal<ReadonlySet<string>>(new Set());
+  let watcher: IntersectionObserver | undefined;
+  const watch = (root: HTMLElement) => {
+    watcher = new IntersectionObserver(
+      (entries) => {
+        const came = entries.filter((e) => e.isIntersecting);
+        if (!came.length) return;
+        const next = new Set(near());
+        for (const e of came) {
+          const key = (e.target as HTMLElement).dataset.key;
+          if (key) next.add(key);
+          watcher?.unobserve(e.target);
+        }
+        setNear(next);
+      },
+      { root, rootMargin: "100%" },
+    );
+    for (const [key, el] of frameEls) if (!near().has(key)) watcher.observe(el);
+  };
   const keepFrame = (key: string) => (el: HTMLElement) => {
     frameEls.set(key, el);
+    if (!untrack(near).has(key)) watcher?.observe(el);
     onCleanup(() => {
+      watcher?.unobserve(el);
       if (frameEls.get(key) === el) frameEls.delete(key);
     });
   };
@@ -1083,7 +1252,11 @@ export function Board(props: {
           class="bf-pic"
           style={
             component()
-              ? { "max-height": `${w() * 2}px`, ...(f.poster ? {} : { height: `${w() / 2}px` }) }
+              ? {
+                  "max-height": `${w() * 2}px`,
+                  "contain-intrinsic-size": `auto ${w()}px ${w() / 2}px`,
+                  ...(f.poster && near().has(f.key) ? {} : { height: `${w() / 2}px` }),
+                }
               : { height: `${frameHeight(w())}px` }
           }
         >
@@ -1103,13 +1276,16 @@ export function Board(props: {
             </Match>
             <Match when={f.poster}>
               {(id) => (
-                <img
-                  src={assetUrl(id())}
-                  alt=""
-                  draggable={false}
-                  decoding="async"
-                  onLoad={settle}
-                />
+                <Show when={near().has(f.key)}>
+                  <img
+                    src={assetUrl(id())}
+                    alt=""
+                    draggable={false}
+                    decoding="async"
+                    loading="lazy"
+                    onLoad={settleSoon}
+                  />
+                </Show>
               )}
             </Match>
           </Switch>
@@ -1117,16 +1293,27 @@ export function Board(props: {
       </div>
     );
   };
-  const chip = (text: string, cls = "") => <span class={`bchip ${cls}`}>{text}</span>;
-  const sectionHead = (s: Section) => (
+  // Read when drawn and again as they change, so a refetch's words reach a header in place.
+  const chip = (text: () => string, cls: () => string = () => "") => (
+    <span class={`bchip ${cls()}`}>{text()}</span>
+  );
+  // The section as one kind, for a header's Match.
+  const asKind = <K extends Section["kind"]>(x: Section, kind: K) =>
+    x.kind === kind ? (x as Section & { kind: K }) : false;
+  // An accessor, so a refetch's counts, statuses and titles reach the header it already drew.
+  const sectionHead = (s: () => Section) => (
     <div class="bsec-hd">
-      <span class="bsec-nm">{sectionTitle(s)}</span>
+      <span class="bsec-nm">{sectionTitle(s())}</span>
       <Switch>
-        <Match when={s.kind === "flow" && s}>
+        <Match when={asKind(s(), "flow")}>
           {(f) => (
             <>
-              {chip("flow", "flow")}
-              {chip(flowLine(flowCoverage(f())))}
+              {chip(
+                () => "flow",
+                () => "flow",
+              )}
+              <Show when={f().status}>{(w) => chip(w, () => statusClass(w()))}</Show>
+              {chip(() => flowLine(flowCoverage(f())))}
               <button
                 type="button"
                 class="bchip bplay"
@@ -1138,21 +1325,42 @@ export function Board(props: {
             </>
           )}
         </Match>
-        <Match when={s.kind === "screen" && s}>
+        <Match when={asKind(s(), "screen")}>
           {(sc) => (
-            <Show when={designOf(sc().slug)?.status} keyed>
-              {(w) => chip(w, statusClass(w))}
-            </Show>
+            <Show when={designOf(sc().slug)?.status}>{(w) => chip(w, () => statusClass(w()))}</Show>
           )}
         </Match>
-        <Match when={s.kind === "grid" && s}>
+        <Match when={asKind(s(), "grid")}>
           {(g) => (
             <>
-              {chip(g().grid.label, g().grid.idea ? "idea" : "")}
+              {chip(
+                () => g().grid.label,
+                () => (g().grid.idea ? "idea" : ""),
+              )}
+              <Show when={!g().grid.idea && designOf(g().grid.slug)?.status}>
+                {(w) => chip(w, () => statusClass(w()))}
+              </Show>
               <Show when={g().grid.live}>
                 {(n) =>
-                  chip(`${n()} ${g().grid.idea ? "alternative" : "variant"}${n() === 1 ? "" : "s"}`)
+                  chip(
+                    () =>
+                      `${n()} ${g().grid.idea ? "alternative" : "variant"}${n() === 1 ? "" : "s"}`,
+                  )
                 }
+              </Show>
+              <Show when={g().more || whole().has(g().id)}>
+                <button
+                  type="button"
+                  class="bchip"
+                  aria-expanded={whole().has(g().id)}
+                  title={whole().has(g().id) ? "Show only the first rows" : "Show every row"}
+                  onClick={() => {
+                    touch();
+                    setWhole(flip(whole(), g().id));
+                  }}
+                >
+                  {whole().has(g().id) ? "Fewer ▴" : `${g().more} more ▾`}
+                </button>
               </Show>
               <Show when={g().grid.archived}>
                 {(n) => (
@@ -1182,13 +1390,20 @@ export function Board(props: {
             </>
           )}
         </Match>
-        <Match when={s.kind === "components" && s}>{(c) => chip(String(c().frames.length))}</Match>
-        <Match when={s.kind === "planned"}>{chip("not drawn yet")}</Match>
+        <Match when={asKind(s(), "components")}>
+          {(c) => chip(() => String(c().frames.length))}
+        </Match>
+        <Match when={s().kind === "planned"}>{chip(() => "not drawn yet")}</Match>
       </Switch>
-      <Show when={sectionAsks(s)}>
-        {(n) => chip(n() === 1 ? "1 question" : `${n()} questions`, "q")}
+      <Show when={sectionAsks(s())}>
+        {(n) =>
+          chip(
+            () => (n() === 1 ? "1 question" : `${n()} questions`),
+            () => "q",
+          )
+        }
       </Show>
-      <Show when={unfoldable(s)}>
+      <Show when={unfoldable(s())}>
         {(slug) => (
           <Show when={ideasFor(slug()).length}>
             {(n) => (
@@ -1210,12 +1425,6 @@ export function Board(props: {
       </Show>
     </div>
   );
-  // By id, so a section a refetch changed keeps its element and only what changed in it
-  // is drawn again.
-  const sectionIds = createMemo(() => sections().map((x) => x.id), [], {
-    equals: (a, b) => a.join("\n") === b.join("\n"),
-  });
-  const sectionById = createMemo(() => new Map(sections().map((x) => [x.id, x])));
   const sectionView = (id: string) => {
     const s = () => sectionById().get(id);
     const flow = () => {
@@ -1288,7 +1497,7 @@ export function Board(props: {
         }}
         ref={keepSection(id)}
       >
-        <Show when={s()}>{(x) => sectionHead(x())}</Show>
+        <Show when={s()}>{(x) => sectionHead(x)}</Show>
         <Show
           when={flow()}
           fallback={
@@ -1435,7 +1644,7 @@ export function Board(props: {
         classList={{ idea: !!grid()?.grid.idea, writing: outlined().has(id) }}
         ref={keepSection(id)}
       >
-        <Show when={s()}>{(x) => sectionHead(x())}</Show>
+        <Show when={s()}>{(x) => sectionHead(x)}</Show>
         <Switch
           fallback={
             <div class="prow">
@@ -1625,6 +1834,8 @@ export function Board(props: {
     onCleanup(() => {
       stage = undefined;
       world = undefined;
+      watcher?.disconnect();
+      watcher = undefined;
       touches.clear();
       gesture = null;
     });
@@ -1635,6 +1846,7 @@ export function Board(props: {
         ref={(el) => {
           stage = el;
           el.addEventListener("wheel", onWheel, { passive: false });
+          watch(el);
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -1650,6 +1862,7 @@ export function Board(props: {
           style={{
             transform: `translate(${view().x}px, ${view().y}px) scale(${view().k})`,
             "--k": String(view().k),
+            ...(wrapAt() ? { width: `${wrapAt()! + WORLD_PAD * 2}px` } : {}),
           }}
         >
           <For each={sectionIds()}>{sectionView}</For>
@@ -1836,6 +2049,8 @@ export function Board(props: {
 }
 
 const MAP_KEY = "mockpit:board-map";
+// The margin a fit of the whole page leaves at the stage's sides.
+const PAGE_FIT_PAD = 40;
 // A finger that moved less than this tapped; more, it pans.
 const TAP_SLOP = 6;
 const DOUBLE_TAP_MS = 350;
@@ -1844,6 +2059,8 @@ const DOUBLE_TAP_MS = 350;
 const WRITING_MIN_MS = 1500;
 const WRITING_MAX_MS = 60_000;
 const OUTLINE_MS = 1800;
+// A component's stills are short: this many of its rows stand about as tall as a screen.
+const GRID_COMPONENT_ROWS = 4;
 
 const CELL_CLASS: Record<Cell, string> = {
   Ready: "r",

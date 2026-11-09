@@ -11,7 +11,8 @@
 // double-click, Open) or from a question in Needs you: the history entry says so, never
 // the address, so every link anyone copies or sends lands on the Board, while Back,
 // Forward and a reload keep Focus. Focus keeps `?state=`, `?alternative=` and `?version=`
-// current, and reads `?owed=`, `?question=` and `?present=` once on entry.
+// current, reads `?owed=` and `?present=` once on entry, and goes to `?question=` whenever
+// the address names one.
 
 import { createSignal } from "solid-js";
 import { basePath, host } from "./host.ts";
@@ -63,6 +64,8 @@ export type Route =
       open: ScreenOpen | null;
       // The flow the user came through, which the flow bar keeps to.
       flow: string | null;
+      // A question Needs you named, until Focus has gone to it.
+      question: string | null;
     }
   | { screen: "missing" };
 
@@ -122,6 +125,7 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
               }
             : null,
         flow: q.get("flow") || null,
+        question: q.get("question") || null,
       };
     }
     const sel = parseSel(q.get("sel"));
@@ -217,10 +221,26 @@ host().window.addEventListener("popstate", () => setRoute(read()));
 // `focus` opens the design at `path` in Focus; anything else lands on the Board.
 export function navigate(path: string, opts: { replace?: boolean; focus?: boolean } = {}) {
   const h = host().history;
-  const entry = opts.focus ? { focus: true } : null;
+  // Focus opened from the Board keeps the Board's address, so going back up can be Back;
+  // a Focus entry replaced in place keeps it.
+  const from =
+    opts.focus && !opts.replace && route().screen === "board"
+      ? { from: `${host().location.pathname}${host().location.search}` }
+      : opts.replace
+        ? cameFrom()
+        : {};
+  const entry = opts.focus ? { focus: true, ...from } : null;
   if (opts.replace) h.replaceState(entry, "", path);
   else h.pushState(entry, "", path);
   setRoute(read());
+}
+
+// The Board's address the Focus entry on screen was opened from, as its history state keeps
+// it: `{ from }`, or nothing when Focus wasn't opened from the Board.
+export function cameFrom(): { from?: string } {
+  const st: unknown = host().history.state;
+  const from = st && typeof st === "object" ? (st as { from?: unknown }).from : undefined;
+  return typeof from === "string" ? { from } : {};
 }
 
 // The current entry's address changes with no step in history.

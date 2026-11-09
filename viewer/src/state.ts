@@ -96,7 +96,7 @@ import {
   shortLabel,
   splitLabel,
 } from "./logic.ts";
-import { designPath, navigate, type ScreenOpen } from "./route.ts";
+import { cameFrom, designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
 
@@ -927,11 +927,7 @@ export function createDesignScreen(
     // from Send.
     // A pick made while this loaded keeps the user where they made it.
     if (lastLocalWrite) return;
-    const named = question ? flow().find((e) => e.ask.id === question) : undefined;
-    if (named) {
-      goQuestion(entriesIn(named.state).indexOf(named), { quiet: true, state: named.state });
-      return;
-    }
+    if (question && openQuestion(question, true)) return;
     // Only an agent's question outranks the memory; a link is never overruled.
     const asked = firstOwed((a) => !isBuiltinAsk(a));
     if (heldBy === "link" || (heldBy === "place" && !asked)) {
@@ -1024,7 +1020,7 @@ export function createDesignScreen(
     cur: number;
   };
   const snap = (): Snap => ({ mockpit: "design", focus: true, state: activeState(), cur: cur() });
-  const record = () => host().history.replaceState(snap(), "");
+  const record = () => host().history.replaceState({ ...cameFrom(), ...snap() }, "");
   function restoreSnap(s: unknown) {
     if (!s || typeof s !== "object" || (s as Snap).mockpit !== "design") return false;
     const v = s as Snap;
@@ -1130,6 +1126,15 @@ export function createDesignScreen(
     });
     record();
     if (!opts.quiet) rememberPlace();
+  }
+  // One question by id (Needs you, on entry or while the design is open): the card comes
+  // back from wherever it was put away, on that question. False when it isn't open here.
+  function openQuestion(id: string, quiet = false): boolean {
+    const named = flow().find((e) => e.ask.id === id);
+    if (!named) return false;
+    if (!quiet) showTalk();
+    goQuestion(entriesIn(named.state).indexOf(named), { quiet, state: named.state });
+    return true;
   }
   // What the question's card offers about where the stage is: go to the state
   // the question is about, or back to where the user was.
@@ -2654,6 +2659,7 @@ export function createDesignScreen(
     setPreview,
     cur,
     goQuestion,
+    openQuestion,
     stageOffer,
     showAskState,
     backFromAsk,

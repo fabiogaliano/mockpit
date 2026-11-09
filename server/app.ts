@@ -3978,7 +3978,7 @@ export function createApp({
     const area: string | null =
       placed !== undefined
         ? placed
-        : query.unsorted
+        : query.unsorted === "1"
           ? null
           : asked && pages.some((p) => p.name === asked)
             ? asked

@@ -1,5 +1,0 @@
----
-"mockpit": minor
----
-
-The Board shows what the agent did. While an agent publishes, "agent…" sits on the frame it is writing to and its section is outlined for a moment; the marker goes when the new still is on the page. A frame that changed since this browser last had it on screen carries a small dot until you pick it or open it, and the page card says "Since you were here: 3 changed": each press fits the Board to the next one, "1 of 3", "2 of 3", and the last ends it. In Focus, an alternative that changed since you saw it offers "Compare with what you saw" beside Compare with…, the 2-up compare with the version you last had on screen on the left. The note on a product design that used to read only "Back to #9" now says what it is: "New version · #10", then Back to #9, or "Changed since Ready" when it was marked. Activity is the thread's name on the phone's panel too. Home's "New" on a cover now goes per alternative: opening one state no longer clears a design whose other states changed.

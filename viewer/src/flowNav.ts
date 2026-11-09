@@ -11,7 +11,7 @@ import { host } from "./host.ts";
 import { flowFor, gotoTarget, screenPicture } from "./logic.ts";
 import { designPath, navigate } from "./route.ts";
 import type { DesignScreenState } from "./state.ts";
-import { frameMode } from "./systemRev.ts";
+import { frameMode, posterShown } from "./systemRev.ts";
 
 // Try stays on across a step into another design, which mounts a fresh screen.
 let carryTry = false;
@@ -172,6 +172,19 @@ export function createFlowNav(
       : null;
   }
 
+  // The still of what `picture` would run, where one stands for it: an image costs nothing,
+  // a frame a sandboxed document of its own. This design's at the version on stage only.
+  function poster(x: FlowStep): string | undefined {
+    if (x.design === slug) {
+      const v = s.alternativeFor(x.state, false);
+      if (!v || s.frameVersionOf(v) !== v.version) return undefined;
+      const page = v.surfaces.find((y) => y.kind === "html") as { poster?: unknown } | undefined;
+      return posterShown(typeof page?.poster === "string" ? page.poster : undefined);
+    }
+    const node = pictured().get(x.design);
+    return posterShown(node ? screenPicture(node, x.state)?.poster : undefined);
+  }
+
   // Whether the agent still waits on a step; known only for this design's own steps.
   const owes = (x: FlowStep) => x.design === slug && s.askedIn(x.state) > 0;
   // Declared, with nothing drawn there yet. Another design's step says so itself, read off
@@ -196,6 +209,7 @@ export function createFlowNav(
     step,
     follow,
     picture,
+    poster,
     owes,
     planned,
   };

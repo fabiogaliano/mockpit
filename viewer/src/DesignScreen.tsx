@@ -72,6 +72,7 @@ import { Reader, ReaderSend } from "./Reader.tsx";
 import { markSeen, sawBefore } from "./seen.ts";
 import {
   boardPath,
+  cameFrom,
   designPath,
   homePath,
   linkClick,
@@ -138,6 +139,39 @@ function boardHome(
         name: "Ideas",
       };
 }
+
+// The same Board page, whichever frame is selected on it.
+const samePage = (a: string, b: string) => {
+  const page = (x: string) => {
+    const u = new URL(x, "http://x");
+    u.searchParams.delete("sel");
+    u.searchParams.delete("alt");
+    u.searchParams.sort();
+    return `${u.pathname}?${u.searchParams}`;
+  };
+  return page(a) === page(b);
+};
+
+// Up from Focus to the Board at `href`. Opened from that Board page, it is Back, so Back on
+// the Board doesn't return to Focus, and the address then selects the frame on stage now;
+// else the Board takes Focus's entry.
+function upToBoard(href: string) {
+  const from = cameFrom().from;
+  if (!from || !samePage(from, href)) {
+    navigate(href, { replace: true });
+    return;
+  }
+  const w = host().window;
+  // A tick after Back's own listeners, which read the address arrived at.
+  w.addEventListener("popstate", () => w.setTimeout(() => replaceUrl(href), 0), { once: true });
+  host().history.back();
+}
+const upClick = (e: MouseEvent, href: string) => {
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey)
+    return;
+  e.preventDefault();
+  upToBoard(href);
+};
 
 export function DesignScreen(props: {
   project: string;
@@ -216,16 +250,36 @@ export function DesignScreen(props: {
       { defer: true },
     ),
   );
+  // A question from Needs you while this design is open: the address names it, Focus goes
+  // to it and takes it out of the address, so the same question named again goes again.
+  createEffect(
+    on(
+      () => {
+        const r = route();
+        return r.screen === "design" ? r.question : null;
+      },
+      (id) => {
+        if (!id || !s.design()) return;
+        s.openQuestion(id);
+        const w = host().window;
+        const q = new URLSearchParams(w.location.search);
+        q.delete("question");
+        q.delete("owed");
+        replaceUrl(`${w.location.pathname}${q.size ? `?${q}` : ""}`);
+      },
+      { defer: true },
+    ),
+  );
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   // Played from the Board's ▶ or P: the flow full screen, ended back on the Board.
   const presenting = opening.has("present");
   const endPresent = () =>
     navigate(designPath(props.project, props.slug, { state: s.activeState(), alternative: null }));
-  // A version picked to compare with the one on stage, 2-up in one frame.
+  // A version picked to compare with the one on stage, 2-up in one frame. Another state or
+  // design ends it; a reload of this one (a publish, a still landing) doesn't.
   const [comparing, setComparing] = createSignal<VersionStep | null>(null);
-  createEffect(
-    on([() => s.activeState(), () => s.design()?.id], () => setComparing(null), { defer: true }),
-  );
+  const designId = createMemo(() => s.design()?.id);
+  createEffect(on([() => s.activeState(), designId], () => setComparing(null), { defer: true }));
   const t = createTune(s);
   const m = createMargins(
     s,
@@ -359,18 +413,26 @@ export function DesignScreen(props: {
   });
 
   // Esc turns a canvas tool off, then closes what floats, one at a time, then goes back
-  // up to the Board, fit to this frame.
+  // up to the Board, fit to this frame. C takes up Comment, as in a design tool.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || presenting) return;
+      if (e.defaultPrevented || e.isComposing || presenting) return;
       const at = e.composedPath()[0];
       if (at instanceof Element && at.closest(FIELD)) return;
+      if (e.key === "c" || e.key === "C") {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        if (readonly() || reading() || !m.page()) return;
+        s.toggleTool("mark");
+        e.preventDefault();
+        return;
+      }
+      if (e.key !== "Escape") return;
       if (s.tool()) s.toggleTool(s.tool()!);
       else if (s.askingState()) s.setAskingState(null);
       else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
       else if (s.design())
-        navigate(boardHome(s.design()!, s.activeState(), s.activeAlternative()?.alternative).href);
+        upToBoard(boardHome(s.design()!, s.activeState(), s.activeAlternative()?.alternative).href);
       else return;
       e.preventDefault();
     };
@@ -843,7 +905,7 @@ function TopRow(props: {
           class="ib mup"
           href={up().href}
           aria-label={`Up to ${up().name}`}
-          onClick={(e) => linkClick(e, up().href)}
+          onClick={(e) => upClick(e, up().href)}
         >
           <Icon name="back" />
         </a>
@@ -858,7 +920,7 @@ function TopRow(props: {
                 class="crumb-far crumb-link"
                 href={up().href}
                 title={`Back to ${up().name} (Esc)`}
-                onClick={(e) => linkClick(e, up().href)}
+                onClick={(e) => upClick(e, up().href)}
               >
                 {up().name}
               </a>

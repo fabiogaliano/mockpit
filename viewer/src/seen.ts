@@ -53,6 +53,15 @@ export function seenIn(project: string, all: { post: string; version: number }[]
   return first;
 }
 
+// The one version rule for "seen" and "changed": the version an alternative's frame and its
+// cover show (in use, else the Board's and the cover's after a stay or a Ready mark), never
+// a newer one they don't, or a cover would say New after the frame was seen.
+export const versionShown = (v: {
+  version: number;
+  coverVersion?: number;
+  inUseVersion?: number;
+}): number => v.inUseVersion ?? v.coverVersion ?? v.version;
+
 export const changedSince = (seen: Seen | null, post: string, version: number): boolean =>
   !!seen && version > (seen[post]?.v ?? 0);
 

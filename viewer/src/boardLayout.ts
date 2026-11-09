@@ -69,3 +69,52 @@ export const unionBox = (boxes: Box[]): Box | null => {
   const b = Math.max(...boxes.map((b) => b.y + b.h));
   return { x, y, w: r - x, h: b - y };
 };
+
+// Sections flow left to right and wrap, as words do, so a page of a few wide sections and
+// a few narrow ones reads as a sheet rather than one long column. The page is as wide as
+// the run of sections whose wrapped rows best fill a room of the stage's shape: every
+// width a run of whole sections makes is tried, so a row always ends at a section's edge.
+export const SECTION_GAP = 90;
+export const WORLD_PAD = 60;
+
+const wrappedHeight = (sizes: { w: number; h: number }[], width: number): number => {
+  let x = 0;
+  let row = 0;
+  let total = 0;
+  for (const s of sizes) {
+    if (x > 0 && x + SECTION_GAP + s.w > width) {
+      total += row + SECTION_GAP;
+      x = 0;
+      row = 0;
+    }
+    x += (x > 0 ? SECTION_GAP : 0) + s.w;
+    row = Math.max(row, s.h);
+  }
+  return total + row;
+};
+
+export function wrapWidth(sizes: { w: number; h: number }[], aspect: number): number | null {
+  if (!sizes.length) return null;
+  const widest = Math.max(...sizes.map((s) => s.w));
+  const widths = new Set([widest]);
+  for (let i = 0; i < sizes.length; i++) {
+    let w = 0;
+    for (let j = i; j < sizes.length; j++) {
+      w += (j > i ? SECTION_GAP : 0) + sizes[j]!.w;
+      if (w > widest) widths.add(w);
+    }
+  }
+  let best = widest;
+  let score = -1;
+  for (const w of widths) {
+    const h = wrappedHeight(sizes, w);
+    // The zoom a room of this shape fits the page at, up to a constant.
+    const at = Math.min(aspect / (w + WORLD_PAD * 2), 1 / (h + WORLD_PAD * 2));
+    if (at > score) {
+      score = at;
+      best = w;
+    }
+  }
+  // A pixel over, so rounding in the browser's own line breaking never wraps a row early.
+  return Math.ceil(best) + 1;
+}

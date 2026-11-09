@@ -467,8 +467,15 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
       >
         <Show when={pictured()}>
           <span class="lm-pic" classList={{ flat: flat(), "lm-dash": nav.planned(x) }}>
-            <Show when={nav.picture(x)}>
-              {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+            <Show
+              when={nav.poster(x)}
+              fallback={
+                <Show when={nav.picture(x)}>
+                  {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
+                </Show>
+              }
+            >
+              {(id) => <img src={assetUrl(id())} alt="" loading="lazy" decoding="async" />}
             </Show>
           </span>
         </Show>

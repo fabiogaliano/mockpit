@@ -5,6 +5,7 @@
 
 import { createSignal, onCleanup, onMount } from "solid-js";
 import { surfaceUrl } from "./api.ts";
+import { FIELD } from "./flowKeys.ts";
 import { root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import type { VersionStep } from "./logic.ts";
@@ -52,6 +53,9 @@ export function CompareTwo(props: {
   };
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Typing in a field (a comment, a filter) keeps its own arrows and Esc.
+      const target = e.composedPath()[0];
+      if (target instanceof Element && target.closest(FIELD)) return;
       if (e.key === "ArrowLeft") setAt(Math.max(0, at() - 0.05));
       else if (e.key === "ArrowRight") setAt(Math.min(1, at() + 0.05));
       else if (e.key === "Escape") props.onClose();

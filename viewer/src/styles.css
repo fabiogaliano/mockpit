@@ -6780,10 +6780,6 @@ html:has(.design-screen) {
    picker. A saved bookmark stays visible; the rest of a card's tools wait for hover.
    It sits on the picture, so it needs its own ground: designs can be any colour. */
 
-/* Move stands beside Keep. */
-
-/* A tint, not a solid fill: the arrow has to stay readable inside the folder. */
-
 .slpill {
   display: flex;
   align-items: center;
@@ -7358,33 +7354,6 @@ html:has(.design-screen) {
   justify-content: space-between;
   gap: 8px;
 }
-/* The wall: every design of a big lab in one grid, filtered. It only scrolls down, and
-   its budget of live frames comes from the same watch as the columns'. */
-
-.studio.peeking {
-  right: var(--peek-w);
-}
-
-/* In a small card the tick has the corner, so Keep and Move stand next to the ×. */
-
-/* On a finger the cards are too small and too close for these: they wait in the large
-   view a tap away, except the tick and, on what's gone, Restore. */
-
-/* The closer look as the wall's preview: beside it instead of over it. */
-.look.beside {
-  left: auto;
-  z-index: 5;
-  width: var(--peek-w);
-  border-left: 1px solid var(--line);
-}
-
-/* The one track, held to the screen: without it a note that stays on one line sizes the
-   track and everything in it past the edge of a phone. */
-.look {
-  grid-template-columns: minmax(0, 1fr);
-}
-/* A swipe is the way across here, and 112px of arrows is a third of a phone's width. */
-
 /* Declared and not drawn. One dashed edge says it everywhere: where the picture will go. */
 .lm-pic.lm-dash {
   background: none;
@@ -7566,9 +7535,6 @@ html:has(.design-screen) {
 .home-head-plan {
   margin-left: 10px;
 }
-
-/* States by alternatives. The scroller is the whole view, so the names stay in sight both
-   ways, and a phone gets there by scrolling rather than by a smaller table. */
 
 /* Spec: three sections, plain text kept as written. */
 .spec {
@@ -7766,8 +7732,6 @@ html:has(.design-screen) {
   padding-left: 8px;
   border-left: 1px solid var(--line);
 }
-
-/* A question about another state says so on its card, with the way there. */
 
 /* Popover UA styles centre it with auto margins and a fit-content box in the middle. */
 .tip {
@@ -8999,10 +8963,14 @@ a.ideas-row {
   position: absolute;
   top: 0;
   left: 0;
+  /* Sections wrap in rows; the Board sets the width (wrapWidth in boardLayout.ts), and
+     until then they stand in one row. The gap and padding are SECTION_GAP and WORLD_PAD. */
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   align-items: flex-start;
+  align-content: flex-start;
   gap: 90px;
+  width: max-content;
   padding: 60px;
   transform-origin: 0 0;
 }
@@ -9015,6 +8983,7 @@ a.ideas-row {
 }
 .bsec {
   position: relative;
+  flex: none;
   padding: 64px 26px 26px;
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -9218,6 +9187,8 @@ button.bchip:hover {
   box-shadow: 0 0 0 calc(2px / var(--k, 1)) var(--accent-solid);
 }
 .bf-pic {
+  /* Far off the view, a frame's still isn't painted; its size holds, so nothing moves. */
+  content-visibility: auto;
   overflow: hidden;
   border-radius: 18px;
   background: var(--row);
