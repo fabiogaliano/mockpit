@@ -5969,6 +5969,10 @@ export function createApp({
     if (!ctx.viewer) return viewerOnly();
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
+    return archiveDesign(design);
+  }
+
+  async function archiveDesign(design: Design): Promise<FlowResult> {
     const posts = await store.listPosts({ designId: design.id });
     if (design.archivedAt) {
       return ok({ design: designSummaryView(design, posts), reason: design.archiveReason });
@@ -5992,6 +5996,10 @@ export function createApp({
     if (!ctx.viewer) return viewerOnly();
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
+    return restoreDesign(design);
+  }
+
+  async function restoreDesign(design: Design): Promise<FlowResult> {
     const posts = await store.listPosts({ designId: design.id });
     const nothingLive = posts.length > 0 && !posts.some((p) => isLive(p.status));
     if (!design.archivedAt && !nothingLive) return ok({ design: designSummaryView(design, posts) });
@@ -7180,10 +7188,11 @@ export function createApp({
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const listed = [body.alternatives, body.variants].flatMap((l) => (Array.isArray(l) ? l : []));
     const tidying = body.hideOlder === true || body.deleteOlder === true;
-    if (listed.length === 0 && !tidying) {
+    const wholeDesign = listed.length === 0 && (body.archive === true || body.restore === true);
+    if (listed.length === 0 && !tidying && !wholeDesign) {
       return fail(
         400,
-        'provide "alternatives" (or a variants design\'s "variants"): which ones to move',
+        'provide "alternatives" (or a variants design\'s "variants"): which ones to move, or "archive" or "restore" alone for the whole design',
       );
     }
     if (listed.length > MAX_CANDIDATES) {
@@ -7205,6 +7214,7 @@ export function createApp({
       );
     }
     if (tidying) return tidyVersionsFlow(ref, body, ctx);
+    if (wholeDesign) return moveDesignFlow(ref, body, ctx);
     const target = await commentTarget({
       design: ref,
       project: body.project,
@@ -7312,6 +7322,48 @@ export function createApp({
       ...entriesNamed(design, done, undefined, skipped),
       ...(to ? { to, saved: moved.variants ? asVariants(saved as never[]) : saved } : {}),
       url: designUrl(ctx.base, moved),
+      feedback: await feedbackFor(body.session, ctx.base),
+    });
+  }
+
+  // The agent archives or restores a whole design only through the same paths the user's
+  // Home menu takes, so Undo, dismissed asks and the archive reason behave the same; the
+  // Thread line is how the user learns an agent did it.
+  async function moveDesignFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    const target = await commentTarget({
+      design: ref,
+      project: body.project,
+      session: body.session,
+    });
+    if (isResult(target)) return target;
+    const { design, session } = target;
+    const archiving = body.archive === true;
+    const wasArchived = !!design.archivedAt;
+    const result = archiving ? await archiveDesign(design) : await restoreDesign(design);
+    if (result.status >= 400) return result;
+    const after = await store.getDesign(design.id);
+    // A restore also brings back a design whose alternatives were all archived.
+    const changed = archiving ? !wasArchived : result.body?.undo !== undefined;
+    if (changed) {
+      const line = archiving ? "Archived this design" : "Restored this design";
+      const comment = await store.createComment({
+        sessionId: session.id,
+        designId: design.id,
+        postId: null,
+        author: reservedAgent(session.agent),
+        text: line,
+        kind: "comment",
+        anchors: [],
+        postVersion: null,
+        viewport: null,
+      });
+      if (comment) announceComment(comment);
+    }
+    return ok({
+      design: design.slug,
+      archived: !!after?.archivedAt,
+      ...(changed ? {} : { skipped: archiving ? "already archived" : "not archived" }),
+      url: designUrl(ctx.base, after ?? design),
       feedback: await feedbackFor(body.session, ctx.base),
     });
   }

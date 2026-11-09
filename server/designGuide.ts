@@ -717,7 +717,8 @@ areas alphabetically unless \`mockpit edit --project <p> --areas
 Tidying up is yours too when the user asks: \`mockpit move --design <slug> --alternative
 <v> --to <design> [--to-state <tab>]\` moves alternatives and takes them out of here,
 \`--archive\` takes them out of sight and \`--restore\` brings them back. One in use
-stays. Copying by publishing leaves the originals behind,
+stays. With no \`--alternative\`, \`mockpit move --design <slug> --archive\` takes the
+whole design to the Archive, and \`--restore\` brings it back. Copying by publishing leaves the originals behind,
 so use this instead. A design with no states takes tabs after
 \`mockpit edit --design <slug> --first-state <name>\`, which names the one it has.
 

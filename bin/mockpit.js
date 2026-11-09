@@ -127,6 +127,7 @@ verbs:
                                           a plain-text message in a design's thread
   mockpit move --design <slug> (--alternative <v>... | --variant <v>...) (--to <design> [--to-state s] | --archive | --restore)
                                           move alternatives elsewhere, archive or restore them
+                                          (--archive or --restore alone: the whole design)
   mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--[no-]variants] [--source p]
           [--for d] [--becomes k] [--purpose t] [--behaviour t [--state s] [--part p]]
                                           change a design or its spec without a new
@@ -321,9 +322,11 @@ mockpit read --area <name> [--project <name>]
   (or --variant <v>..., a variants design's entries)
   --to <design> [--to-state <s>] | --to-state <s> | --archive | --restore
 mockpit move --design <slug> [--state s] [--alternative <v>...] --hide-older | --delete-older
+mockpit move --design <slug> --archive | --restore
   Tidy up. --to or --to-state moves them to another design or tab (a new state is
   created) and takes them out of here; --archive takes them out of sight; --restore
-  brings them back. One in use stays and is reported. The
+  brings them back. One in use stays and is reported. With no --alternative,
+  --archive takes the whole design to the Archive and --restore brings it back. The
   thread says what happened, so the user can undo it.
   Only when the user asks: --hide-older hides all but each alternative's newest visible
   version (no --alternative: every alternative), and --delete-older deletes them for good,
@@ -2433,8 +2436,13 @@ const commands = {
     const example = "mockpit move --design writer --alternative quiet --archive";
     const slug = requireDesign(flags, example);
     const tidying = flags["hide-older"] || flags["delete-older"];
-    if (!flags.alternative?.length && !flags.variant?.length && !tidying) {
-      die("move needs --alternative (--variant on a variants design)", example);
+    const wholeDesign =
+      !flags.alternative?.length && !flags.variant?.length && (flags.archive || flags.restore);
+    if (!flags.alternative?.length && !flags.variant?.length && !tidying && !wholeDesign) {
+      die(
+        "move needs --alternative (--variant on a variants design), or --archive or --restore alone for the whole design",
+        example,
+      );
     }
     const session = await resolveSession(flags);
     const result = await api(
@@ -2459,6 +2467,12 @@ const commands = {
     );
     if (flags.json) return out(result);
     if (flags.quiet) return;
+    if (wholeDesign) {
+      const what = result.archived ? "archived" : "restored";
+      console.log(result.skipped ? `${slug} ${result.skipped}` : `${what} ${slug} · ${result.url}`);
+      printFeedback(result.feedback);
+      return;
+    }
     if (tidying) {
       const verb = flags["delete-older"] ? "deleted" : "hid";
       console.log(`${verb} ${result.versions.length} older versions`);

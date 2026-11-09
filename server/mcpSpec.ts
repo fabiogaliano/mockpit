@@ -346,13 +346,13 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "move",
     description:
-      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; one in use stays. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, instance, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
+      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; one in use stays. archive or restore with no alternatives does it to the whole design. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, instance, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
     params: {
       design: P.design,
       state: P.state,
       alternatives: {
         t: "strings",
-        d: "Alternative names; required except with hideOlder or deleteOlder",
+        d: "Alternative names; required except with hideOlder, deleteOlder, or archive/restore of the whole design",
       },
       variants: { t: "strings", d: "A variants design's names instead" },
       to: { t: "string", d: "Target design; default this one" },
