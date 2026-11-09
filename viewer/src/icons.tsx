@@ -5,7 +5,7 @@
 import { For } from "solid-js";
 
 const PATHS = {
-  // Sidebar sections.
+  // The rail's Library and Exploring rows.
   idea: [
     "M12 2.75a6.6 6.6 0 0 0-4.05 11.82c.75.6 1.2 1.5 1.2 2.43h5.7c0-.93.45-1.83 1.2-2.43A6.6 6.6 0 0 0 12 2.75Z",
     "M9.5 19.75h5M10.5 22h3",

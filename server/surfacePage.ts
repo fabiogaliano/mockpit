@@ -277,10 +277,10 @@ if (window.ResizeObserver) {
 }
 `;
 
-// Freeze: a frame shown small (a wall, a grid, a cover, an option's picture) stops animating
+// Freeze: a frame shown small (a cover, an alternative in the list, an option's picture) stops animating
 // once its page has settled, so a screenful of them costs nothing while they're looked at.
 // Opt-in by the fragment `#small`, so it's the same document and the same cache entry as the
-// page on Stage, which never has it. It runs first in <head>, ahead of the page's own
+// page live in Focus, which never has it. It runs first in <head>, ahead of the page's own
 // scripts, and asks nothing of them. Pinned down with pages built to trip it.
 //
 // The danger is a picture that freezes half-drawn, so stopping is the last thing that happens
@@ -494,7 +494,7 @@ export const HIT_TEST_JS = `
 `;
 
 // ---------------------------------------------------------------------------
-// Stage bridge: parts and knobs (html surfaces only)
+// Frame bridge: parts and knobs (html surfaces only)
 // ---------------------------------------------------------------------------
 //
 // The message protocol between a surface frame and the trusted host. Every

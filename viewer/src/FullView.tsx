@@ -2,7 +2,7 @@
 // for, live: a tap still reaches the page (a lab's creature still reacts).
 // A pinch zooms it and its midpoint pans; one finger scrolls it natively.
 // The page itself never zooms: its bridge keeps two fingers from the browser
-// and reports them here (surfacePage.ts), as Stage's canvas is zoomed. A page
+// and reports them here (surfacePage.ts), as the stage's canvas in Focus is zoomed. A page
 // takes its full height, so it has nothing of its own to scroll and a finger
 // on it moves this view instead.
 

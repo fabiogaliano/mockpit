@@ -1240,7 +1240,7 @@ export class SqlStore implements Store {
     );
   }
 
-  // The order Home lists a project's areas in became the areas themselves, each with
+  // The order a project listed its areas in became the areas themselves, each with
   // room for what it is for. Done on every boot: a key is moved once and then gone.
   private migrateAreaOrder() {
     const prefix = "areaOrder:";
@@ -3468,7 +3468,7 @@ export class SqlStore implements Store {
         version: r.version as number,
         acceptedVersion: (r.acceptedVersion as number | null) ?? null,
       }));
-    // A close or a move from Home is a reply too, and decides nothing.
+    // A close or a move from a cover's menu is a reply too, and decides nothing.
     const decidedAt: Record<string, string> = {};
     for (const r of this.sql
       .exec(

@@ -42,7 +42,7 @@ export function startBadge() {
   const refresh = async () => {
     try {
       const projects = await api.projects();
-      // No project in the address is the most recent one, as on Home.
+      // No project in the address is the most recent one, as on the Board.
       const here = projects.find((p) => p.name === onScreen()) ?? projects[0];
       show(
         here?.open ?? 0,

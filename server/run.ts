@@ -17,7 +17,7 @@ import { RUN_FUNCTIONS, type RunFunction } from "./runApi.ts";
 import type { Asset, AssetKind, Store } from "./types.ts";
 
 export interface RunLimits {
-  // Wall time for the whole run.
+  // Elapsed time for the whole run.
   deadlineMs: number;
   // Script compute time, summed over its synchronous bursts.
   cpuMs: number;

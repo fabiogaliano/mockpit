@@ -139,7 +139,7 @@ export function Board(props: {
     return !!known && !!props.project && !known.some((p) => p.name === props.project);
   };
 
-  // The rail's Library and Exploring rows light up by what the project holds, Home's rule.
+  // The rail's Library and Exploring rows light up by what the project holds (albums.ts).
   const [tree, { refetch: refetchTree }] = createResource(project, (p) =>
     api.tree(p).catch(() => null),
   );

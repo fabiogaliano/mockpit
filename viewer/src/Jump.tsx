@@ -131,7 +131,7 @@ function JumpBox(props: { onClose: () => void }) {
     const r = route();
     return r.screen === "missing" ? null : r.project;
   };
-  // The bare address is the most recent project's home, as on Home.
+  // The bare address is the most recent project's Board.
   const [first] = createResource(
     () => routed() === null,
     (bare) => (bare ? api.projects().then((p) => p[0]?.name ?? null) : null),

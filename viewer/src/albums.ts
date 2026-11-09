@@ -1,4 +1,4 @@
-// How Home sorts and pictures a project, read off what each design holds, so a
+// How the Library's pages sort and picture a project, read off what each design holds, so a
 // project gets structure by being used and an agent files nothing. Screens and
 // components stay as declared; the rest is an idea or a document by its contents.
 // Pure rules: Album.tsx and Home.tsx draw them.
@@ -49,11 +49,11 @@ export function sectionOf(node: {
   return "documents";
 }
 
-// The product is what ships: its sections come first, and Home opens on them.
+// The product is what ships: its sections come first.
 export const PRODUCT_SECTIONS: Section[] = ["screens", "flows", "components"];
 
 // The sections a project has lit: the product's first, then Ideas, where exploring
-// happens. Documents wait at the foot of the sidebar.
+// happens. Documents come last.
 export function litSections(count: Record<Section, number>): {
   rows: Section[];
   foot: Section | null;
@@ -154,7 +154,7 @@ const ACTIVITY = new Set<TurnKind>(["open", "draft", "unseen", "working", "sent"
 // archived. A plan has nothing live because nothing is drawn yet, which is not the same.
 export const inArchive = (n: TreeNode) => !!n.archivedAt || (nothingLeft(n) && !n.planned);
 
-// What the sidebar holds, for Home and for the one that opens over a design.
+// What the rail lists, on the Board and when it opens over a design.
 // `order`: the project's areas in the order it lists them.
 export function sidebarOf(nodes: TreeNode[], flows: number, order: string[]) {
   const onShow = nodes.filter((n) => !inArchive(n));

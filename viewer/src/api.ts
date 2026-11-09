@@ -72,11 +72,11 @@ export type DesignDetail = ReturnType<typeof designDetailView> & {
   palettes?: PaletteChoice[];
 };
 export type TreeNode = ReturnType<typeof treeNodeView>;
-// One area as `read --area` returns it: the area page draws the same.
+// One area as `read --area` returns it, coverage included; the Board draws its own read, `boardView`.
 export type AreaView = ReturnType<typeof areaView>;
 export type BoardPage = ReturnType<typeof boardView> & { onBoard?: boolean };
 export type { BoardFrame, BoardSection } from "../../server/board.ts";
-// A project's area in the order Home lists them, with what it is for. An `alphabetical`
+// A project's area in the order the Board lists its pages, with what it is for. An `alphabetical`
 // one is in no order: it is listed for its description alone.
 export type AreaLine = { name: string; description?: string; alphabetical?: true };
 // A declared flow as `read` returns it: only steps whose screen exists.
@@ -404,7 +404,7 @@ export const api = {
       `/api/projects/${encodeURIComponent(project)}/decisions`,
       json("PUT", body),
     ),
-  // The user moves a design from Home (another kind or area, null: none), or writes a
+  // The user moves a design from a cover's ⋯ (another kind or area, null: none), or writes a
   // section of its spec. The agent hears it in its next feedback.
   editDesign: (
     id: string,

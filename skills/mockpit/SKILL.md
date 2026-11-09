@@ -26,13 +26,13 @@ The loop never waits for the user:
    for a screen, `--flow <name> --step N` for states the user moves between,
    and each reusable component as its own design included with
    `<mockpit-instance slug="card">` (that makes it a component). Ideas,
-   diagrams and reviews stay plain. `--area <name>` groups Home by the
-   product's areas; `--source <path>` names the code that implements it.
+   diagrams and reviews stay plain. `--area <name>` puts it on that area's
+   page of the Board; `--source <path>` names the code that implements it.
    `mockpit edit <slug>` changes slug, title, kind, area, group or source
    without a new version (a component with no area is shared; `--group Actions`
    files it in the library; when a nudge offers the move to shared, ask the user
    before `--area ''`); `mockpit edit --project <p> --areas
-   "Shell,Food"` orders Home's areas. Read an area before drawing in it:
+   "Shell,Food"` orders the Board's pages. Read an area before drawing in it:
    `mockpit read --area Food`. A screen or component carries a spec: what it is
    for (`edit --purpose`) and how it works where the picture can't show it
    (`edit --behaviour "…" --state Now --part river`); that goes there, never in
@@ -40,7 +40,7 @@ The loop never waits for the user:
    current, alternatives belong in an idea (entries that all ship are variants:
    `--variants`, each named `--variant <name>`), and the user marks it Ready (`read` and
    `export`: `ready`, `changed`, `builtFrom`). A batch with `edited` is the user moving
-   a design from Home (kind, area), correcting its spec or marking it Ready: build on it.
+   a design themselves (kind, area), correcting its spec or marking it Ready: build on it.
    Explore for a screen or component in an idea for it (`--for <slug>`), or say what an
    idea would become (`--becomes screen|component|flow|system`). Its read and replies
    carry `target.ruledOut`: what that design turned down; don't offer it again unless the user asks. Using
@@ -61,7 +61,8 @@ The loop never waits for the user:
    What every design shares (sheet, tokens, scales, palettes, project knobs) is the
    project's system: `mockpit system` reads and changes it, for every design at once
    (`mockpit guide --topic system`).
-4. Tell the user in one line where to look, then end your turn. The question lives in the
+4. Tell the user in one line where to look (a write's `url` opens the Board fit to the
+   design), then end your turn. The question lives in the
    design (`ask`), never in chat. Never poll.
 5. When the user says they answered (or a `mockpit watch` line wakes you), run
    `mockpit feedback`. Every write also returns `feedback`; read it. Empty `feedback` with a

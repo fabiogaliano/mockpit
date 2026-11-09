@@ -76,7 +76,7 @@ verbs:
       --title <t>       design title
       --kind <k>        screen|component, only for an app's screens (default idea);
                         with no html it plans one, drawn by a later publish
-      --area <name>     where in the product it belongs ("Shell"); Home groups by it
+      --area <name>     where in the product it belongs ("Shell"); its page of the Board
       --group <word>    a component's library group (Actions, Inputs, Navigation, ...)
       --for <slug>      an idea's screen or component: Use this changes it
       --becomes <what>  an idea for nothing yet: screen|component|flow|system
@@ -94,8 +94,8 @@ verbs:
                         it out); with no html it only places the state
       --project <name>  project (default: git remote, else directory name)
       --kit <id>        opt the html surface into a kit (repeatable; see "mockpit kits")
-      --poster <file>   a still of the page (png, jpg); Studio and Home show it
-                        instead of running the page. Send one with every version
+      --poster <file>   a still of the page (png, jpg); the Board shows it, and
+                        Focus runs the page live. Send one with every version
                         that changes the page, or it goes
       --md/--mermaid/--diff/--terminal/--data/--code/--image <file|->
                         add a surface of that kind after the html (repeatable;
@@ -135,7 +135,7 @@ verbs:
   mockpit edit --project <name> --rename <new>
                                           rename a project
   mockpit edit --project <name> --areas "Shell,Food"
-                                          the order Home lists areas in
+                                          the order of the Board's pages (areas)
   mockpit edit --project <name> [--area a] --description <line>
                                           what the project, or one area, is for
   mockpit system [--sheet f.css] [--classes j] [--tokens j] [--scales j] [--palettes j] ...
@@ -251,7 +251,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
                      component for a reusable design screens include (being included makes one);
                      omit for ideas, diagrams, reviews (default idea)
   --area <name>      where in the product it belongs, in the project's words
-                     ("Shell", "Food"); Home groups each tab by it. "" clears
+                     ("Shell", "Food"): an area is a page of the Board. "" clears
   --group <word>     a component's group in the library, by what it does: Actions,
                      Inputs, Navigation, Feedback, Containers, or the project's own
                      word. A component with no area is shared. "" clears
@@ -278,9 +278,9 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --step <N>         its 1-based place in the flow (moves it if it is there);
                      0 takes it out; omitted, it joins at the end
   --project <name>   project (default: git remote, else directory name)
-  --poster <file>    a still of the page (png, jpg) that Studio and Home show; without
-                     one, a local Chrome or Chromium takes it just after the publish
-                     instead of running it; with --parts or --swaps it is the
+  --poster <file>    a still of the page (png, jpg) that the Board shows, while Focus
+                     runs the page live; without one, a local Chrome or Chromium
+                     takes it just after the publish; with --parts or --swaps it is the
                      still of the spliced page. A version that changes the page
                      without one drops the old still
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
@@ -364,7 +364,7 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   --rename moves the project's designs, sessions, flows, system and settings to the
   new name (refused if that project has designs); pass --project <new> or set
   MOCKPIT_PROJECT afterwards if the repo still resolves to the old name.
-  --areas lists the project's areas in the order Home shows them, as "Shell,Food" or
+  --areas lists the project's areas in the order the Board shows them as pages, as "Shell,Food" or
   the JSON list read returns ('[{"name":"Shell","description":"…"}]', only the order
   is taken); areas it leaves out follow alphabetically, "" goes back to alphabetical. --description says in one
   line what the project is for, or with --area what that area is for; the user's own
@@ -2681,9 +2681,11 @@ const commands = {
       method: "POST",
       body: JSON.stringify({ agent: DEMO.agent, title: DEMO.sessionTitle, project: DEMO.project }),
     });
+    // The Board shows stills only, so the demo takes them the way a publish does.
+    const stills = !!findBrowser();
     for (const state of DEMO.states) {
       for (const alternative of DEMO.alternatives) {
-        await api("/api/designs", {
+        const result = await api("/api/designs", {
           method: "POST",
           body: JSON.stringify({
             session: session.id,
@@ -2694,8 +2696,20 @@ const commands = {
             alternative: alternative.name,
             knobs: DEMO.knobs,
             surfaces: [{ kind: "html", html: DEMO.render(state, alternative) }],
+            ...(stills && { posterComing: true }),
           }),
         });
+        if (stills) {
+          queuePoster({
+            base: BASE,
+            token: TOKEN,
+            client: HEADERS["x-mockpit-client"],
+            session: session.id,
+            design: result.design.id,
+            postId: result.post.id,
+            version: result.post.version,
+          });
+        }
       }
     }
     await api(`${designPath(DEMO.slug)}/asks`, {

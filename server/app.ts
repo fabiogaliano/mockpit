@@ -618,14 +618,14 @@ const MAX_OPTIONS = 20;
 const MAX_DRAFT_COMMENTS = 50;
 
 // A title that names a step of the agent's process instead of what the design
-// is: it reads as noise on Home, where titles are seen out of context.
+// is: it reads as noise on the Board, where titles are seen out of context.
 const PROCESS_TITLE = /^\s*(round\s*\d+|flow\s*\d+\s*[·:\-–—]|v\d+\b|prototype\b)/i;
-// Once, on an alternative's first version: a canvas page runs live in every
-// overview card, and a browser holds only about 16 WebGL contexts.
+// Once, on an alternative's first version: with no poster a canvas page runs live in
+// every picture Focus shows of it, and a browser holds only about 16 WebGL contexts.
 const posterNudges = (surfaces: Surface[]): string[] =>
   surfaces.some((s) => s.kind === "html" && !s.poster && /<canvas[\s>]/i.test(s.html))
     ? [
-        "this page draws on a <canvas> and has no poster, so Studio and Home run it live; send a still of it as poster (upload the image, or CLI --poster shot.png) with each version",
+        "this page draws on a <canvas> and has no poster: the Board shows its poster; Focus runs it live, in every picture of it too. Send a still of it as poster (upload the image, or CLI --poster shot.png) with each version",
       ]
     : [];
 
@@ -748,7 +748,7 @@ export function createApp({
   let holdConnections = 0;
   // Only the viewer holds /api/events (watch long-polls). Each tab names the
   // design it has on screen (`?viewing=`), so pending.viewerOpen is per design: a
-  // tab on Home or on another design doesn't read as "looking at this one".
+  // tab on the Board or on another design doesn't read as "looking at this one".
   const viewing = new Map<string, number>();
   const acquireHold = (): boolean => {
     if (holdConnections >= maxHoldConnections) return false;
@@ -3778,8 +3778,8 @@ export function createApp({
 
   // The project as a tree: every design with its alternatives per state (status,
   // lineage, what its instances resolve to) and the components it includes and is
-  // included in, and the declared flows. What the viewer's Home and an agent's
-  // `read --tree` lay out.
+  // included in, and the declared flows. What the viewer's Board and Library pages and
+  // an agent's `read --tree` lay out.
   async function treeFlow(query: {
     project?: string;
     live?: boolean;
@@ -3902,7 +3902,7 @@ export function createApp({
     return ok({
       project,
       systemRev: rev,
-      // Lights the System place in Home.
+      // Lists the System page in the Board's rail.
       hasSystem: hasSystemContent(system),
       tree: query.viewer ? nodes : nodes.map(agentWords),
       flows: await flowsView(project, designs),
@@ -6482,7 +6482,7 @@ export function createApp({
   }
 
   // The user archives an alternative they're done with, short of choosing another:
-  // Studio's × on its last version. Restore is the way back. The alternative in
+  // Archive on it in Focus. Restore is the way back. The alternative in
   // use stays, because archiving it would leave the state with nothing chosen
   // and no reply saying why.
   async function archiveFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
@@ -6562,7 +6562,7 @@ export function createApp({
 
   // Hiding an alternative answer archives the alternative wherever the answer would put it in
   // use, with the why as its reason; any way back from hidden restores it. The
-  // question and Studio then read one list, the alternatives'.
+  // question and Focus's list of alternatives then read one list.
   async function archiveForStanding(
     design: Design,
     posts: Post[],
@@ -7218,7 +7218,7 @@ export function createApp({
       const word = `older version${n === 1 ? "" : "s"}`;
       const line = deleting
         ? `Deleted ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. This can't be undone.`
-        : `Hid ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. Studio brings them back.`;
+        : `Hid ${n} ${word} of ${changed.size} ${changed.size === 1 ? "render" : "renders"}. Restore on each in Focus's versions brings it back.`;
       const comment = await store.createComment({
         sessionId: session.id,
         designId: design.id,
@@ -7382,8 +7382,8 @@ export function createApp({
   }
 
   // The agent archives or restores a whole design only through the same paths the user's
-  // Home menu takes, so Undo, dismissed asks and the archive reason behave the same; the
-  // Thread line is how the user learns an agent did it.
+  // ⋯ menu takes, so Undo, dismissed asks and the archive reason behave the same; the
+  // line in Activity is how the user learns an agent did it.
   async function moveDesignFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     const target = await commentTarget({
       design: ref,
@@ -7426,7 +7426,7 @@ export function createApp({
   // Move into an idea: the user takes what a screen or a component holds beyond one entry
   // a state into a new idea for it, in one action. Every live entry of such a state is
   // copied there, so the choice can be made among all of them, and on the design all but
-  // one is archived: its "default", else the oldest. The agent hears it in the Thread.
+  // one is archived: its "default", else the oldest. The agent hears it in a batch's messages.
   async function toIdeaFlow(ref: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const found = await resolveDesign(ref);
@@ -7747,7 +7747,7 @@ export function createApp({
     });
   }
 
-  // The user moved a design from Home (another kind or area), or corrected its spec:
+  // The user moved a design themselves (another kind or area), or corrected its spec:
   // the agent hears it once, through the same cursor as a Send, on the session driving
   // the design. Nothing to tell when no agent has written it.
   async function tellAgentEdited(before: Design, after: Design): Promise<void> {
@@ -7791,7 +7791,7 @@ export function createApp({
     if (comment) announceComment(comment);
   }
 
-  // The project's areas, in the order Home lists them, each with what it is for.
+  // The project's areas, in the order the Board lists its pages, each with what it is for.
   const areasOf = async (project: string): Promise<ProjectArea[]> => {
     const raw = await store.getSetting(`${AREAS_SETTING}:${project}`);
     if (!raw) return [];
@@ -7834,7 +7834,7 @@ export function createApp({
     }
   };
 
-  // `areas`: the areas in the order Home lists them; [] (or "") hands the order back to
+  // `areas`: the areas in the order the Board lists them; [] (or "") hands the order back to
   // the alphabet. A description stays with its area wherever the order puts it. Each may
   // be a name or the {name, description} `read` returns, so a read sent back round-trips;
   // only the order is taken from it, a description being written with `description`.
@@ -7874,8 +7874,8 @@ export function createApp({
   }
 
   // `edit` on a project: a new name for it, carrying its designs, sessions, flows and
-  // settings (refused onto a project that already has designs); the order Home lists
-  // its areas in; what the project is for; and, with `area`, what that area is for.
+  // settings (refused onto a project that already has designs); the order the Board
+  // lists its areas in; what the project is for; and, with `area`, what that area is for.
   // A description the user wrote stands against agents until they clear it.
   async function editProjectFlow(name: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
@@ -7971,7 +7971,7 @@ export function createApp({
     const nudges = [
       ...(unnamed.length
         ? [
-            `no design in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; Home lists it once one does`,
+            `no design in ${project} has area ${unnamed.map((a) => `"${a}"`).join(", ")} yet; the Board shows its page once one does`,
           ]
         : []),
       ...(kept
@@ -7991,7 +7991,7 @@ export function createApp({
             description: kept ? { applied: false, text: kept.text } : { applied: true },
           }),
       designs: designs.length,
-      url: `${ctx.base}/project/${encodeURIComponent(project)}${areaName ? `?area=${encodeURIComponent(areaName)}` : ""}`,
+      url: `${ctx.base}/project/${encodeURIComponent(project)}${areaName ? `?page=${encodeURIComponent(areaName)}` : ""}`,
       ...(nudges.length ? { nudges } : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });

@@ -3,11 +3,12 @@
 **A design loop for terminal coding agents. Your agent shows designs in your browser and asks
 its questions there. You answer in place and press Send once.**
 
-The agent publishes a screen in its states and a few alternatives, then ends its turn. You compare
-them from pictures, tune knobs, comment on parts and keep the runners-up. One Send gives the
-agent the whole reply. Nothing it calls waits for you.
+The agent publishes a screen in its states and a few alternatives, then ends its turn. You see
+the project on a Board, open the design in Focus, put its answers side by side, tune knobs,
+comment on parts and keep the runners-up. One Send gives the agent the whole reply. Nothing it
+calls waits for you.
 
-<a href="docs/mockpit-demo.gif"><img width="100%" alt="Animated demo: on HALDE, a shop design with three product grids, the pointer hovers Gallery and Editorial, each previewing on the stage, then picks Gallery" src="docs/mockpit-demo.gif"></a>
+<a href="docs/mockpit-demo.gif"><img width="100%" alt="Animated demo: on HALDE, the Board shows the shop's three product grids; a double-click opens Focus on the question Which grid?, Side by side lays Index, Gallery and Editorial in a row, and a click picks Gallery" src="docs/mockpit-demo.gif"></a>
 
 ## Quickstart
 
@@ -41,21 +42,27 @@ mockpit feedback
 
 ## What you can do with an answer
 
-- **Pick** from pictures. Hover to preview it on the stage.
-- **Keep** runners-up. After Send they stay beside the design, one click from Use this instead.
+- **Pick** from pictures, or lay every answer **side by side** at full height. Hover one to
+  preview it on the design.
+- **Keep** runners-up. After Send they stay in the row beside the pick, one click from Use this
+  instead.
 - **Archive** what you don't want, with a reason if you like. The agent won't offer it again.
 - **Ask for more** answers without sending the rest of your draft.
 - **Save a combo** of answers across questions, like Warm or Quiet, and switch between combos.
 - **Tune** the knobs the agent declared, **borrow** a part from another alternative, and
   **comment** on any part.
 
-Studio puts every alternative side by side. Home groups a project's ideas, screens, flows and
-components, and Needs you lists what's waiting on you.
+Two places. The **Board** lays a project out like a designer's file: a page per area, a section
+per flow, every frame under its name, a map of what's left to design, and a mark on what the
+agent just changed. **Focus** is one design, live, with its question, its spec and the agent's
+activity. Every link opens on the Board, fit to that design; Enter or a double-click opens
+Focus. Needs you lists what's waiting on you. On a phone the Board is rows you swipe, and Focus
+is one frame with the question in a sheet.
 
 <table>
   <tr>
-    <td width="50%"><a href="docs/mockpit-question.png"><img src="docs/mockpit-question.png" width="100%" alt="The HALDE shop asking Which grid?, with Index, Gallery and Editorial as picture answers beside the stage"></a></td>
-    <td width="50%"><a href="docs/mockpit-preview.png"><img src="docs/mockpit-preview.png" width="100%" alt="The product page previewing the Bone answer to What colour behind the products? before it is picked"></a></td>
+    <td width="50%"><a href="docs/mockpit-board.png"><img src="docs/mockpit-board.png" width="100%" alt="The Board on HALDE: the Ideas page draws the shop as one section, Index, Gallery and Editorial down and its Grid and Product states across, each frame under its name"></a></td>
+    <td width="50%"><a href="docs/mockpit-question.png"><img src="docs/mockpit-question.png" width="100%" alt="Focus on the shop asking Which grid?, with Index, Gallery and Editorial side by side at full height and the question in the panel"></a></td>
   </tr>
 </table>
 

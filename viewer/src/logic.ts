@@ -734,7 +734,7 @@ export interface ThreadRow {
   delivered?: boolean;
   ownerGone?: boolean;
   listening?: boolean;
-  // A move from Home or a close: the agent hears it in passing, with nothing to wake for.
+  // A move from a cover's menu or a close: the agent hears it in passing, with nothing to wake for.
   inPassing?: boolean;
   id: string;
   // A reply's comments, each with where it was left ("title · At rest").
@@ -881,7 +881,7 @@ const KIND_NAMES: Record<DesignKind, string> = {
   idea: "Ideas",
 };
 
-// A move made from Home, the spec corrected by hand, the Ready mark, or a grouping from
+// A move made from a cover's menu, the spec corrected by hand, the Ready mark, or a grouping from
 // when the viewer could make one, as the thread lists it.
 export const editedLine = (e: DesignEdit): string =>
   [
@@ -1395,7 +1395,7 @@ export function orderAreas(names: Iterable<string>, order: string[]): string[] {
   );
 }
 
-// Home's rows under the areas the project named, in its area order, in their
+// A Library page's rows under the areas the project named, in its area order, in their
 // own order within each. With no area anywhere there is one unheaded group, so
 // a project that never names one looks as it did before areas.
 export function groupByArea<T>(
@@ -1419,9 +1419,9 @@ export function groupByArea<T>(
   return rest.length ? [...groups, { area: null, rows: rest }] : groups;
 }
 
-// Where a design stands, read off what mockpit already holds, for its card on
-// Home; null says nothing worth a word (one alternative, nothing asked or chosen).
-// A resolved design gets none: Home fades it instead.
+// Where a design stands, read off what mockpit already holds, for its cover; null says
+// nothing worth a word (one alternative, nothing asked or chosen). A resolved design gets
+// none: its cover fades instead.
 export type DesignStatus =
   | { kind: "open"; n: number }
   | { kind: "draft" }
@@ -1483,7 +1483,7 @@ export function designStatus(node: StatusNode, now: number): DesignStatus | null
   return null;
 }
 
-// Everything archived and no question waiting: nothing to look at on Home.
+// Everything archived and no question waiting: nothing to look at, so it is in the Archive.
 export const nothingLeft = (node: Pick<TreeNode, "open" | "alternatives">): boolean =>
   node.open === 0 && !node.alternatives.some((v) => isLive(v.status));
 
@@ -1807,7 +1807,7 @@ export function neighbourStep(
 
 // The versions a state's history draws: one line per alternative, starting one
 // column right of the version it was forked from (or at the left), its
-// versions in order along it. Columns and rows are grid cells; edges join a
+// versions in order along it. Its columns and rows are grid cells; edges join a
 // version to the next one shown on its line, and a line's first to its fork.
 export interface HistoryCell {
   step: VersionStep;

@@ -21,7 +21,7 @@ a parallel take on one state; versions are its history. A **part** is a
 `read`, `feedback`, `say`, `move`, `edit`, `system`, `export`, `upload`, `guide` and `run`
 (the CLI adds `init` and `watch`); `system` reads and changes the project's **system**
 (below); `move` takes alternatives to another design or state,
-archives or restores them (never touches one in use, and says so in the Thread), and,
+archives or restores them (never touches one in use, and says so in the design's Activity), and,
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
 deleting skips any version a reply, comment, question, instance, copy, fork or Ready mark points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
@@ -29,15 +29,15 @@ group, variants, for, becomes, source, spec, or the first name of its one unname
 `publish` with `amend` replaces an alternative's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
-design may name its **area** (the project's own words, e.g. "Shell"; Home
-groups by it, in the order of the project's `areas:<project>` setting, then
+design may name its **area** (the project's own words, e.g. "Shell"; an area is a page
+of the Board, in the order of the project's `areas:<project>` setting, then
 alphabetical; each area there has a one-line `description`, one the order leaves out is
 kept only for it as `alphabetical`, never ranked, and the project has its own in
 `description:<project>`, a user's standing against agents until cleared) and its
 **source** (the code path that implements it); a component may name its **group** (what
 it does, any word; a component with no area is **shared**, and the library lists the shared
 ones by group). The user can move a design too,
-from Home's ⋯ menu (kind, area, archive); the agent hears a move as a feedback
+from a cover's ⋯ menu on a Library page (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
 state has one alternative and no asks), which releases one **reply**. A screen or component
 has nothing to choose between: no Use this, no Which alternative?, nothing in use; its newest
@@ -58,24 +58,37 @@ consciously, not as a side effect):
 - Never block. No tool, CLI verb, HTTP call or `run` function waits for the
   user: the agent asks, says where to look and ends its turn. Long-poll and
   SSE are plumbing for `mockpit watch` and the viewer, never agent contract.
-- Feedback is never silently lost: a Send renders in the viewer (the Thread,
+- Feedback is never silently lost: a Send renders in the viewer (Activity,
   marked Delivered / Not seen yet from the sessions' `agentSeq`) and reaches the
   agent (`feedback` piggybacked on writes, the non-blocking `feedback` verb, or
   a background `mockpit watch`). Guard this hardest — both halves have
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (alternatives → switcher and the built-in Which alternative? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
+  (alternatives → Focus's list of them and the built-in Which alternative? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
-  screen/component and flows → Home's sections; undeclared is an idea or a document,
-  by what it contains). A plain publish of any kind still gets stage + Thread + Use
-  this / New version, except a document (only written surfaces and pictures, no declared
+  screen/component, areas and flows → the Board's pages and sections; undeclared is an idea
+  or a document, by what it contains, on the Ideas or Documents page). A plain publish of
+  any kind still gets Focus + Activity + Use this / New version, except a document (only written surfaces and pictures, no declared
   width), which opens in `Reader` with its paragraphs to comment on and no Use this.
+- Two places: the Board to see, Focus to decide. A design always opens the same way: every
+  link, the agent's included, lands on the Board fit to that design or state, and Enter, a
+  double-click or Open ↵ opens Focus. The Board shows posters only; pages run live only in
+  Focus.
 - Archive tells the agent nothing, and nothing blocks a question. Ending a design or
   archiving an alternative writes nothing to the agent's stream and instructs no one:
   `read` shows `archivedAt`, `archiveReason`, `status` and `archiveReason` as information,
   and a question on an archived design brings it back. Guidance over hard rules.
 - Self-hosted only; the instancedable viewer engine was dropped. Keep the
   `root()`/`host()` habit in `viewer/src` anyway.
+
+Stances reversed knowingly, so nobody restores them by accident:
+
+- "Not doing: an infinite canvas" (2026-11-02). That canvas was to replace Home as the
+  place to compare from. The Board is a map of the product instead, and comparing happens
+  in Focus.
+- "A design opens by what it is" (2026-11-06): Answers for a waiting question, a grid for
+  a variants design, Studio for an idea. Opening differently by data was the top "where am
+  I" problem, so a design now always opens on the Board.
 
 ## Map
 
@@ -130,7 +143,8 @@ consciously, not as a side effect):
   `viewer/src/systemRev.ts` holds all three for the viewer. `y` comes from each view and
   the `system-changed` event, `p` is the tool strip's `PaletteTool` (localStorage per
   project, settles nothing), and `sys` is the System changed note's See before. While
-  `p` or `sys` is set, frames draw live and no poster is shown (`posterShown`). The
+  `p` or `sys` is set, Focus's frames draw live and no poster is shown (`posterShown`); the
+  Board ignores both, since it shows posters only. The
   event's `by` says whose change it was: only an agent's raises `SystemNote` (See
   before, Restore, which is the user's own change through `/system/decide`).
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
@@ -203,7 +217,7 @@ consciously, not as a side effect):
   (`alternativesNudgeOnce`, the `alternativesNudged:<id>` setting), and the margin's Move into
   an idea (`POST /api/designs/:id/to-idea`, viewer only, `toIdeaFlow`) makes an idea for the
   design, copies every live entry of each over-full state there and archives all but its
-  `default` (else the oldest), says so in the Thread, and opens the idea. `shipped` reads an older reply's `accepted` rows on a product design as
+  `default` (else the oldest), says so in Activity, and opens the idea. `shipped` reads an older reply's `accepted` rows on a product design as
   open, so every current-status path (views, export, instances, Jump, decisions, option
   targeting, the hide, copy and tidy guards) sees nothing in use there; `useFlow` and a
   `use` verdict refuse (409), a Send's answers flip nothing, and a draft's pick for the
@@ -234,8 +248,11 @@ consciously, not as a side effect):
 - `read --area <name>` (`GET /api/projects/:name/areas/:area`, `areaView` in
   `server/apiViews.ts`) is one area, everything settled in it: what the project and the
   area are for, its screens, flows and components (purpose, states, `ready`), the shared
-  components (with their `group`), their decisions and `ideasWaiting`. Home's area page
-  draws the same view.
+  components (with their `group`), their decisions, `ideasWaiting`, and `coverage`: what's
+  left, each design's states as Ready, In design, Planned or Missing, plus each flow's
+  "N of M steps ready", as text (`coverageOf` and `coverageText` in `server/coverage.ts`,
+  shared with the viewer). The Board draws the same map at the top of the area's page,
+  from `boardView` (`server/board.ts`), which lays out the page's sections and frames.
 - The component library (`server/library.ts`, shared with the viewer): a component with no
   area is shared (`shared: true` in every view, `placeOf`), `Design.group` names its group
   (stored as the `libraryGroup` column, `group` being an SQL keyword), and a group is there
@@ -270,13 +287,13 @@ consciously, not as a side effect):
   alternative in a state the design lacks (`statesFor`), nothing is copied and the batch's
   `followUps` say `apply`. An idea that `becomes` a screen or component makes it on first use and is then for
   it. New idea is typed by where it starts (`POST /api/copies` with `for`, `becomes`, `area`).
-  Viewer: Use in <target> (`UseThis`), the ideas folded under the states and in Studio's bar
-  (`IdeasFor.tsx`), a product cover's count opening `?sec=ideas&for=<slug>`, the Ideas shelf's
-  Group by (Area · For · In use, localStorage per project), and New idea for this in the
-  design's ⋯.
+  Viewer: Use in <target> (`UseThis`), the ideas folded under the states in Focus
+  (`IdeasFor.tsx`), "Ideas · N ▾" on the design's Board section, which unfolds them under
+  it, the Ideas page (`?sec=ideas`, `?for=<slug>` for one design's), and New idea for this
+  in the design's ⋯.
 - A **flow idea** (`becomes: flow`, or `for: "flow:<name>"`: `isFlowIdea`, `flowFor` in
   `server/types.ts`; the flow's name is stored in the `forDesign` column with that prefix) is a
-  flow told as a story: its states are the steps, in order. The viewer opens it on Stage with
+  flow told as a story: its states are the steps, in order. Focus opens it with
   the flow bar named after it (`flowNav.ts`'s `ideaFlow`, which wins over any declared flow
   holding some of its states), walkable with Try. Using it copies
   nothing: the reply stores `followUps.placeFlow: true`, and delivery works out `placeFlow`
@@ -287,16 +304,15 @@ consciously, not as a side effect):
   new state declares it (`publishFlow`'s `planning`, in the design's `serialDecision` queue so
   plans landing at once all keep their state; `step: 0` never declares, and taking out a state
   that isn't declared is a 404), and `read` marks the step `planned`
-  (`flowsView`, `SqlStore.drawnStates`). A state-only link lands there (the planned stage).
-  Home, the bar and the docked list draw such a step as Not drawn, and the Flows shelf says
-  "N states in no flow" under each area with screens, flows or not; a screen's cover says
-  nothing of it. A flow carries no mark: its `status` is derived in `flowsView` (`flowWord` in
+  (`flowsView`, `SqlStore.drawnStates`). A link to it lands on its dashed frame on the Board,
+  and Focus shows the planned stage. The Board, the flow bar and the docked list draw such a
+  step as Not drawn; a screen's cover says nothing of it. A flow carries no mark: its `status` is derived in `flowsView` (`flowWord` in
   `server/ready.ts`: Ready when every step's screen is Ready, Changed when any is, else In
-  design, an undrawn step included), in `read`, `read --area`, the tree and as the word on
-  Home's Flows rows.
+  design, an undrawn step included), in `read`, `read --area`, the tree and on the flow's
+  section header.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
-  `read`), gathered by the user from the project's other designs: New idea on Home's
-  shelves (`AddCandidates`), or a Studio bookmark, Keep, with Move beside it (`SaveMenu`,
+  `read`), gathered by the user from the project's other designs: New idea on the Ideas
+  page (`AddCandidates`), or Keep on an idea's alternative in Focus, with Move beside it (`SaveMenu`,
   `viewer/src/shortlist.ts`), which can also copy into any other design or state
   and take the version out of where it is. Each is one version copied as an alternative
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
@@ -313,7 +329,7 @@ consciously, not as a side effect):
   it), and the built-in Which alternative? appears only where no such question chooses. Archiving
   an alternative answer archives the alternative (the why as its reason; the one in use refuses), any
   restore unhides it (`unhideRestored`), and an alternative answer whose alternative is archived reads
-  as hidden, so the question and Studio read one list.
+  as hidden, so the question and Focus's list of alternatives read one list.
 - Kept and archived answers (stored as `hidden`; `server/standings.ts`, `Design.standings` by ask id, the built-in
   Which alternative? included): saved on the click through `POST /api/designs/:id/standings`
   (serialized per design), never waiting for a Send; the next reply of any kind carries the
@@ -323,15 +339,17 @@ consciously, not as a side effect):
   `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
   kept ones first and archived ones in `HiddenAnswers` ("Archived · N"); `Kept.tsx` holds what waits after a
   Send: `KeptAnswers` beside the design (Use this instead, a kept screen's missing updates
-  counted from `since`, Update it now, `carried`), `AnswerPills` on the design's top edge,
-  and `AnswerCombos` (`Design.combos`, `POST /api/designs/:id/combos`, put in use as `Reply.combo`).
-  `AnswerBoard.tsx` is Studio's Answers arrangement: the open question laid out whole, with
-  keys and On every state. The old `starred` column is inert.
+  counted from `since`, Update it now, `carried`), `AnswerPills` on the design's top edge
+  for questions answered in words, and `AnswerCombos` (`Design.combos`,
+  `POST /api/designs/:id/combos`, put in use as `Reply.combo`). A question whose answers have
+  pictures keeps its answered card in the panel and its row in Side by side
+  (`SideBySide.tsx`) instead: the pick outlined, the kept beside it, the archived folded.
+  The old `starred` column is inert.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
   no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is
   listening (`sendTarget`, `recipientsFor`). That session becomes the owner and hears a
-  `handoff` note. A move from Home and a thread comment still go to the owner.
+  `handoff` note. A move from a Library cover and a comment in Activity still go to the owner.
 - `server/answerAdditions.ts` — what an answer brings so it can draw itself, with no new
   version: `style` or `swap` beside a `set` of a new value, kept on `Design.answerAdditions`
   (never removed; asked again with a new style or swap, revised under the same value) and
@@ -351,13 +369,13 @@ consciously, not as a side effect):
 - `server/surfacePage.ts` — sandboxed documents: `renderHtmlPage` (html surface,
   CDN-allowlist CSP, kits, the stage bridge), `renderSandboxedPart` (rich kinds,
   no `connect-src`, no CDN), `renderMermaidPage` (self-rendering CDN doc). The
-  bridge protocol is documented at the top of its "Stage bridge" section:
+  bridge protocol is documented at the top of its "Frame bridge" section:
   `parts` reports, `hit`/`highlight`/`clear`/`scroll`/`knobs` commands, and the
   `?k=` knob preamble (`--k-<path>` vars, `data-k-<path>` attrs,
   `[data-k-bind]`, `mockpit:knobs`). A written surface loaded with `#read` adds
   `PARAGRAPHS_JS`: `paragraphs` reports and `paragraph-tap` out, `paragraph-marks` in.
   A tap sends only a block's number; the text a comment quotes comes from the report.
-  An html surface loaded with `#small` (every `Thumb` but the closer look and Studio's columns) runs `FREEZE_JS`:
+  An html surface loaded with `#small` (every `Thumb`) runs `FREEZE_JS`:
   once settled, animations stop and no more frames are handed out. Its comment holds the rule.
 - `server/cdnInline.ts` — bakes what an html surface links from the CDN allowlist into its
   document at render (fonts as `data:` URLs, stylesheets and classic scripts inline). A
@@ -370,82 +388,105 @@ consciously, not as a side effect):
   transports' schemas. `server/mcpHttp.ts` — stateless MCP at `/mcp`;
   `mcp/server.ts` — stdio MCP, a thin client over the HTTP API.
 - `viewer/` — Solid + TypeScript in `viewer/src/`, Vite-built into one
-  self-contained `viewer/dist/index.html`. `Home` is a `Sidebar` beside one place,
-  named by `?sec=needs|ideas|screens|flows|components|shared|documents|archive|recent|system`
-  and `?area=` (absent: the first section lit), with `?for=` narrowing Ideas to one design's. Components is the library on one page:
-  Shared first, its groups as headings, then each area's own; while it is shown, its sidebar
-  row opens into Shared (`?sec=shared`) and each area with components
-  (`?sec=components&area=`). `SystemPlace` (`?sec=system`, in the
-  sidebar after the sections once the system holds anything, `hasSystem` on the tree)
-  is the project's system in tabs per family: palettes as swatch rows with Default /
-  Keep / Hide, their checks, a type and space specimen (`server/systemSpecimen.ts`, a
-  sandboxed document from `GET /api/projects/:name/system/specimen`), tokens, classes,
-  components and revisions with Restore. `albums.ts` holds the rules:
-  `sectionOf` keeps declared screens and components and derives idea or document
-  from what a design contains (one render, nothing asked and no width is a document),
-  and only lit sections show. The sidebar has two groups: Product (Screens, Flows,
-  Components, System) first, where Home opens, then the areas as chips under their own
-  heading, then Ideas; Documents sit at the foot. A project of 1 or 2 designs
-  has no sidebar and large covers; one small section lists its designs instead of
-  section rows; a phone gets the sidebar as a drawer. `Album` is one thing and all
-  its pictures: a cover by shape (phone, wide, both, part, or text for something to
-  read), sheets behind it for states else alternatives, and one turn word plus what's
-  inside under the title, never on the art (`turnWord`, `designStatus`). Questions
-  waiting glow on the cover and on the project's name (`ProjectSwitcher`), in words
-  too, and `seen.ts` (localStorage) marks new work "New". Written pages are a dated
-  list (`DocRow`, `dateGroups`). Section rows sit above the areas a project names, a
-  project with none looks as if areas did not exist, and `?area=` alone is the area page:
-  its description (written in place), screens, flows, components, decisions and ideas,
-  from `GET /api/projects/:name/areas/:area`. An area's description is one line under its
-  heading wherever a shelf groups by area. Flows are rows of screens opened with `?flow=`. Components say "in N
-  screens". The Archive holds what left the shelves, one concept however it left: ended
-  by hand (the × on an idea, ⋯, a swipe in Needs you; `archivedAt`, with an optional
-  `archiveReason`) or with everything archived and no question waiting (`nothingLeft`).
-  Needs you lists the waiting ones, with Answer next above every place. A cover shows
-  what's in use, else the agent's recommendation, else the first (`screenPicture`).
-  Hide is per version and dims in place; archive is per alternative and per design, with Undo. `Jump` is search
-  from anywhere (`/` or ⌘K), through `GET /api/search` (`server/jump.ts`), which
-  never reads surfaces; results are text nodes. `DesignScreen`
-  (`VersionCaption`: the version and New version / Use this on the design's top edge, or a document's column; `TopRow`, in three zones with the views centred: the path is the way up, project and area as links, ending at the
-  design's name, with a ⋯ menu (Copy name, Archive for an idea) opening `About` (a component's
-  place in the library, "Shared · Cards" or its area, with Make it shared where screens of
-  several areas show it / Appears in / Instances / flows / code), and `SideOver`, the project's sidebar opening over the design from a button; the state tabs alone say which state;
-  `BuiltFrom` is Tune's drawer, open while Tune is; `Grid`, states against alternatives
-  with what's missing shown (`?view=grid`, an arrangement offered where names repeat across states,
-  a screen's or component's All states, and how a variants design opens), sharing Studio's
-  live-frame limit; `Outlines` (missing states in the margin or flow bar, `StateAsk`,
-  `PlannedStage` where nothing is drawn); `Spec`; `Studio`, the state zoomed
-  out with every alternative side by side, entered from the top bar's Stage | Studio switch (Stage |
-  All states on a screen or component, whose second view is the grid). A design opens by what it is,
-  nothing remembered per design: a question the agent waits on opens Answers (Stage when its
-  answers have no pictures), something to read opens to read, a variants design as its grid, a
-  screen or component on Stage, a flow idea on Stage, any other idea in Studio. Studio has one row of controls in the header (`StudioBar`: states, filter, what's live, in use, hidden or archived, and Wall | Columns | Palettes | Grid; `PalettesBoard` is the state on stage in each visible palette, a column per palette, light over dark, offered once there are two), each steer its own reply (`steer`, `sendAlone`), with `SelectBar` acting on
-  several versions at once. A fork is a column of its own saying where it came from.
-  On an idea, past Use this a newer version takes over by itself (`changedTo`, `ChangedNote`): the stage
-  moves to it when the tab has focus and it goes in use ten seconds later, writing nothing
-  before then. Back to the old one is a stay, which `stayedVersion` remembers until a newer one
-  comes, as does Use this on an older version. Anything underway (a draft, an open question, a
-  tool, typing) holds it to a See pill, and touching the page stops the count.
-  A design of `WALL_FROM` alternatives or more opens Studio as a wall: one grid of all its
-  states, filtered by state, status and text, with the closer look beside it as a
-  preview on a wide window and over it otherwise; every card without a poster shares
-  the live-frame budget; a closer look has no strip, its name opens the list;
-  `Reader`, the stage for a document: one column of sandboxed frames at full height,
-  pins and comments built from the blocks they report;
-  `Stage`, a pannable canvas whose design's other `widths` spread out as
-  picture-only artboards under "All widths", between the margins), `Margins` (states
-  and versions on the left, On this design, Spec, Instances and Thread on the right, Try,
-  Comment, Tune and the preview in a strip by the design; each there only with content, and
-  `marginLayout` in `logic.ts` turns one into a tab that floats over the canvas when
-  it would take a design below 80%; a phone has none of this: `VersionBar`,
-  `QuestionCard`, `BottomPanel` and the `BuiltFrom` sheet float over it instead),
-  `Stage` (frames, part overlay, pins, hit-testing through the bridge), `Thumb`
-  (shrunk sandboxed frames for Home and option pictures);
-  `state.ts` (the design screen's state and actions), `flowNav.ts` (the declared
-  flow around the screen: flow bar, neighbours across designs, Try's `data-goto`),
-  `logic.ts` (pure rules),
-  `tune.ts` (tunekit mounted via `initPane({ host })`),
-  `presets.ts` (Tune presets in localStorage), `theme.ts`, `host.ts`.
+  self-contained `viewer/dist/index.html`. Two places: the **Board** to see a project,
+  **Focus** to decide on one design.
+  - **Addresses** (`route.ts`). `/project/:p` is the Board: `?page=<area>` (absent: the
+    first page), `?unsorted=1` for the screens no area claims, and `?sel=slug[:state]` with
+    `?alt=` for the frame it opens fit to, selected. A design's own link,
+    `/project/:p/:slug[?state=]`, which agents and the viewer hand out, lands on the Board
+    too, fit to that design or state. An idea's lands on the Ideas page; a document or a
+    shared component, which no page draws, opens in Focus. The Library's and Exploring's
+    pages are `?sec=components|shared|system|documents|archive|recent` inside the Board's
+    frame, and `?sec=ideas` (`?for=` narrows it to one design's) is the Ideas canvas.
+    Focus is never in the address: the history entry carries it (`navigate(path, { focus
+    })`, `linkClick`), so every link anyone copies or sends lands on the Board, while Back,
+    Forward and a reload keep Focus. Old `?view=` and `?cols=` links mean nothing and land
+    on the Board.
+  - **The Board** (`Board.tsx`, `boardLayout.ts`, `boardGrid.ts`; one read,
+    `GET /api/projects/:name/board`, from `server/board.ts`). A page is an area. Its
+    sections, in order: each flow (steps across, a screen's other states stacked under the
+    step they follow), each screen's states in no flow, "Components used here", each
+    variants design as a grid (variants down, states across), then Planned. Every frame is
+    its poster under its name, never a running page; a frame with no poster yet shows a
+    placeholder until `bin/poster.js` brings one, and the palette pick and See before don't
+    apply here. A state a screen is owed (`owedStates`) is an orange dashed frame, a
+    planned one a grey dashed frame. A section's header has its status, a flow's "N of M
+    steps ready" and its question count; a "?" sits on the frame a question is asked on,
+    and "Ideas · N ▾" unfolds a design's ideas under it, dashed and dimmed. The Ideas page
+    draws each idea as a dashed section, alternatives down and states across, its archived
+    ones folded under "N archived ▸" and a filter past `FILTER_FROM` live ones. The page's
+    card holds the area's description, the coverage line and its map
+    (`server/coverage.ts`; a cell selects its frame), and "Since you were here: N changed",
+    which steps through the frames `seen.ts` counts as changed and dots. "agent…" sits on
+    the frame an agent is publishing to until its still lands. Drag empty space, Space-drag
+    or scroll to pan; ⌘-scroll, a pinch or +/- zooms; Shift 1 fits the page and Shift 2 the
+    selection; Enter, a double-click or Open ↵ opens Focus; Esc lets go; ⌘/ hides the rail
+    and the cards. A selected frame offers Copy link. P or ▶ Present plays a flow full
+    screen (`Present.tsx`): → and ← walk it, R starts over.
+  - **The rail** (`BoardRail.tsx`; over Focus it opens from ☰, `SideOver.tsx`): Needs
+    you, the one inbox, each question opening Focus on it (`?question=`); Pages, the
+    areas, each with its Ready count ("3/7") and, under the open one, its layers
+    (sections, then frames); Library (Components, System, Documents) and Exploring (Ideas,
+    Archive, Recent). Recent stays because it is the one place to correct the decision
+    log (`Decisions.tsx`). The project switcher (`ProjectSwitcher`) and `Jump` (`/` or ⌘K,
+    `GET /api/search` through `server/jump.ts`, which never reads surfaces; results are
+    text nodes) land on the Board, or in Focus for a question or an alternative.
+  - **Library and Exploring pages** (`Home.tsx`, with its rules in `albums.ts`).
+    Components is the library on one page: Shared first, its groups as headings, then each
+    area's own (`?sec=shared` alone is Shared). `SystemPlace` (`?sec=system`, listed once
+    the system holds anything, `hasSystem` on the tree) is the project's system in tabs
+    per family: palettes as swatch rows with Default / Keep / Hide, their checks, a type
+    and space specimen (`server/systemSpecimen.ts`, a sandboxed document from
+    `GET /api/projects/:name/system/specimen`), tokens, classes, components and revisions
+    with Restore. Documents are a dated list (`DocRow`, `dateGroups`). The Archive holds
+    what left, one concept however it left: archived by hand (`archivedAt`, with an
+    optional `archiveReason`) or with everything archived and no question waiting
+    (`nothingLeft`). `Album` is a cover: one thing and all its pictures, by shape, sheets
+    behind it for states else alternatives, and one turn word under the title, never on the
+    art (`turnWord`, `designStatus`); it says "New" from `seen.ts`. A cover's ⋯
+    (`CardMenu`) moves a design to another kind or area, or archives it.
+  - **Focus** (`DesignScreen.tsx`, its state and actions in `state.ts`). `TopRow`: the
+    path, project / page / design, then the panel's toggle. Esc and the page in the path go
+    back to the Board, fit to the frame, selected. `Margins.tsx`: the states on the left
+    (not drawn ones dashed), the versions, and the state's alternatives
+    (`Alternatives.tsx`; headed Variants on a variants design, archived ones folded); on
+    the right a panel with Question · N, Spec (with Instances, `BuiltFrom`) and Activity
+    (`Thread.tsx`), standing open where it fits and opening for a question whatever the
+    room (`marginLayout` in `logic.ts` floats a margin as a tab when it would take the
+    design below 80%). By the design, a strip of Try, Comment, Tune, the palette pick
+    beside Light | Dark (`PaletteTool`) and the preview with the QR. On an idea's
+    alternative the panel offers More like this, Borrow, Keep, Move and Archive.
+    `VersionCaption` holds the version and New version / Use this, and Compare with…:
+    `Compare.tsx` is two versions in one frame with a divider, and Compare with what you
+    saw opens it on the version `seen.ts` last had on screen. `SideBySide.tsx` lays the
+    design as it stands and every answer of a pictured question in a row at full height
+    (One | Side by side, kept per design in `answersLayout.ts`): the pick is outlined
+    "Chosen", the rest dim, and after Send the kept ones stay beside it and the archived
+    fold. `Stage.tsx` is the live canvas in the middle (frames, the part overlay, pins,
+    hit-testing through the bridge, the design's other `widths` as picture-only
+    artboards); `Reader` stands there for a document: one column of sandboxed frames at
+    full height, pins and comments built from the blocks they report; `PlannedStage` where
+    nothing is drawn; `Outlines` offers the missing states (`StateAsk`). Hide is per
+    version and dims in place; archive is per alternative and per design, with Undo.
+    `ChangedNote` names what it is ("New version · #10", "Changed since Ready") before its
+    way back. On an idea, past Use this a newer version takes over by itself (`changedTo`):
+    the stage moves to it when the tab has focus and it goes in use ten seconds later,
+    writing nothing before then. Back to the old one is a stay, which `stayedVersion`
+    remembers until a newer one comes, as does Use this on an older version. Anything
+    underway (a draft, an open question, a tool, typing) holds it to a See pill, and
+    touching the page stops the count.
+  - **Phone and tablet** (`viewport.ts`). Under 700 px the Board is its sections as rows
+    a finger swipes (scroll-snap), a flow's steps numbered 1, 2, 3, 3b, and a tap opens
+    Focus. Focus is one frame a swipe walks through the states, with a counter; Question
+    and Spec are sheets over a bar (`PhoneBar`, `QuestionCard`, `BottomPanel`), the
+    question's opening by itself while one waits, and there is no Side by side. From 700
+    to 1099 px the canvas takes touch (one finger pans, two pinch, a double tap opens
+    Focus), the rail slides in from ☰, and Focus's states column is pictures only.
+  - Also: `Thumb` (a shrunk sandboxed frame, frozen with `#small`), `flowNav.ts` (the
+    declared flow around the design: the flow bar, neighbours across designs, Try's
+    `data-goto`), `logic.ts` (pure rules), `tune.ts` (tunekit mounted via
+    `initPane({ host })`), `presets.ts` (Tune presets in localStorage), `theme.ts`,
+    `host.ts`.
 - `bin/poster.js` — automatic posters for the CLI and stdio MCP: a publish leaves a job, a
   detached worker renders it in one headless browser and attaches the still with
   `POST /api/designs/:id/alternatives/:postId/poster`, which makes no new version. A `system`
@@ -470,7 +511,8 @@ consciously, not as a side effect):
   next to the DB (read live on Node; `userRules` setting on the Worker), the
   project's `.mockpit/rules.md` (`rules:<project>`, sent by `mockpit rules` /
   `init`). Design taste goes in a pack, never in core.
-- `scripts/record-demo.mjs` — regenerates the README gif.
+- `scripts/record-demo.mjs` — regenerates the README stills (`docs/mockpit-board.png`,
+  `docs/mockpit-question.png`); `scripts/film/` cuts the product film.
 - `scripts/inspect.ts` — read-only diagnosis of real agent sessions (see
   Diagnosing agent sessions below).
 
@@ -662,7 +704,8 @@ the finding needs.
   (`Design.variants`, named with `--variant`); a state is what the user meets, a variant
   what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
   **instance** is an included component (`<mockpit-instance>`); a **combo** is a named
-  combination of answers; the project's **decision log** is what replies settled. A
+  combination of answers; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
+  viewer's word only, and stored data, the CLI and MCP say `area`. A
   project has one **system**: sheet, token, scale, role, palette, pair, project knob. Its
   revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
   **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
@@ -676,16 +719,18 @@ the finding needs.
   Hide only ever means a version, taking an alternative out is Archive, and the bookmark
   is Keep. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group (for a lead's followers; a component's library `group` is live),
-  snippet, board, stream, `part` for a surface, trace, look (for an alternative), slot, mix
+  snippet, stream, `part` for a surface, trace, look (for an alternative), slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for
   a state, moment, design system and design settings (now system), accepted and dropped
   in anything an agent reads, variant for one of several to choose between (now
   alternative), fill (now swap), embed (now instance), set for saved answers (now combo),
-  decision list (now decision log) — appear nowhere in new code, routes,
-  tools or docs. The SQL columns keep their first names (`posts.variant`,
-  `posts.slots`, `designs.sets`, `status = 'accepted'`), and a component instance's
-  `variant="…"` names the form it shows. There is no back-compat beyond `SqlStore`'s in-place
+  decision list (now decision log), the views before the Board and Focus (Studio, Stage
+  for the view, Wall, Columns, All states, the Answers board: now the Board, Focus and Side
+  by side) — appear nowhere in new code, routes, tools or docs. The SQL columns keep their
+  first names (`posts.variant`, `posts.slots`, `designs.sets`, `status = 'accepted'`), a
+  component instance's `variant="…"` names the form it shows, and `Stage.tsx` is still the
+  live canvas inside Focus, which code calls the stage. There is no back-compat beyond `SqlStore`'s in-place
   migration: no legacy routes, aliases or query keys.
 - Conventional Commits: `type(scope): description`.
 - Changesets drive release notes. For user-visible changes run

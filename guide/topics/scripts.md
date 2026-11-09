@@ -111,7 +111,7 @@ try {
 
 | What       | Limit                                                        |
 | ---------- | ------------------------------------------------------------ |
-| Wall time  | 10 s per run                                                 |
+| Time       | 10 s per run                                                 |
 | CPU        | 10 s of script compute                                       |
 | Memory     | 32 MiB heap, 256 KiB stack                                   |
 | Code       | 1 MiB                                                        |

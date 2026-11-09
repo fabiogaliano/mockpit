@@ -1,4 +1,4 @@
-// The System place in Home: what every render of the project wears, a tab per
+// The System page of the Library: what every render of the project wears, a tab per
 // family. Palettes are swatch rows with Default, Keep and Hide; the scales are one
 // sandboxed specimen (it needs the project's fonts); revisions have Restore. Every
 // change here is one revision and one reply to the project's agent, so the toast

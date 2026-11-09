@@ -115,8 +115,8 @@ export interface HtmlSurface {
   // Opt-in style/behavior bundles (see kits.ts). The sandbox doc gets each
   // listed kit's CSS/JS injected after the base kit; omit for plain html.
   kits?: string[];
-  // An uploaded still of this page, by asset id. Overviews (Studio, Home)
-  // show it instead of running the page; Stage always runs the page.
+  // An uploaded still of this page, by asset id. The Board and the covers show it
+  // instead of running the page; Focus always runs the page.
   poster?: string;
   // Set on a still mockpit took itself: the mode the page was in. Overviews in the other
   // mode run the page instead. An agent's own poster names none and always shows.
@@ -314,7 +314,7 @@ export type KnobValue = number | boolean | string | PadValue | SpringKnob | Easi
 
 // Structure is declared, never assumed: a design is an idea until the agent
 // calls it a screen (one of the product's) or a component (a reusable design screens
-// instance; being included makes an idea one). Home shows a tab per kind in use.
+// instance; being included makes an idea one). The Board lays out each kind in use.
 export type DesignKind = "screen" | "component" | "idea";
 // What an idea would become once used, when it is for no design yet: a screen or a
 // component is made from what the user uses, a flow or a system change is the agent's.
@@ -571,10 +571,10 @@ export interface PartComment {
   reaction?: Reaction;
   // The alternative on stage when the reaction was made: the same part differs by look.
   alternative?: string;
-  // The version it is about, when that is not simply the latest: Studio
-  // shows every version side by side, so a reaction can point at an older one.
+  // The version it is about, when that is not simply the latest: Focus can have an
+  // older version on stage, so a reaction can point at one.
   version?: number;
-  // A Studio steer: make a new version of this one (alternative@version) that takes
+  // A steer (Borrow in Focus): make a new version of this one (alternative@version) that takes
   // a part from another, `from` as agents write it ("felt@2"). `part` only when
   // the user picked a declared one; otherwise `text` says what to take.
   borrow?: { from: string; part?: string };
@@ -640,7 +640,7 @@ export interface Reply {
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).
   archived?: { dismissed: string[] };
-  // Neither an answer nor an archive: the user moved the design from Home
+  // Neither an answer nor an archive: the user moved the design themselves
   // (another kind, another area; null area: none), which the agent must hear.
   edited?: DesignEdit;
   // On an idea for a design: what the alternative put in use became there.
@@ -768,11 +768,11 @@ export interface DesignEdit {
   spec?: { purpose?: string | null; behaviour?: SpecLine[] | null };
   // The user marked the design Ready, or took the mark off.
   ready?: { ready: boolean; at: string };
-  // From when Studio could hang alternatives under a lead; stored rows still carry it.
+  // From when alternatives could hang under a lead; stored rows still carry it.
 }
 
 // The settings key prefix of a project's areas (`areas:<project>`): a JSON array of
-// `ProjectArea`, in the order Home lists them, each with what it is for.
+// `ProjectArea`, in the order the Board lists them as pages, each with what it is for.
 export const AREAS_SETTING = "areas";
 // A project's own description (`description:<project>`), a `Described`.
 export const PROJECT_DESCRIPTION_SETTING = "description";
@@ -789,7 +789,7 @@ export interface Described {
   by: Author;
   at: string;
 }
-// One area as the project names it: listed in Home's order, or `alphabetical`, kept only
+// One area as the project names it: listed in the project's order, or `alphabetical`, kept only
 // for its description among the areas the order leaves to the alphabet. A description
 // never ranks an area. An ordered area with no description is only ordered.
 export interface ProjectArea {
@@ -858,7 +858,7 @@ export interface Design {
   title: string;
   kind: DesignKind;
   // Where in the product it belongs, in the project's own words ("Shell",
-  // "Food"): Home groups each tab by it. null leaves it ungrouped.
+  // "Food"): its page of the Board. null puts it on No area.
   area: string | null;
   // What a component does, in any word ("Actions", "Cards"): the library's heading for
   // it. A component with no area is shared, and the shared ones are listed by group.
@@ -1698,7 +1698,7 @@ export const openAsks = (design: Pick<Design, "asks">): Ask[] =>
 export const openCount = (design: Pick<Design, "asks">): number => openAsks(design).length;
 
 // How many of the open asks the user's unsent draft already speaks for (a
-// pick, a write-in or a comment), so Home can show a started design as "draft 2/4";
+// pick, a write-in or a comment), so a design's view can say a started one is "draft 2/4";
 // null when there is no draft. A count only: the draft's content stays private.
 export function draftedCount(design: Pick<Design, "asks" | "draft">): number | null {
   const d = design.draft;

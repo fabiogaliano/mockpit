@@ -1,6 +1,6 @@
 // What this browser has had on screen of each alternative: the version it last showed, per
 // project, in localStorage. An alternative past it has changed since the user was here: the
-// Board dots its frame and counts it in "Since you were here", and Home marks the design.
+// Board dots its frame and counts it in "Since you were here", and its cover says New.
 // Focus offers the version seen before to compare with. No server state: it is one person's
 // "since I last looked", per browser. A project's first visit marks nothing; everything there
 // counts as seen from then on.

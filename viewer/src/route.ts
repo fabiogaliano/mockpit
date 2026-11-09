@@ -59,7 +59,7 @@ export type Route =
       project: string;
       slug: string;
       // Open on this state, and this alternative when named (a step of a flow or a
-      // screen on Home names the state alone).
+      // screen's frame on the Board names the state alone).
       open: ScreenOpen | null;
       // The flow the user came through, which the flow bar keeps to.
       flow: string | null;

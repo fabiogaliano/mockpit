@@ -520,12 +520,14 @@ Name a state by what the user sees in it ("Home, idle", "Proposal
 shown"), never by where it is in your process ("Prototype", "v2", "Round 2"):
 the viewer lists them as the design's states. Title a design the same way,
 by what it is ("Hold menu"), never "Round 2 · Places" or "Flow 3 · Presence":
-titles are read out of context, on Home and in its areas.
+titles are read out of context, on the Board and in Needs you.
 
 ## The loop
 
 Nothing waits for the user. Publish, ask, say where to look, end your turn;
-the question lives in the design, never in chat. Never poll.
+the question lives in the design, never in chat. Never poll. A write's \`url\` is
+where to look: it opens the Board, the user's map of the project, fit to that
+design or state, and they open it in Focus to decide.
 
 \`\`\`sh
 mockpit init                    # once per repo: the repo's tokens, kit, icons, starter
@@ -577,9 +579,10 @@ a later draft of that section isn't applied, and the result says so.
 A screen or component holds what ships, one entry a state, so nothing on it is chosen:
 its newest version is current, with no Use this, no Which alternative? and nothing in use.
 Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` (and a nudge
-says so once) until you publish an idea for it and \`move\` them there, or the user presses
-Move into an idea (you hear it in the Thread), or, when they all ship, make it a variants design (\`edit <slug>
---variants\`): \`read\` then lists them as \`variants\`. Only the user marks it Ready, this is the version (a screen's mark
+says so once) until they leave. Publish an idea for it and \`move\` them there, or, when
+they all ship, make it a variants design (\`edit <slug> --variants\`), and \`read\` lists
+them as \`variants\`. The user may press Move into an idea instead; a batch's \`messages\`
+say so. Only the user marks it Ready, which says this is the version (a screen's mark
 carries to the components inside); a version it marked is acted on, so amend and withdraw
 refuse it. \`read\` and \`export\` give \`ready\` (the versions it
 covers), \`changed\` (something newer shows since) and \`builtFrom\` (each component's own
@@ -638,7 +641,7 @@ publish it on the target in each of those states, which takes over as any newer 
 does (each state leaves the list once drawn). \`gaps\` (\`{target,
 states?, variants?}\`): what the target has that the used alternative doesn't draw. The
 user fills them by choosing: publish an idea for the target (\`--for <slug>\`) with those
-states or variants drawn and one question. Never write onto a product design for a gap. \`lift\`: The library.
+states or variants drawn and one question. Never write onto a product design for a gap. \`lift\`: see The library.
 \`placeFlow\` (\`{flow, steps: [{name, alternative?}], area, screens: [{slug, states}]}\`): a
 flow idea was used. Put each step on a screen: an existing state, a new state (\`publish
 --design today --state "Lunch logged" --flow "Log lunch" --step 3\`, no body, declares it
@@ -667,20 +670,21 @@ side notes, labels or rationale beside it (they shrink the design on a phone).
 Say what an alternative is in \`--description "System font, thin bars; feels like a tool"\`;
 the viewer shows it on the alternative and its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
-side; without them the viewer picks one for the screen it is on. Studio and Home
-show a still of a page instead of running it: the CLI and stdio MCP take one with
-a local Chrome just after each publish, and \`--poster shot.png\` (MCP \`poster\`)
-sends your own, which wins. Over raw HTTP and \`/mcp\`, send one with each version
-of a page that draws on a canvas (3D, WebGL), which otherwise runs live in every
-overview card.
+side; without them the viewer picks one for the screen it is on. The Board shows
+each page's poster, a still, and Focus runs it live: the CLI and stdio MCP take one
+with a local Chrome just after each publish, and \`--poster shot.png\` (MCP
+\`poster\`) sends your own, which wins. Over raw HTTP and \`/mcp\` nothing takes
+one: send one with each version, or the Board shows the frame's name in its place.
+A page that draws on a canvas (3D, WebGL) needs one most, since Focus runs every
+picture of it live.
 
 ## Structure only when the work has it
 
 A design is an idea unless you say otherwise: explorations, diagrams,
-explainers and reviews stay plain, and Home lists them under Ideas (a written
-one, under Documents). Declare
+explainers and reviews stay plain, and the Board's Ideas page lays them out (a
+written one is listed under Documents). Declare
 structure only when you are designing the screens of a product; each kind
-you use adds its section to Home:
+you use takes its place on the Board:
 
 - A screen of the product: \`--kind screen\`.
 - States the user moves between, even across designs, in order: a flow.
@@ -701,8 +705,8 @@ you use adds its section to Home:
   details.
 
 A product with several areas names them: \`--area Shell\` (the project's own
-words) groups each Home section by area, and \`--source apps/web/src/shell\` says
-which code implements the design. Read an area before drawing in it:
+words). An area is a page of the Board, with a section per flow.
+\`--source apps/web/src/shell\` says which code implements the design. Read an area before drawing in it:
 \`mockpit read --area Food\` is what the project and the area are for, what's left
 in it (\`coverage\`: each design's states as Ready, In design, Planned or Missing,
 and each flow's steps ready), its screens, flows and components, the shared
@@ -711,8 +715,8 @@ says in one line what an area is for, and without \`--area\` what the project is
 for; the user's own stands. An idea that becomes a screen is promoted
 with \`mockpit edit --design <slug> --kind screen\` (no new version), and
 \`--slug\`, \`--title\`, \`--area\` and \`--source\` change the same way; a new
-slug rewrites every instance and flow step that names the old one. Home lists
-areas alphabetically unless \`mockpit edit --project <p> --areas
+slug rewrites every instance and flow step that names the old one. The Board
+lists the areas alphabetically unless \`mockpit edit --project <p> --areas
 "Shell,Food"\` sets the order (unlisted ones follow, alphabetical).
 
 Tidying up is yours too when the user asks: \`mockpit move --design <slug> --alternative
@@ -775,15 +779,15 @@ runners-up and rejects: never offer a hidden answer again; \`update\` asks you t
 kept screen up to date with the one in use;
 \`verdict\` (use, revise) replaces answers when there were
 no questions; \`decisions\` is the state as chosen: alternative, then each part's
-swap, nested; \`messages\` are what the user wrote in the thread. Each Send
+swap, nested; \`messages\` are what the user wrote in the design's Activity. Each Send
 arrives exactly once: in a write's \`feedback\` or \`mockpit feedback\`. A
 \`mockpit watch\` line only says one landed. In Claude Code, arm \`mockpit watch\` under Monitor after
-asking, so a Send wakes you, unless your mockpit tools come from the plugin, which
-wakes you itself; it never returns, so never in the foreground. Elsewhere
-the user's next message is the wake-up.
+asking, so a Send wakes you; it never returns, so never run it in the foreground. Mockpit
+tools from the plugin need none: the plugin wakes you itself. Elsewhere the user's next
+message is the wake-up.
 A \`pending\` draft means the user is still answering. Send a nudge's
 \`suggestedAsk\` with \`ask\`.
-\`edited: {kind, area}\` means the user moved the design from Home; it is done,
+\`edited: {kind, area}\` means the user moved the design themselves; it is done,
 so build on it and don't move it back. \`edited: {spec}\` is the user's correction
 of the design's spec, by section (null where they cleared one); \`edited: {ready}\` that
 they marked it Ready or took the mark off. A batch's \`nudges\` say what the design
@@ -795,8 +799,8 @@ A design with \`shortlist: true\` is one the user gathered: its alternatives are
 copies (\`copiedFrom\` names each original) and its replies can reach you
 though you never wrote to it. Publish to those alternatives as usual; from then on
 its replies are yours.
-The viewer shows each state its own questions and only open ones; a sent
-answer is not shown again.
+The viewer shows each state its own questions; a sent one shows as answered,
+its pick marked, and is never open again.
 
 ## HTML
 

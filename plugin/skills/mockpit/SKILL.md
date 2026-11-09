@@ -33,8 +33,8 @@ Declare structure only when designing a product's screens: `--kind screen` for a
 own design included with `<mockpit-instance slug="card">`, which makes it a component. Ideas,
 diagrams and reviews stay plain.
 
-`--area Shell` (the project's own words) groups Home; `mockpit edit --project <p> --areas
-"Shell,Food"` orders it, and `mockpit read --area Shell` is everything settled in one area: read it
+`--area Shell` (the project's own words) puts a design on that area's page of the Board;
+`mockpit edit --project <p> --areas "Shell,Food"` orders the pages, and `mockpit read --area Shell` is everything settled in one area: read it
 before drawing there. `--source apps/web/src/shell` names the code that implements a design.
 A component with no area is shared; `--group Actions` (or the project's word) files it in the
 library. When a nudge offers to move a component to shared, ask the user before `--area ''`.
@@ -47,7 +47,7 @@ and `export`: `ready`, `changed`, `builtFrom`).
 `mockpit edit --design <slug> --slug <new>` renames it and rewrites every instance and flow step; it
 also retitles and reclassifies without a new version. Title a design, like a state, by what the
 user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototype"). When the user
-moves a design from Home (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
+moves a design themselves (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
 Explore for a screen or component in an idea for it (`--for <slug>`), or say what an idea
 would become (`--becomes screen|component|flow|system`). Its read and replies carry
 `target.ruledOut`: what that design turned down; don't offer it again unless the user asks. Using an alternative
@@ -88,7 +88,7 @@ returns at once. `pending` says whether they are still answering (`viewerOpen`,
 exactly once, in `feedback` or the `feedback` field on a write.
 
 Respond by publishing the next version (`publish`, or `--parts name=file` for
-one part) or with a short note in the thread (`say` / `mockpit say`).
+one part) or with a short note in the design's Activity (`say` / `mockpit say`).
 
 Rules of thumb:
 

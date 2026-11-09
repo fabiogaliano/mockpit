@@ -10,7 +10,7 @@ export type JumpMatch = "title" | "state" | "alternative" | "area" | "question" 
 
 export interface JumpHit {
   project: string;
-  // Null for an area, which is a place on Home and not a design.
+  // Null for an area, which is a page of the Board and not a design.
   id: string | null;
   slug: string | null;
   title: string;

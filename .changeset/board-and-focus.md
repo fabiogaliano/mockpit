@@ -1,0 +1,5 @@
+---
+"mockpit": minor
+---
+
+Mockpit is now two places: the Board to see a project, Focus to decide on one design. The Board lays a project out as a designer's file is: a page per area, a section per flow, every frame a still under its name, a map of what's left to design at the top of each page, the Ideas page with each idea as a section, and marks on what the agent just changed. Focus is one design live, its states on the left and Question, Spec and Activity on the right, where Side by side puts every answer of a question in a row and keeps the pick marked after Send. Every link, the agent's included, opens on the Board fit to that design; Enter or a double-click opens Focus. Home's shelves, Studio (Answers, Wall, Columns, Palettes), All states and the view switch are gone, and the phone and tablet get layouts of their own. The agent's guide, the CLI help, the MCP descriptions and the README now speak of the Board and Focus, the link `edit --project --area` returns opens that area's page, and `mockpit demo` takes the stills the Board shows.

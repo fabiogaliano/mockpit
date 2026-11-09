@@ -31,7 +31,7 @@ export interface RailLibrary {
   recent: boolean;
 }
 
-// The Library and Exploring rows a project has, lit by what it holds (Home's sections).
+// The Library and Exploring rows a project has, lit by what it holds (`sidebarOf`).
 export function libraryOf(t: HomeTree | null | undefined): RailLibrary {
   const side = t ? sidebarOf(t.tree, t.flows.length, rankedAreas(t.areas)) : null;
   const lit = (x: Section) => !!side && (side.lit.rows.includes(x) || side.lit.foot === x);

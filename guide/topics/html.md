@@ -7,8 +7,8 @@ animation are all fine. `mockpit guide` prints this project's system, kit, icons
 
 - Send a body fragment. No `<!doctype>`, `<html>`, `<head>` or `<body>`; the
   server wraps your fragment in a themed, sandboxed document.
-- The stage renders your fragment in an 820px-wide frame, scaled to fit the
-  user's window. Question pictures and Home thumbnails are the same document,
+- Focus renders your fragment in an 820px-wide frame, scaled to fit the
+  user's window. Question pictures and the Board's posters are the same document,
   shrunk. Height is measured from your content.
 - Keep content in normal flow: the frame measures the document box, so anything out of
   flow can leave the surface clipped or at the wrong height.

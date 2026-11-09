@@ -1,5 +1,5 @@
 // How many pictured pages may load at once. Each is a whole sandboxed document
-// on an opaque origin, which shares no cache with the others, so a Home that
+// on an opaque origin, which shares no cache with the others, so a page that
 // starts them all at once spends minutes of bandwidth on what is below the
 // fold and starves what the user is looking at.
 const MAX_LOADING = 4;

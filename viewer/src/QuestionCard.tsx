@@ -30,7 +30,7 @@ export function QuestionCard(props: {
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
   // The built-in Which alternative? comes last and isn't a question anyone asked, so
-  // the count reads the same as Home's.
+  // the count reads the same as Needs you's.
   const counted = (a: Ask) => asked() > 1 && !isBuiltinAsk(a);
   const askAt = (id: string) => s.questions().findIndex((q) => q.kind === "ask" && q.ask.id === id);
   const asked = () => s.questions().filter((q) => q.kind === "ask" && !isBuiltinAsk(q.ask)).length;

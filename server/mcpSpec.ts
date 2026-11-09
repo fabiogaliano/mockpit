@@ -48,7 +48,7 @@ const field = {
   description: "What this alternative is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
   kind: "Only when building the product's screens: screen, component (a reusable design screens include). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
-  area: 'Product area in the project\'s words; Home groups by it. "" clears',
+  area: 'Product area in the project\'s words, a page of the Board. "" clears',
   group:
     'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
   source: 'Code path implementing it. "" clears',
@@ -326,7 +326,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per design: reply answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard (one batch per design: reply answers, borrowed parts, tuned knobs, part comments, verdict; messages from its Activity; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -335,7 +335,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   },
   {
     name: "say",
-    description: "Post a short plain-text message in a design's thread. Returns feedback.",
+    description: "Post a short plain-text message in a design's Activity. Returns feedback.",
     params: {
       ...ALTERNATIVE_REF,
       message: { t: "string", d: "Plain text", req: true },
@@ -550,7 +550,9 @@ const feedbackSchema = o({
   })
     .nullable()
     .describe("The user's Send; null if only messages"),
-  messages: z.array(o({ seq: num, text: str })).describe("What the user wrote in the thread"),
+  messages: z
+    .array(o({ seq: num, text: str }))
+    .describe("What the user wrote in the design's Activity"),
   inUse: z
     .array(entryNamed({ state: nullStr, version: num }))
     .describe("In use, each at the version the user put in use"),
@@ -563,7 +565,7 @@ const feedbackSchema = o({
   })
     .optional()
     .describe(
-      "The user moved the design from Home (its kind or area now), edited its spec, or marked it Ready (or took it off)",
+      "The user moved the design themselves (its kind or area now), edited its spec, or marked it Ready (or took it off)",
     ),
   nudges: strs.optional(),
   followUps: followUpsSchema.optional(),
@@ -654,7 +656,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
   },
   system: {
     rev: num,
-    changed: strs.optional().describe("What this write changed, as the Thread says it"),
+    changed: strs.optional().describe("What this write changed, as Activity says it"),
     checks: strs,
     nudges: strs.optional(),
     url: str,

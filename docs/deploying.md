@@ -26,14 +26,14 @@ claude mcp add --transport http mockpit https://mockpit.<account>.workers.dev/mc
 
 Set `MOCKPIT_PUBLIC_READ` to share reads without the token. It affects only `GET`: writes still need `MOCKPIT_TOKEN`, authenticated owners keep the full UI, and invalid values are ignored.
 
-- `full`: every read is public: home, project pages, design pages (`/project/:project/:design`), surface documents, assets and the read API. Without the token the viewer is read-only: no answering, tuning, marking, restoring or Send.
+- `full`: every read is public: `/`, each project's Board (`/project/:project`), design links (`/project/:project/:design`, which open the Board fit to that design), surface documents, assets and the read API. Without the token the viewer is read-only: no answering, tuning, marking, restoring or Send.
 - `session`: only reads addressed by an unguessable id are public, so a shared link can't list the workspace:
   - `/api/designs/:id` and `/api/designs/:id/export` (by design id, never `?project=`)
   - surface documents `/s/:postId` and assets `/a/:id`
   - `/api/comments` and `/api/events` when they carry a `session`, `design` or `post` id
   - the design page shell `/project/:project/:design`, with its link-preview metadata
 
-  Everything addressed by name stays private: home, `/api/projects`, `/api/designs?project=`, `/api/sessions` and drafts.
+  Everything addressed by name stays private: `/` and the Board, `/api/projects`, `/api/designs?project=`, `/api/sessions` and drafts.
 
   The viewer doesn't work in `session` mode: a design page looks up its design by project and slug and subscribes to the unfiltered event feed, and both need the token. Use `session` for API and surface links by id, and `full` when someone without the token should see the viewer.
 

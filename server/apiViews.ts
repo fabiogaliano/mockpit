@@ -134,7 +134,7 @@ const posterOf = (surfaces: SurfaceHead[]) => {
   return poster ? { poster } : {};
 };
 
-// The poster of one version of an alternative: what Home shows for it.
+// The poster of one version of an alternative: what the Board and covers show for it.
 const posterAt = (post: PostHead, version: number) =>
   pagePoster(
     (version === post.version
@@ -142,7 +142,7 @@ const posterAt = (post: PostHead, version: number) =>
       : post.history.find((h) => h.version === version)?.surfaces) ?? [],
   );
 
-// The in-use version's poster, when Home shows an older version than the
+// The in-use version's poster, when a cover shows an older version than the
 // newest.
 const inUsePoster = (p: PostHead) => {
   if (p.acceptedVersion === undefined || p.acceptedVersion === p.version) return {};
@@ -150,7 +150,7 @@ const inUsePoster = (p: PostHead) => {
   return poster ? { inUsePoster: poster } : {};
 };
 
-// The version Home shows when nothing is in use and the newest was hidden, or a
+// The version a cover shows when nothing is in use and the newest was hidden, or a
 // product design went back to the version marked Ready.
 const coverVersion = (
   p: PostHead,
@@ -649,7 +649,7 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
 });
 
 // Off the shelf: archived by hand, or drawn with nothing live left and no question
-// waiting, Home's rule (`nothingLeft`). A plan has nothing live because nothing is
+// waiting, the Archive's rule (`nothingLeft`). A plan has nothing live because nothing is
 // drawn yet, which is not the same.
 export const offShelf = (design: Design, posts: Pick<PostHead, "status">[]) =>
   !!design.archivedAt ||

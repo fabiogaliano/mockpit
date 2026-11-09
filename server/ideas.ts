@@ -59,7 +59,7 @@ export function likelyTarget(idea: Design, designs: Design[]): Design | null {
 export const forNudge = (idea: Design, target: Design) =>
   `${idea.title} looks like it is for ${target.title}: \`edit ${idea.slug} --for ${target.slug}\` (or --becomes screen, component, flow or system)`;
 
-// An idea's standing in a word, the same for the agent, the tree and the area page.
+// An idea's standing in a word, the same for the agent, the tree and the Board.
 export function ideaStatus(
   posts: Pick<PostHead, "status">[],
   open: number,

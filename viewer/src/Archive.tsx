@@ -20,7 +20,7 @@ const SINGULAR: Record<string, string> = {
   Documents: "document",
 };
 
-// "9 ideas", or "6 ideas, 2 screens": what the group is, in Home's own words.
+// "9 ideas", or "6 ideas, 2 screens": what the group is, in the Library's own words.
 function kinds(nodes: TreeNode[]): string {
   const counts = new Map<string, number>();
   for (const n of nodes) {

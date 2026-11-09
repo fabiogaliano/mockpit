@@ -129,7 +129,7 @@ export function About(props: {
   };
   const [moving, setMoving] = createSignal(false);
   const [moveError, setMoveError] = createSignal<string | null>(null);
-  // Offered, never done by itself: the user's click is the move, as from Home's ⋯ menu.
+  // Offered, never done by itself: the user's click is the move, as from a cover's ⋯ menu.
   async function makeShared(id: string) {
     setMoving(true);
     setMoveError(null);

@@ -96,14 +96,15 @@ references it. Limit: 5 MB per asset.
 
 ## Posters
 
-A heavy page (3D, WebGL, a running canvas) costs a live frame in every overview card, and a
-browser holds only about 16. A still as the html's `poster` fixes that: Studio and Home show the
-picture, Stage still runs the page.
+The Board shows each page as its poster, a still, and never runs it; Focus runs it live. A
+heavy page (3D, WebGL, a running canvas) also runs in every picture Focus shows of it, and a
+browser holds only about 16 of those. A still as the html's `poster` gives the Board its
+picture and spares Focus the extra frames.
 
 The CLI and the stdio MCP server take one for you, with a local Chrome or Chromium, just after
 each publish that doesn't send its own. It arrives seconds later and the publish doesn't wait for
-it. With no browser there is none, and the page runs live as before. Send your own to choose the
-moment; yours always wins. Over raw HTTP and `/mcp`, only yours exists:
+it. With no browser there is none, and the Board shows the frame's name in its place. Send your
+own to choose the moment; yours always wins. Over raw HTTP and `/mcp`, only yours exists:
 
 ```
 CLI  mockpit publish --design onni --alternative felt --html felt.html --poster felt.png
@@ -116,11 +117,11 @@ drops it, so send one with each, or let the CLI or stdio server take the new one
 
 ## What the user sees
 
-| you publish              | the user gets                                        |
-| ------------------------ | ---------------------------------------------------- |
-| a plain design, any kind | the stage and Thread, with Use this / New version    |
-| several alternatives     | a switcher, plus a built-in alternative question     |
-| questions (`ask`)        | Questions: picture options on the stage, then Send   |
-| `data-part`              | Tune's component list and comments anchored on parts |
-| `knobs`                  | Tune's controls, live on the stage                   |
-| several states           | the state tabs above the stage                       |
+| you publish              | the user gets                                                         |
+| ------------------------ | --------------------------------------------------------------------- |
+| a plain design, any kind | a frame on the Board; Focus and Activity, with Use this / New version |
+| several alternatives     | Focus's list of them, plus a built-in alternative question            |
+| questions (`ask`)        | Questions: picture options on the stage, then Send                    |
+| `data-part`              | Tune's component list and comments anchored on parts                  |
+| `knobs`                  | Tune's controls, live on the stage                                    |
+| several states           | the state tabs above the stage                                        |

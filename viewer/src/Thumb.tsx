@@ -1,5 +1,5 @@
-// A surface document shrunk to fit a box: Home's thumbnails and the pictures on
-// question options. Always a sandboxed iframe at an opaque origin, never markup
+// A surface document shrunk to fit a box: covers, Focus's lists of alternatives and the
+// pictures on question options. Always a sandboxed iframe at an opaque origin, never markup
 // in this document; pointer-events are off so it is only ever a picture.
 
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";

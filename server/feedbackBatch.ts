@@ -137,7 +137,7 @@ export interface FeedbackBatch {
   archived: AlternativeRef[];
   // Set when this batch reached a session that didn't ask it (handoff.ts).
   handoff?: string;
-  // The user moved the design from Home: its kind or area as they left it
+  // The user moved the design themselves: its kind or area as they left it
   // (area null: none). Build on it; don't move it back.
   edited?: DesignEdit;
   // What changed in the project's system: by the user's hand (a project batch, no

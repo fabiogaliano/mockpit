@@ -89,7 +89,7 @@ export interface BoardInput {
 
 // The version a state shows: what's in use, else what the agent recommends, else the
 // first drawn, at the version a product design shows (Ready's, after a stay), with its
-// poster. The Board's still for it, the same choice Home's covers make.
+// poster. The Board's still for it, the same choice the Library's covers make.
 function shownOf(
   design: Design,
   posts: PostHead[],

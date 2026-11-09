@@ -1,4 +1,4 @@
-// An album's ⋯ menu on Home: the user moves the design themselves (another kind,
+// A cover's ⋯ menu on a Library page: the user moves the design themselves (another kind,
 // another area) or closes it. Moves go through the same edit the agent uses,
 // with its rules (a design still included stays a component), and the agent
 // hears each one in its next feedback; a refusal shows here, briefly.

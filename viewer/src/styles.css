@@ -2,7 +2,6 @@
    page chrome plus a light dialkit panel with the same radii and sizes. Ported
    from the prototype of record (docs/tmp/mockups/concepts/7-rethink/final). */
 :root {
-  --selbar-bottom: 32px;
   --page: #0f0f0f;
   --panel: #131313;
   --row: #1f1f1f;
@@ -1153,7 +1152,7 @@ a {
   display: block;
   width: 100%;
 }
-/* Studio's ×, on the cover: there when the pointer is, and always for a finger. */
+/* A cover's ×: there when the pointer is, and always for a finger. */
 .alb-x {
   position: absolute;
   z-index: 2;
@@ -6420,14 +6419,10 @@ html:has(.design-screen) {
   .mname {
     min-width: 88px;
   }
-  /* Three views have to fit beside the name; the count can wait for Studio itself. */
-  .vswitch .num {
-    display: none;
-  }
   .vswitch button {
     padding: 4px 8px;
   }
-  /* The narrowest phones: a swipe on Home and its menu still end an idea. */
+  /* The narrowest phones: the design's ⋯ menu still archives an idea. */
   @media (max-width: 380px) {
     .mend {
       display: none;
@@ -6712,72 +6707,6 @@ html:has(.design-screen) {
     transition-property: opacity;
   }
 }
-
-/* Studio: every alternative of a state side by side, newest version on top. */
-.studio {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  overflow: auto;
-  padding: 4px 20px 120px;
-}
-
-/* A grid of one state needs no wrappers; only the phone's strip groups its
-   columns by state. */
-
-/* The phone's strip: every state's columns in one row, one card per swipe,
-   a card's width short of the screen so the next one shows there is more. */
-.studio.strip {
-  scroll-snap-type: x mandatory;
-  scroll-padding-inline: 20px;
-  overscroll-behavior-x: contain;
-}
-
-/* The state's name rides at the left edge until its last card goes by. */
-
-/* A column's own ×, beside its name: out of the way until the column is pointed at. */
-
-/* A phone's card is the whole screen: the design needs every pixel of it. */
-
-/* The number is also the tick. It says so on hover, not at rest, so a board of
-   cards stays quiet; on a touch screen, and once one is ticked, it always shows. */
-
-/* While selecting a stray click must not archive or save one card. */
-
-/* A sent reply's status sits at the same spot and has to stay in sight. */
-body:has(.sentrow) {
-  --selbar-bottom: 72px;
-}
-body:has(.sentnote .wake) {
-  --selbar-bottom: 184px;
-}
-/* An Undo waits until dismissed, so a new selection can start under it: it stacks
-   above the bar, and leaves room for what the bar opens. */
-
-/* No transform here: it would make the sheet's fixed position relative to the bar. */
-
-/* No hover to reveal them on a touch screen: they are always there. */
-
-/* Hidden: dimmed where it stands. */
-
-/* A fork's name under its small picture: the newest work is what you name back. */
-
-/* Look closer: one version over the grid, below the top row, above everything
-   in Studio but a comment being written. */
-.look {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 30;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto auto auto;
-  background: var(--page);
-  outline: none;
-}
-
-/* On the preview's corner, where a finger looks for "bigger". */
 
 /* Full screen: the page alone, above everything but a toast. */
 .full {
@@ -8096,9 +8025,7 @@ body:has(.sentnote .wake) {
   color: var(--t4);
 }
 
-/* Studio's Answers (AnswerBoard.tsx): every answer of the open question at once. */
-
-/* The System place in Home: one tab per family. */
+/* The System page of the Library: one tab per family. */
 .sys-tabs {
   display: flex;
   gap: 2px;
@@ -8520,8 +8447,6 @@ body:has(.sentnote .wake) {
   font-size: 12px;
   line-height: 1.35;
 }
-
-/* Studio's Palettes: a column per palette, light over dark; wraps rather than scrolls. */
 
 .dot.sys {
   background: var(--accent);

@@ -1701,7 +1701,7 @@ export function createDesignScreen(
   }
   // The last thing the user sent that an agent owes an answer to, read from the same
   // comments as the Thread, so the word and the Thread can't disagree. A move from
-  // Home or a close isn't one.
+  // a cover's menu or a close isn't one.
   const lastSend = createMemo(() => {
     const list = comments();
     for (let i = list.length - 1; i >= 0; i--) {

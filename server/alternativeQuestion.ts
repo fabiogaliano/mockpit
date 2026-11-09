@@ -3,7 +3,7 @@
 // every live alternative in the states it chooses in, so it has to show all of them: one
 // choice, one question. What the agent published and never put in its question is added
 // to it here, and an alternative answer the user hid is an archived alternative, not a second list
-// that could disagree with Studio. The server and the viewer share these rules.
+// that could disagree with Focus's list of alternatives. The server and the viewer share these rules.
 // Runtime-agnostic.
 
 import {

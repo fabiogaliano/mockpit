@@ -1,5 +1,5 @@
 // Automatic posters: a still of a page just published, taken with a local headless Chrome
-// or Chromium, so Studio and Home show a picture without the agent doing anything. Built-ins
+// or Chromium, so the Board shows a picture without the agent doing anything. Built-ins
 // only, like the rest of the CLI, and the stdio MCP server loads this same file.
 //
 // A publish only leaves a job here and returns. A detached worker does the rest, one page at
