@@ -2,7 +2,7 @@ import { scanSwaps, slotCss } from "./swaps.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import { CURRENT_CONTRACT, type System, systemCss } from "./system.ts";
+import { activePalette, CURRENT_CONTRACT, type System, systemCss } from "./system.ts";
 import { PARAGRAPH_TEXT_MAX, PARAGRAPHS_MAX, type ProjectKit } from "./types.ts";
 import {
   type Mode,
@@ -562,6 +562,10 @@ export const HIT_TEST_JS = `
 //                               overlay, forwarded)
 //   knobs      {values}         {path: value}, merged into the current values
 //                               and applied exactly like the `?k=` preamble
+//   palette    {id}             wear this palette of the project's system (null: its
+//                               default), as `?p=` would: its colours, color-scheme,
+//                               data-scheme/data-palette and .dark. A document whose
+//                               system has one palette ignores it
 //   try        {on}             Try is on or off: while on, [data-goto] elements are
 //                               outlined and a click on one reports goto instead
 //                               of reaching the page; a new document starts off
@@ -1006,7 +1010,7 @@ export const PARAGRAPHS_JS = `
 `;
 
 // Knobs: the `?k=` values are already on <html> (see knobPreamble); this binds
-// text, announces them, and applies the host's live `knobs` commands.
+// text, announces them, and applies the host's live `knobs` and `palette` commands.
 export const KNOBS_JS = `
 (function () {
 ${KNOB_VALUE_JS}
@@ -1057,9 +1061,57 @@ ${KNOB_VALUE_JS}
   window.addEventListener('message', function (e) {
     if (e.source !== parent || parent === window) return;
     var d = e.data;
-    if (!d || d.__mockpit !== true || d.type !== 'knobs') return;
+    if (!d || d.__mockpit !== true) return;
+    if (d.type === 'palette') {
+      if (window.__mockpitWear) window.__mockpitWear(d.id);
+      else window.__mockpitWanted = d.id;
+      return;
+    }
+    if (d.type !== 'knobs') return;
     if (d.values && typeof d.values === 'object' && !Array.isArray(d.values)) apply(d.values, true);
   });
+})();
+`;
+
+// The `palette` command, only in a document whose system has palettes to switch
+// between; KNOBS_JS hands it on.
+export const PALETTE_JS = `
+(function () {
+  // Palettes switch in place: a new document would paint blank before it shows.
+  // A command can arrive while the parser is still above the tags it swaps.
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  var palettes = null;
+  // Asked for before this script was parsed (KNOBS_JS listens from earlier in <head>).
+  var wanted = window.__mockpitWanted;
+  function wear(id) {
+    wanted = id;
+    if (document.readyState === 'loading') return;
+    if (!palettes) {
+      var data = document.querySelector('script[data-mockpit-palettes]');
+      if (!data) return;
+      try { palettes = JSON.parse(data.textContent); } catch (err) { return; }
+    }
+    var p = (typeof id === 'string' && own(palettes.palettes, id) && palettes.palettes[id]) ||
+      palettes.palettes[palettes.default];
+    var tag = document.querySelector('style[data-mockpit-colours]');
+    if (!p || !tag) return;
+    tag.textContent = p.colours;
+    var root = document.documentElement;
+    root.classList.toggle('dark', !!p.dark);
+    if (!p.attrs) return;
+    var names = ['scheme', 'palette'];
+    for (var i = 0; i < names.length; i++) {
+      var v = p.attrs[names[i]];
+      if (v) root.setAttribute('data-' + names[i], v);
+      else root.removeAttribute('data-' + names[i]);
+    }
+  }
+  window.__mockpitWear = wear;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      if (wanted !== undefined) wear(wanted);
+    });
+  }
 })();
 `;
 
@@ -1194,6 +1246,7 @@ const BRIDGE_TAG = inlineScript(BRIDGE_JS);
 const HIT_TEST_TAG = inlineScript(HIT_TEST_JS);
 const PARTS_TAG = inlineScript(PARTS_JS);
 const KNOBS_TAG = inlineScript(KNOBS_JS);
+const PALETTE_TAG = inlineScript(PALETTE_JS);
 const PARAGRAPHS_TAG = inlineScript(PARAGRAPHS_JS);
 // The base html-surface stylesheet: static design tokens + the surface kit.
 const BASE_CSS_TAG = inlineStyle(`${TOKENS_CSS}${KIT_CSS}${PART_HIGHLIGHT_CSS}${ICON_CSS}`);
@@ -1260,7 +1313,11 @@ function systemAssets(
 ): {
   repoVars: string;
   sheet: string;
-  tokens: string;
+  constants: string;
+  // The worn palette's colours and color-scheme, in a tag of their own.
+  colours: string;
+  // Every palette's, for the `palette` command; empty with one palette.
+  palettes: string;
   fonts: string[];
   kits: string[];
   projectKits: ProjectKit[];
@@ -1268,13 +1325,14 @@ function systemAssets(
   tailwind: boolean;
   dark: boolean;
   attrs: string;
-  scheme?: Mode;
 } {
   if (!system)
     return {
       repoVars: "",
       sheet: "",
-      tokens: "",
+      constants: "",
+      colours: "",
+      palettes: "",
       fonts: [],
       kits: [],
       projectKits: [],
@@ -1297,21 +1355,58 @@ function systemAssets(
     kit !== "tailwind"
       ? ""
       : `${tailwindCss ? `<style type="text/tailwindcss">${tailwindCss.replace(/<\/style/gi, "<\\/style")}</style>\n` : ""}<script src="${TAILWIND_CDN}"></script>`;
-  const css = systemCss(system, opts);
+  // Repos theme dark through a `.dark` ancestor (shadcn's `.dark {…}` block,
+  // `@custom-variant dark (&:is(.dark *))`), so the frame wears the class.
+  const repoDark = /\.dark\b/.test(tailwindCss || raw);
+  const worn = (palette: string | undefined) => {
+    const css = systemCss(system, { ...opts, palette });
+    const scheme = css.attrs.scheme;
+    return {
+      css,
+      colours: `${css.colours}${colorSchemeCss(scheme ?? opts.mode)}`,
+      dark: (scheme ?? opts.mode) === "dark" && repoDark,
+      attrs: `${scheme ? ` data-scheme="${scheme}"` : ""}${css.attrs.palette ? ` data-palette="${escapeHtml(css.attrs.palette)}"` : ""}`,
+    };
+  };
+  const now = worn(opts.palette);
+  const css = now.css;
+  // What another palette changes, so the host can switch it without a reload;
+  // the attributes only where the contract puts them on <html>.
+  const palettes =
+    system.color.palettes.length > 1
+      ? scriptJson({
+          default: activePalette(system, undefined)?.id ?? null,
+          palettes: Object.fromEntries(
+            system.color.palettes.map((p) => {
+              const w = worn(p.id);
+              return [
+                p.id,
+                {
+                  colours: w.colours,
+                  dark: w.dark,
+                  attrs:
+                    opts.contract >= 2
+                      ? { scheme: w.css.attrs.scheme ?? null, palette: w.css.attrs.palette ?? null }
+                      : null,
+                },
+              ];
+            }),
+          ),
+        })
+      : "";
   return {
     repoVars: vars,
     sheet: css.sheet.replace(/<\/style/gi, "<\\/style"),
-    tokens: css.tokens,
+    constants: css.constants,
+    colours: now.colours,
+    palettes,
     fonts: css.fonts,
     kits: kit && kit !== "tailwind" && kit !== "none" ? [kit] : [],
     projectKits: Array.isArray(system.projectKits) ? system.projectKits : [],
     headScripts: tailwind,
     tailwind: kit === "tailwind",
-    // Repos theme dark through a `.dark` ancestor (shadcn's `.dark {…}` block,
-    // `@custom-variant dark (&:is(.dark *))`), so the frame wears the class.
-    dark: (css.attrs.scheme ?? opts.mode) === "dark" && /\.dark\b/.test(tailwindCss || raw),
-    attrs: `${css.attrs.scheme ? ` data-scheme="${css.attrs.scheme}"` : ""}${css.attrs.palette ? ` data-palette="${escapeHtml(css.attrs.palette)}"` : ""}`,
-    ...(css.attrs.scheme ? { scheme: css.attrs.scheme } : {}),
+    dark: now.dark,
+    attrs: now.attrs,
   };
 }
 
@@ -1616,7 +1711,7 @@ export function renderHtmlPage(doc: {
   const kitIds = [...(doc.kits ?? []), ...project.kits];
   const kits = resolveKits(kitIds, project.projectKits);
   const kit = kitAssets(kitIds);
-  const scheme = colorSchemeCss(project.scheme ?? doc.mode);
+  const colours = `<style data-mockpit-colours>${project.colours || colorSchemeCss(doc.mode)}</style>`;
   const fonts = project.fonts.map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`);
   const styles =
     contract >= 2
@@ -1633,7 +1728,8 @@ export function renderHtmlPage(doc: {
             ...(k.css ? [inlineStyle(`@layer kit{${k.css}}`)] : []),
           ]),
           ...(project.sheet ? [`<style>@layer system{${project.sheet}}</style>`] : []),
-          `<style>${project.repoVars}${project.tokens}${scheme}</style>`,
+          `<style>${project.repoVars}${project.constants}</style>`,
+          colours,
           ...fonts,
         ].join("\n")
       : // Document order decides the cascade: theme tokens, base, kit accents,
@@ -1647,7 +1743,8 @@ export function renderHtmlPage(doc: {
             ...(k.href ? [`<link rel="stylesheet" href="${escapeHtml(k.href)}">`] : []),
             ...(k.css ? [inlineStyle(k.css)] : []),
           ]),
-          `<style>${project.repoVars}${project.sheet}${project.tokens}${scheme}</style>`,
+          `<style>${project.repoVars}${project.sheet}${project.constants}</style>`,
+          colours,
           ...fonts,
         ].join("\n");
   // Slots (swaps.ts): only the chosen swap of each shows, keyed on the knob
@@ -1664,6 +1761,7 @@ ${FREEZE_TAG}
 ${preamble.headScript}
 ${KNOBS_TAG}
 ${styles}
+${project.palettes ? `<script type="application/json" data-mockpit-palettes>${project.palettes}</script>\n${PALETTE_TAG}` : ""}
 ${swapCss ? `<style>${swapCss}</style>` : ""}
 ${project.headScripts}
 ${kits.flatMap((k) => (k.script ? [`<script src="${escapeHtml(k.script)}" defer></script>`] : [])).join("\n")}

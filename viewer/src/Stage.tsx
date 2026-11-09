@@ -26,7 +26,7 @@ import {
 import { createStore } from "solid-js/store";
 import { isLive, isSandboxedSurfaceKind, type Surface } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
-import { frameMode, palettePick } from "./systemRev.ts";
+import { frameMode, framePalette, palettePick } from "./systemRev.ts";
 import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
@@ -97,6 +97,10 @@ export const httpUrl = (v: unknown): string | null => {
 };
 
 // Everything a frame says is untrusted: copy out plain strings and numbers only.
+// The palette the stage's frames wear: an answer's, else the one picked to view in;
+// null is the system's default.
+const wornPalette = (s: DesignScreenState): string | null => s.stagePalette() ?? framePalette();
+
 function readReport(d: Record<string, unknown>, frameW: number): PartsReport | null {
   if (!Array.isArray(d.parts)) return null;
   const scroll = (d.scroll ?? {}) as Record<string, unknown>;
@@ -687,14 +691,23 @@ function Board(props: {
       knobs,
       e: props.alternative.instancesKey,
       w: props.alternative.rewrites,
-      p: s.stagePalette(),
+      // The page's own frame takes a new palette over the bridge.
+      p: index === primary() ? untrack(() => wornPalette(s)) : s.stagePalette(),
     });
   };
+  const wear = (el: HTMLIFrameElement) =>
+    el.contentWindow?.postMessage({ __mockpit: true, type: "palette", id: wornPalette(s) }, "*");
+  createEffect(() => {
+    wornPalette(s);
+    for (const [el, index] of frames) if (index === primary()) wear(el);
+  });
   const onMessage = (e: MessageEvent) => {
     const d = e.data as Record<string, unknown> | null;
-    if (!d || d.__mockpit !== true || d.type !== "resize") return;
+    if (!d || d.__mockpit !== true) return;
     for (const [el, index] of frames) {
       if (e.source !== el.contentWindow) continue;
+      if (d.type === "ready" && index === primary()) wear(el);
+      if (d.type !== "resize") continue;
       const h = num(d.height);
       if (h > 0) setHeights(index, Math.min(h, 20000));
     }
@@ -890,6 +903,19 @@ function AlternativeFrame(props: {
     props.post({ type: "knobs", values });
   });
 
+  // The palette goes over the bridge too: a hovered palette answer swapping the
+  // URL would replace the document, which paints blank before it shows.
+  let lastPalette = "";
+  createEffect(() => {
+    const reported = props.report?.version ?? props.ready;
+    if (reported === undefined) return;
+    const id = wornPalette(s);
+    const k = `${reported}|${id}`;
+    if (k === lastPalette) return;
+    lastPalette = k;
+    props.post({ type: "palette", id });
+  });
+
   // Try outlines the design's data-goto elements and lets a click on one move
   // the user; re-sent to each fresh document, which starts with Try off. Its `ready`
   // comes from <head>, before the bridge listens, so Try carried across a flow would
@@ -912,6 +938,7 @@ function AlternativeFrame(props: {
     // old report so the knobs go out again when the new one reports in.
     if (index === primary()) {
       lastKnobs = "";
+      lastPalette = "";
       lastTry = "";
       props.onReload();
     }
@@ -975,7 +1002,8 @@ function AlternativeFrame(props: {
                   mode: frameMode(),
                   e: props.alternative.instancesKey,
                   w: props.alternative.rewrites,
-                  p: s.stagePalette(),
+                  // The page's own frame takes a new palette over the bridge.
+                  p: isPrimary ? untrack(() => wornPalette(s)) : s.stagePalette(),
                   knobs: isPrimary
                     ? untrack(() => {
                         const m = s.design();

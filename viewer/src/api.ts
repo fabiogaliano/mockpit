@@ -448,8 +448,9 @@ export function surfaceUrl(
     instance?: Record<string, number>;
     // The alternative's rewrites: an amended version keeps its number.
     w?: number;
-    // A palette of the project's system other than its default.
-    p?: string;
+    // A palette of the project's system other than its default. Absent: the one
+    // picked to view in; null: the default.
+    p?: string | null;
   } = {},
 ): string {
   const q = new URLSearchParams({ surface: String(surface) });
@@ -460,7 +461,7 @@ export function surfaceUrl(
   if (opts.instance && Object.keys(opts.instance).length)
     q.set("instance", JSON.stringify(opts.instance));
   if (opts.w) q.set("w", String(opts.w));
-  const p = opts.p ?? framePalette();
+  const p = opts.p === undefined ? framePalette() : opts.p;
   if (p) q.set("p", p);
   const y = systemRev();
   if (y) q.set("y", String(y));

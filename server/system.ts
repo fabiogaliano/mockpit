@@ -1473,9 +1473,11 @@ function tokenDecls(token: Token): string {
 export interface SystemCss {
   // The project sheet, as written.
   sheet: string;
-  // Custom properties: the non-colour tokens, then the palette for the mode,
-  // then the `as` map onto mockpit's own tokens.
-  tokens: string;
+  // Custom properties: the non-colour tokens.
+  constants: string;
+  // Then the palette for the mode and the `as` map onto mockpit's own tokens,
+  // apart so a frame can trade them for another palette's in place.
+  colours: string;
   fonts: string[];
   // What `<html>` says about the palette.
   attrs: { scheme?: "light" | "dark"; palette?: string };
@@ -1521,7 +1523,8 @@ export function systemCss(
   const scheme = palette?.scheme && opts.mode ? palette.scheme[opts.mode] : opts.mode;
   return {
     sheet: system.sheet?.css ?? "",
-    tokens: `${block(constants)}${colours}`,
+    constants: block(constants),
+    colours,
     fonts: system.fonts.flatMap((f) => (f.href ? [f.href] : [])),
     attrs: {
       ...(scheme ? { scheme } : {}),
