@@ -31,7 +31,7 @@ import type {
   ReplyVerdict,
   SpecLine,
 } from "../../server/types.ts";
-import { basePath, host, renderRev } from "./host.ts";
+import { basePath, host, renderRev, root } from "./host.ts";
 import {
   framePalette,
   notePalettes,
@@ -499,24 +499,49 @@ export const specimenUrl = (project: string, mode: string, palette: string | nul
   return url(`/api/projects/${encodeURIComponent(project)}/system/specimen?${q}`);
 };
 
-// The live feed: one EventSource per tab, shared by every subscriber, since
-// browsers hold at most six HTTP/1.1 connections per origin across all tabs.
-// EventSource reconnects on its own; `onOpen` runs on each (re)connect so
+// The live feed, shared by every subscriber and by every tab. A feed holds its
+// connection for as long as it is open, and browsers allow six HTTP/1.1 connections
+// per origin across all tabs: with a feed each, six tabs left none for any request and
+// the seventh never loaded. So one tab holds the feed for all of them: the one with
+// the `feed` lock (Web Locks hands it on when that tab closes) opens the EventSource
+// and repeats every frame on a BroadcastChannel. Without either API a tab keeps a feed
+// of its own. EventSource reconnects on its own; `onOpen` runs on each (re)connect so
 // callers refetch after a gap and nothing broadcast while disconnected is missed.
 // It is given the workspace's revision then, to compare with `readAt`.
 type OnOpen = (rev: number) => void;
 type Listener = { onEvent: (e: FeedEvent) => void; onOpen?: OnOpen };
+type Feed = { close: () => void; viewing: () => void };
+// What tabs say to each other. `who`: a new holder asks what each tab has on screen.
+// `ping`/`pong`: a tab that starts listening learns a feed is already up, its first open.
+type Wire =
+  | { t: "event"; event: FeedEvent }
+  | { t: "hello"; rev: number }
+  | { t: "viewing"; tab: string; id: string | null }
+  | { t: "who" }
+  | { t: "ping"; tab: string }
+  | { t: "pong"; tab: string };
 const listeners = new Set<Listener>();
-let feed: { close: () => void } | null = null;
+let feed: Feed | null = null;
 // The design this tab has on screen, sent as `?viewing=` so the agent's
 // pending.viewerOpen is per design.
 let viewingId: string | null = null;
 
-function connect(): { close: () => void } | null {
-  const Source = (host().window as Window & typeof globalThis).EventSource;
-  if (!Source) return null;
-  const path = viewingId ? `/api/events?viewing=${encodeURIComponent(viewingId)}` : "/api/events";
-  const es = new Source(url(path));
+const deliver = (event: FeedEvent) => {
+  if (event.type === "system-changed") systemChanged(event);
+  for (const l of listeners) l.onEvent(event);
+};
+const opened = (rev: number) => {
+  for (const l of listeners) l.onOpen?.(rev);
+};
+
+function source(
+  w: Window & typeof globalThis,
+  ids: string[],
+  onEvent: (e: FeedEvent) => void,
+  onHello: (rev: number) => void,
+): { close: () => void } {
+  const q = ids.map((id) => `viewing=${encodeURIComponent(id)}`).join("&");
+  const es = new w.EventSource(url(q ? `/api/events?${q}` : "/api/events"));
   es.onmessage = (m: MessageEvent<string>) => {
     let event: FeedEvent;
     try {
@@ -525,8 +550,7 @@ function connect(): { close: () => void } | null {
       // A malformed frame is dropped; the next event or reconnect refetches.
       return;
     }
-    if (event.type === "system-changed") systemChanged(event);
-    for (const l of listeners) l.onEvent(event);
+    onEvent(event);
   };
   es.addEventListener("hello", (m: MessageEvent<string>) => {
     let rev = Infinity;
@@ -535,9 +559,145 @@ function connect(): { close: () => void } | null {
     } catch {
       // Unreadable reads as newer than anything held, so callers refetch.
     }
-    for (const l of listeners) l.onOpen?.(rev);
+    onHello(rev);
   });
   return { close: () => es.close() };
+}
+
+// A feed of this tab's own, where tabs can't share one.
+function ownFeed(w: Window & typeof globalThis): Feed {
+  const open = () => source(w, viewingId ? [viewingId] : [], deliver, opened);
+  let es = open();
+  return {
+    close: () => es.close(),
+    viewing: () => {
+      es.close();
+      es = open();
+    },
+  };
+}
+
+function sharedFeed(w: Window & typeof globalThis, locks: LockManager): Feed {
+  const name = `mockpit-feed:${basePath()}`;
+  const tab = w.crypto?.randomUUID?.() ?? String(Math.random()).slice(2);
+  const tabLock = (id: string) => `${name}:${id}`;
+  const channel = new w.BroadcastChannel(name);
+  const say = (m: Wire) => channel.postMessage(m);
+  const stop = new AbortController();
+  const aborted = () => {
+    // Closing the feed withdraws its lock requests; nothing to do about it.
+  };
+  // Held while this tab holds the feed: what the other tabs have on screen, and the
+  // tabs it is waiting on to hear that they closed.
+  const others = new Map<string, string>();
+  const watched = new Set<string>();
+  let held = false;
+  let greeted = false;
+  let es: { close: () => void } | null = null;
+  let current = "";
+  let handOn: (() => void) | null = null;
+  let leave: (() => void) | null = null;
+
+  const ids = () => [...new Set([...(viewingId ? [viewingId] : []), ...others.values()])].sort();
+  const open = () => {
+    es?.close();
+    const now = ids();
+    current = now.join("\n");
+    es = source(
+      w,
+      now,
+      (event) => {
+        say({ t: "event", event });
+        deliver(event);
+      },
+      (rev) => {
+        say({ t: "hello", rev });
+        opened(rev);
+      },
+    );
+  };
+  // The server counts viewers per connection, so the one connection names every
+  // design any tab has on screen and reconnects when that set changes.
+  const reopen = () => {
+    if (held && ids().join("\n") !== current) open();
+  };
+  const note = (from: string, id: string | null) => {
+    if (id) others.set(from, id);
+    else others.delete(from);
+    // A tab that crashes says nothing: its own lock coming free is how its closing is heard.
+    if (!watched.has(from)) {
+      watched.add(from);
+      void locks
+        .request(tabLock(from), { signal: stop.signal }, () => {
+          watched.delete(from);
+          others.delete(from);
+          reopen();
+        })
+        .catch(aborted);
+    }
+    reopen();
+  };
+
+  channel.onmessage = (m: MessageEvent<Wire>) => {
+    const d = m.data;
+    if (d.t === "event") {
+      if (!held) deliver(d.event);
+    } else if (d.t === "hello") {
+      if (!held) opened(d.rev);
+    } else if (d.t === "viewing") {
+      if (held) note(d.tab, d.id);
+    } else if (d.t === "who") {
+      if (!held) say({ t: "viewing", tab, id: viewingId });
+    } else if (d.t === "ping") {
+      if (held) say({ t: "pong", tab: d.tab });
+    } else if (!held && !greeted && d.tab === tab) {
+      greeted = true;
+      opened(Infinity);
+    }
+  };
+  // A frozen tab hears nothing; what it missed is a gap like any other.
+  const thawed = () => {
+    if (!held) opened(Infinity);
+  };
+  root().addEventListener("resume", thawed);
+
+  void locks
+    .request(tabLock(tab), { signal: stop.signal }, () => new Promise<void>((r) => (leave = r)))
+    .catch(aborted);
+  void locks
+    .request(name, { signal: stop.signal }, () => {
+      held = true;
+      say({ t: "who" });
+      open();
+      return new Promise<void>((r) => (handOn = r));
+    })
+    .catch(aborted);
+  say({ t: "ping", tab });
+  say({ t: "viewing", tab, id: viewingId });
+
+  return {
+    close: () => {
+      root().removeEventListener("resume", thawed);
+      stop.abort();
+      es?.close();
+      held = false;
+      say({ t: "viewing", tab, id: null });
+      channel.close();
+      handOn?.();
+      leave?.();
+    },
+    viewing: () => {
+      if (held) reopen();
+      else say({ t: "viewing", tab, id: viewingId });
+    },
+  };
+}
+
+function connect(): Feed | null {
+  const w = host().window as Window & typeof globalThis;
+  if (!w.EventSource) return null;
+  const locks = w.navigator?.locks;
+  return locks && w.BroadcastChannel ? sharedFeed(w, locks) : ownFeed(w);
 }
 
 export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: OnOpen): () => void {
@@ -554,7 +714,8 @@ export function subscribe(onEvent: (e: FeedEvent) => void, onOpen?: OnOpen): () 
 }
 
 // Marks `designId` as on screen until the returned release runs. Changing it
-// reconnects the feed, whose hello refetches like any other gap. The release
+// reconnects the feed (every tab's, when they share one), whose hello refetches like any
+// other gap. The release
 // only clears its own id, so a screen torn down after the next one mounted
 // can't unmark the new one.
 export function watchDesign(designId: string): () => void {
@@ -567,8 +728,5 @@ export function watchDesign(designId: string): () => void {
 function setViewing(id: string | null) {
   if (viewingId === id) return;
   viewingId = id;
-  if (feed) {
-    feed.close();
-    feed = connect();
-  }
+  feed?.viewing();
 }

@@ -746,10 +746,13 @@ export function createApp({
   // Each holder increments on entry and releases exactly once via a guarded
   // release() wired to every exit (stream abort, request abort, normal return).
   let holdConnections = 0;
-  // Only the viewer holds /api/events (watch long-polls). Each tab names the
-  // design it has on screen (`?viewing=`), so pending.viewerOpen is per design: a
-  // tab on the Board or on another design doesn't read as "looking at this one".
+  // Only the viewer holds /api/events (watch long-polls). A connection names the
+  // designs on screen (`?viewing=`, once per design: a browser's tabs share one
+  // connection), so pending.viewerOpen is per design: a tab on the Board or on another
+  // design doesn't read as "looking at this one".
   const viewing = new Map<string, number>();
+  // More tabs than this on different designs at once is not a person looking.
+  const MAX_VIEWING = 32;
   const acquireHold = (): boolean => {
     if (holdConnections >= maxHoldConnections) return false;
     holdConnections++;
@@ -10280,16 +10283,22 @@ export function createApp({
     }
     if (!acquireHold()) return c.json({ error: "too many concurrent connections" }, 503);
     const openedAt = Date.now();
-    const viewingId = str(c.req.query("viewing"), MAX_TITLE);
-    if (viewingId) viewing.set(viewingId, (viewing.get(viewingId) ?? 0) + 1);
+    const viewingIds = [
+      ...new Set(
+        (c.req.queries("viewing") ?? [])
+          .map((v) => str(v, MAX_TITLE))
+          .filter((v): v is string => !!v),
+      ),
+    ].slice(0, MAX_VIEWING);
+    for (const id of viewingIds) viewing.set(id, (viewing.get(id) ?? 0) + 1);
     let attached = true;
     const releaseHold = makeRelease();
     const release = () => {
       if (attached) {
-        if (viewingId) {
-          const left = (viewing.get(viewingId) ?? 1) - 1;
-          if (left > 0) viewing.set(viewingId, left);
-          else viewing.delete(viewingId);
+        for (const id of viewingIds) {
+          const left = (viewing.get(id) ?? 1) - 1;
+          if (left > 0) viewing.set(id, left);
+          else viewing.delete(id);
         }
         writeLog(log, {
           t: new Date().toISOString(),
@@ -10297,7 +10306,7 @@ export function createApp({
           client: "viewer",
           status: 200,
           ms: Date.now() - openedAt,
-          ...(viewingId ? { viewing: viewingId } : {}),
+          ...(viewingIds.length ? { viewing: viewingIds.join(",") } : {}),
         });
       }
       attached = false;
