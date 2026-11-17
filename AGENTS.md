@@ -412,22 +412,31 @@ Stances reversed knowingly, so nobody restores them by accident:
     step they follow), each screen's states in no flow, "Components used here", each
     variants design as a grid (variants down, states across), then Planned, wrapping in rows
     at the width whose rows best fit the stage (`wrapWidth` in `boardLayout.ts`); a grid
-    shows its first rows and "N more ▾" the rest. Every frame is
-    its poster under its name, never a running page; a frame with no poster yet shows a
+    shows its first rows and "Show N more" the rest. Every frame is
+    its poster under its name (none over a screen's one state named after the screen),
+    never a running page; a frame with no poster yet shows a
     placeholder until `bin/poster.js` brings one, and the palette pick and See before don't
-    apply here. A state a screen is owed (`owedStates`) is an orange dashed frame, a
-    planned one a grey dashed frame. A section's header has its status, a flow's "N of M
-    steps ready" and its question count; a "?" sits on the frame a question is asked on,
-    and "Ideas · N ▾" unfolds a design's ideas under it, dashed and dimmed. The Ideas page
+    apply here. Orange is for questions only. The standard states a screen lacks (Empty,
+    Loading, Failed: `owedStates`) are never drawn: they are offered in its header ("Add
+    Empty Loading Failed ×", `suggested` on its coverage row), a click asking the agent as
+    Focus does and × dismissing them; one asked for is a grey dashed frame ("Asked for", the
+    map's Missing cell), as is a planned one. A section's header has its status, a flow's "N
+    of M steps ready" and its question count, a screen's counting its ideas'; each count is
+    a link to the first question, as is the number on the frame it is asked on (a folded
+    idea's on its design's first frame), and "N ideas ▾" unfolds a design's ideas under it,
+    dashed and dimmed, each headed "Idea". The Ideas page
     draws each idea as a dashed section, alternatives down and states across, its archived
-    ones folded under "N archived ▸" and a filter past `FILTER_FROM` live ones. The page's
-    card holds the area's description, the coverage line and its map
-    (`server/coverage.ts`; a cell selects its frame), and "Since you were here: N changed",
-    which steps through the frames `seen.ts` counts as changed and dots. "agent…" sits on
+    ones folded under "Show N archived" and a filter past `FILTER_FROM` live ones. Over the
+    canvas the page is one line: its name, "N of M ready", "Since you were here: N changed"
+    (which steps through the frames `seen.ts` counts as changed and dots) and Map, a
+    popover with the area's description and the coverage map (`server/coverage.ts`; a cell
+    selects its frame). "N questions waiting · Answer ›" at the top opens the page's first
+    question, its ideas' included. "agent…" sits on
     the frame an agent is publishing to until its still lands. Drag empty space, Space-drag
     or scroll to pan; ⌘-scroll, a pinch or +/- zooms; Shift 1 fits the page and Shift 2 the
     selection; Enter, a double-click or Open ↵ opens Focus; Esc lets go; ⌘/ hides the rail
-    and the cards. A selected frame offers Copy link. P or ▶ Present plays a flow full
+    and the cards. The shortcuts are a bar until its Got it, then a "?" in the corner (and
+    the ? key) opens them (`mockpit:board-keys`). A selected frame offers Copy link. P or ▶ Present plays a flow full
     screen (`Present.tsx`): → and ← walk it, R starts over.
   - **The rail** (`BoardRail.tsx`; over Focus it opens from ☰, `SideOver.tsx`): Needs
     you, the one inbox, each question opening Focus on it (`?question=`); Pages, the

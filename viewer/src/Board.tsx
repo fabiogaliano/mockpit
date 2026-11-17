@@ -65,7 +65,7 @@ import { readHomeProjects, saveHomeProjects } from "./homeCache.ts";
 import { changedSince, markSeen, seenIn, versionShown } from "./seen.ts";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { keepSame, rankedAreas } from "./logic.ts";
+import { emptyDraft, keepSame, rankedAreas } from "./logic.ts";
 import { NotFound } from "./NotFound.tsx";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
 import {
@@ -109,6 +109,43 @@ type Section =
       more: number;
       folded: Frame[];
     };
+
+type BoardQuestion = BoardPage["questions"][number];
+const questionsWord = (n: number) => (n === 1 ? "1 question" : `${n} questions`);
+
+// The count of questions on a frame, and the way to the first of them.
+function QuestionBadge(props: { qs: BoardQuestion[]; path: string | null; title: string }) {
+  const label = () =>
+    props.qs.length === 1
+      ? `Question on ${props.title}: ${props.qs[0]!.text}`
+      : `${props.qs.length} questions on ${props.title}`;
+  return (
+    <Show
+      when={props.path}
+      fallback={
+        <span class="bf-q" title={label()}>
+          {props.qs.length}
+        </span>
+      }
+    >
+      {(path) => (
+        <a
+          class="bf-q"
+          href={path()}
+          title={label()}
+          aria-label={label()}
+          onClick={(e) => {
+            e.stopPropagation();
+            linkClick(e, path(), true);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {props.qs.length}
+        </a>
+      )}
+    </Show>
+  );
+}
 
 // `at` tells apart the frames of one state a flow shows at two of its steps, or two flows do.
 const frameKey = (
@@ -488,16 +525,41 @@ export function Board(props: {
     wholeFor = at;
     setWhole(new Set(untrack(whole)).add(s.id));
   });
+  // A design and the ideas for it: a question on an idea is one on its design's page too.
+  const withIdeas = (slugs: Iterable<string>) => {
+    const out = new Set(slugs);
+    // A copy: the ideas added on the way have no ideas of their own to look up.
+    for (const slug of Array.from(out)) for (const n of ideasFor(slug)) out.add(n.slug);
+    return out;
+  };
+  // Every question that leads from this page, its ideas' included, in Needs you's order.
+  const pageQuestions = createMemo(() => {
+    const d = data();
+    if (!d) return [];
+    const here = withIdeas(
+      sections().flatMap((x) =>
+        x.kind === "grid"
+          ? [x.grid.slug]
+          : x.kind === "screen"
+            ? [x.slug]
+            : framesOf(x).map((f) => f.slug),
+      ),
+    );
+    return d.questions.filter((q) => here.has(q.slug));
+  });
   // The questions open on each frame: one asked on a state sits on that state's frame,
-  // one asked of the whole design on its first frame on the page. Answering is Focus's.
+  // one asked of the whole design on its first frame on the page, and one on a folded idea
+  // on its design's first frame. Answering is Focus's.
   const asksOn = createMemo(() => {
-    const out = new Map<string, number>();
+    const out = new Map<string, BoardQuestion[]>();
     const drawn = allFrames().filter((f) => !f.missing && !f.planned);
-    for (const q of data()?.questions ?? []) {
+    for (const q of pageQuestions()) {
+      const target = nodes().get(q.slug)?.for;
       const f =
         (q.state === null ? null : drawn.find((x) => x.slug === q.slug && x.state === q.state)) ??
-        drawn.find((x) => x.slug === q.slug);
-      if (f) out.set(f.key, (out.get(f.key) ?? 0) + 1);
+        drawn.find((x) => x.slug === q.slug) ??
+        (target ? drawn.find((x) => x.slug === target && !x.alternative) : undefined);
+      if (f) out.set(f.key, [...(out.get(f.key) ?? []), q]);
     }
     return out;
   });
@@ -901,6 +963,13 @@ export function Board(props: {
       } else if (e.key === "Enter" && selected() && !onControl) {
         e.preventDefault();
         open(selected());
+      } else if (e.key === "?" && keysKnown() && !onControl) {
+        e.preventDefault();
+        setKeysOpen(!keysOpen());
+      } else if (e.key === "Escape" && (keysOpen() || mapOpen())) {
+        e.preventDefault();
+        setKeysOpen(false);
+        setMapOpen(false);
       } else if ((e.key === "p" || e.key === "P") && !e.shiftKey) {
         e.preventDefault();
         present();
@@ -946,7 +1015,11 @@ export function Board(props: {
     };
   };
   const fingerDown = (e: PointerEvent) => {
-    if (!stage || (e.target as Element).closest(".bcard, .bselbar, button, a, input")) return;
+    if (
+      !stage ||
+      (e.target as Element).closest(".bcard, .bselbar, .bmappop, .bkeys, button, a, input")
+    )
+      return;
     touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (touches.size === 1) {
       // A new gesture: a click the last one swallowed in advance, and which never came
@@ -990,7 +1063,7 @@ export function Board(props: {
     byFinger = e.pointerType === "touch";
     if (byFinger) return fingerDown(e);
     const target = e.target as Element;
-    if (target.closest(".bcard, .bselbar, .bhint, button, a, input")) return;
+    if (target.closest(".bcard, .bselbar, .bhint, .bmappop, .bkeys, button, a, input")) return;
     const onFrame = !!target.closest(".bf");
     if (!(space() || e.button === 1 || (e.button === 0 && !onFrame))) return;
     e.preventDefault();
@@ -1020,7 +1093,7 @@ export function Board(props: {
       return;
     }
     const target = e.target as Element;
-    if (target.closest(".bcard, .bselbar, .bhint, button, a, input")) return;
+    if (target.closest(".bcard, .bselbar, .bhint, .bmappop, .bkeys, button, a, input")) return;
     const el = target.closest<HTMLElement>(".bf");
     if (space()) return;
     if (!el) {
@@ -1084,13 +1157,16 @@ export function Board(props: {
   };
   // The page's coverage map, open under the summary until the user folds it, which holds
   // for every page.
-  const [mapOpen, setMapOpen] = createSignal(host().storage?.getItem(MAP_KEY) !== "closed");
-  const foldMap = () => {
-    const next = !mapOpen();
-    setMapOpen(next);
-    host().storage?.setItem(MAP_KEY, next ? "open" : "closed");
-    host().window.requestAnimationFrame(settle);
+  // The map is a popover from the page's line: closed until asked for.
+  const [mapOpen, setMapOpen] = createSignal(false);
+  // Shortcuts are a bar until the user says they've got them, then a "?" (KEYS_KEY).
+  const [keysKnown, setKeysKnown] = createSignal(host().storage?.getItem(KEYS_KEY) === "known");
+  const [keysOpen, setKeysOpen] = createSignal(false);
+  const gotKeys = () => {
+    setKeysKnown(true);
+    host().storage?.setItem(KEYS_KEY, "known");
   };
+  const foldMap = () => setMapOpen(!mapOpen());
 
   const sinceLine = () => {
     const t = tour();
@@ -1117,28 +1193,34 @@ export function Board(props: {
     return s.kind === "components" ? "Components used here" : "Planned";
   };
   const sectionAsks = (s: Section) => {
+    if (s.kind === "screen") return questionsOf([s.slug]).length;
     if (s.kind === "grid") return s.grid.open;
-    const slugs = new Set(
-      s.kind === "screen" ? [s.slug] : s.kind === "flow" ? framesOf(s).map((f) => f.slug) : [],
-    );
+    const slugs = new Set(s.kind === "flow" ? framesOf(s).map((f) => f.slug) : []);
     return [...slugs].reduce((n, slug) => n + (designOf(slug)?.open ?? 0), 0);
+  };
+  // A screen's questions are its own and its ideas', folded or not.
+  const questionsOf = (slugs: string[]) => {
+    const here = withIdeas(slugs);
+    return pageQuestions().filter((q) => here.has(q.slug));
+  };
+  const pathOf = (q: BoardQuestion | undefined) => {
+    const p = project();
+    return p && q ? questionPath(p, q.slug, q.id) : null;
   };
   // The count is the way in: the first of the section's questions, as Needs you lists them.
   const firstQuestion = (s: Section) => {
     const d = data();
-    const p = project();
-    if (!d || !p) return null;
+    if (!d) return null;
     const slugs = new Set(
       s.kind === "grid"
         ? [s.grid.slug]
         : s.kind === "screen"
-          ? [s.slug]
+          ? [...withIdeas([s.slug])]
           : s.kind === "flow"
             ? framesOf(s).map((f) => f.slug)
             : [],
     );
-    const q = d.questions.find((x) => slugs.has(x.slug));
-    return q ? questionPath(p, q.slug, q.id) : null;
+    return pathOf(d.questions.find((x) => slugs.has(x.slug)));
   };
   const flowCoverage = (s: Extract<Section, { kind: "flow" }>) =>
     data()?.coverage.flows.find((f) => f.name === s.name) ?? { ready: 0, steps: s.steps.length };
@@ -1184,6 +1266,45 @@ export function Board(props: {
   };
   // A cell of the map is its frame on the page: a Missing cell its dashed frame. A state
   // the page draws no frame of (a component shows its first) falls back to the design's.
+  // The standard states a screen lacks, offered in its header rather than drawn.
+  const suggestedOf = (slug: string) =>
+    data()?.coverage.designs.find((r) => r.slug === slug)?.suggested ?? [];
+  // Asking for a state is a reply like Focus's: it goes now and leaves the draft as it was.
+  const askState = async (slug: string, name: string) => {
+    const id = nodes().get(slug)?.id;
+    if (!id) return;
+    try {
+      const { draft: kept } = await api.draft(id);
+      // Version 0: the server binds it to the newest.
+      await api.reply(id, { ...emptyDraft(0), text: `New state, please: ${name}.` });
+      if (kept)
+        await api.putDraft(id, {
+          ...emptyDraft(kept.version),
+          ...kept,
+          others: kept.others ?? {},
+          askComments: kept.askComments ?? {},
+          otherImages: kept.otherImages ?? {},
+          askCommentImages: kept.askCommentImages ?? {},
+          answerComments: kept.answerComments ?? {},
+        });
+      await api.stateOutline(id, { state: name, to: "requested" });
+      refetchSoon(false);
+    } catch (e) {
+      setAskError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const dropSuggested = async (slug: string) => {
+    const id = nodes().get(slug)?.id;
+    if (!id) return;
+    try {
+      for (const name of suggestedOf(slug))
+        await api.stateOutline(id, { state: name, to: "dismissed" });
+      refetchSoon(false);
+    } catch (e) {
+      setAskError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const [askError, setAskError] = createSignal<string | null>(null);
   const pickCell = (slug: string, state: string | null, cell: Cell) => {
     const of = allFrames().filter((f) => f.slug === slug);
     const f =
@@ -1231,9 +1352,18 @@ export function Board(props: {
       if (sectionEls.get(id) === el) sectionEls.delete(id);
     });
   };
+  // The frames a flow shows: there a step named after its screen still says which screen.
+  const flowKeys = createMemo(
+    () =>
+      new Set(sections().flatMap((x) => (x.kind === "flow" ? framesOf(x).map((f) => f.key) : []))),
+  );
   const frameView = (f: Frame) => {
     const w = () => widthOf(f);
     const component = () => designOf(f.slug)?.kind === "component";
+    // A screen's one unnamed state is called by the screen's name, which its section's
+    // header already says.
+    const named = () =>
+      !!f.alternative || flowKeys().has(f.key) || f.name !== (designOf(f.slug)?.title ?? "");
     return (
       <div
         class="bf"
@@ -1249,11 +1379,17 @@ export function Board(props: {
         ref={keepFrame(f.key)}
         style={{ width: `${w()}px` }}
       >
-        <div class="bf-nm" title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}>
+        <div
+          class="bf-nm"
+          classList={{ quiet: !named() }}
+          title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}
+        >
           <Show when={isChanged(f)}>
             <i class="bf-dot" aria-label="Changed since you were here" />
           </Show>
-          {f.name}
+          <Show when={named()} fallback={<span class="sr-only">{f.name}</span>}>
+            {f.name}
+          </Show>
         </div>
         <Show when={writingOn(f)}>
           <span class="bf-agent" role="status">
@@ -1261,13 +1397,12 @@ export function Board(props: {
           </span>
         </Show>
         <Show when={asksOn().get(f.key)}>
-          {(n) => (
-            <span
-              class="bf-q"
-              title={n() === 1 ? "A question waits here" : `${n()} questions wait here`}
-            >
-              ?
-            </span>
+          {(qs) => (
+            <QuestionBadge
+              qs={qs()}
+              path={pathOf(qs()[0])}
+              title={designOf(f.slug)?.title ?? f.name}
+            />
           )}
         </Show>
         <div
@@ -1293,7 +1428,7 @@ export function Board(props: {
             <Match when={f.missing || f.planned}>
               <span class="bf-ph">
                 <span>{f.name}</span>
-                <small>{f.missing ? "missing, not drawn" : "planned, not drawn"}</small>
+                <small>{f.missing ? "Asked for" : "Planned"}</small>
               </span>
             </Match>
             <Match when={f.poster}>
@@ -1349,14 +1484,44 @@ export function Board(props: {
         </Match>
         <Match when={asKind(s(), "screen")}>
           {(sc) => (
-            <Show when={designOf(sc().slug)?.status}>{(w) => chip(w, () => statusClass(w()))}</Show>
+            <>
+              <Show when={designOf(sc().slug)?.status}>
+                {(w) => chip(w, () => statusClass(w()))}
+              </Show>
+              <Show when={!readonly() && suggestedOf(sc().slug).length}>
+                <span class="bsugg" role="group" aria-label="States it may need">
+                  <span class="bsugg-l">Add</span>
+                  <For each={suggestedOf(sc().slug)}>
+                    {(name) => (
+                      <button
+                        type="button"
+                        title={`Ask the agent to draw ${name}`}
+                        onClick={() => void askState(sc().slug, name)}
+                      >
+                        {name}
+                      </button>
+                    )}
+                  </For>
+                  <button
+                    type="button"
+                    class="bsugg-x"
+                    aria-label="None of these apply"
+                    title="None of these apply"
+                    onClick={() => void dropSuggested(sc().slug)}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </span>
+              </Show>
+            </>
           )}
         </Match>
         <Match when={asKind(s(), "grid")}>
           {(g) => (
             <>
               {chip(
-                () => g().grid.label,
+                // Unfolded under its design, an idea's target is the section above it.
+                () => (g().under && g().grid.idea ? "Idea" : g().grid.label),
                 () => (g().grid.idea ? "idea" : ""),
               )}
               <Show when={!g().grid.idea && designOf(g().grid.slug)?.status}>
@@ -1381,7 +1546,7 @@ export function Board(props: {
                     setWhole(flip(whole(), g().id));
                   }}
                 >
-                  {whole().has(g().id) ? "Fewer ▴" : `${g().more} more ▾`}
+                  {whole().has(g().id) ? "Show fewer" : `Show ${g().more} more`}
                 </button>
               </Show>
               <Show when={g().grid.archived}>
@@ -1395,7 +1560,7 @@ export function Board(props: {
                       setArchivedOn(flip(archivedOn(), g().id));
                     }}
                   >
-                    {`${n()} archived ${archivedOn().has(g().id) ? "▾" : "▸"}`}
+                    {archivedOn().has(g().id) ? "Hide archived" : `Show ${n()} archived`}
                   </button>
                 )}
               </Show>
@@ -1422,7 +1587,7 @@ export function Board(props: {
           <Show
             when={firstQuestion(s())}
             fallback={chip(
-              () => (n() === 1 ? "1 question" : `${n()} questions`),
+              () => questionsWord(n()),
               () => "q",
             )}
           >
@@ -1433,7 +1598,7 @@ export function Board(props: {
                 title="Answer in Focus"
                 onClick={(e) => linkClick(e, path(), true)}
               >
-                {n() === 1 ? "Answer 1 question" : `Answer ${n()} questions`}
+                {questionsWord(n())}
               </a>
             )}
           </Show>
@@ -1453,7 +1618,7 @@ export function Board(props: {
                   setUnfolded(flip(unfolded(), slug()));
                 }}
               >
-                {`Ideas · ${n()} ${unfolded().has(slug()) ? "▴" : "▾"}`}
+                {`${n()} ${n() === 1 ? "idea" : "ideas"} ${unfolded().has(slug()) ? "▴" : "▾"}`}
               </button>
             )}
           </Show>
@@ -1611,7 +1776,7 @@ export function Board(props: {
           >
             <Match when={f.missing || f.planned}>
               <span class="bf-ph">
-                <small>{f.missing ? "missing, not drawn" : "planned, not drawn"}</small>
+                <small>{f.missing ? "Asked for" : "Planned"}</small>
               </span>
             </Match>
             <Match when={f.poster}>
@@ -1627,13 +1792,12 @@ export function Board(props: {
             </Match>
           </Switch>
           <Show when={asksOn().get(f.key)}>
-            {(n) => (
-              <span
-                class="bf-q"
-                title={n() === 1 ? "A question waits here" : `${n()} questions wait here`}
-              >
-                ?
-              </span>
+            {(qs) => (
+              <QuestionBadge
+                qs={qs()}
+                path={pathOf(qs()[0])}
+                title={designOf(f.slug)?.title ?? f.name}
+              />
             )}
           </Show>
           <Show when={writingOn(f)}>
@@ -1787,6 +1951,43 @@ export function Board(props: {
     );
   };
 
+  // Over the canvas, one line: the page, how far along it is, what changed, and the map on
+  // demand. What waits on you is the pill above the canvas, not a count here.
+  const pageLine = () => (
+    <Show when={!ideasPage() && data()?.coverage} fallback={pageHead(false)}>
+      {(c) => (
+        <div class="bline">
+          <h2 title={data()?.description ?? undefined}>{pageName()}</h2>
+          <span class="bline-n">
+            <b>{c().ready}</b>
+            {` of ${c().of} ready`}
+          </span>
+          <Show when={tour() || changedFrames().length}>
+            <button
+              type="button"
+              class="bsince"
+              title="Fit to each frame changed since you last had it on screen"
+              onClick={step}
+            >
+              {sinceLine()}
+            </button>
+          </Show>
+          <Show when={c().states.length}>
+            <button
+              type="button"
+              class="bline-map"
+              aria-expanded={mapOpen()}
+              aria-controls="board-map"
+              onClick={() => setMapOpen(!mapOpen())}
+            >
+              Map
+            </button>
+          </Show>
+        </div>
+      )}
+    </Show>
+  );
+
   // What the page says about itself: over the canvas a card, its map under it; above a
   // phone's rows the same words, the map's summary line alone.
   const pageHead = (rows: boolean) => (
@@ -1826,9 +2027,17 @@ export function Board(props: {
         {(c) => (
           <>
             <div class="bcov">
-              <For each={coverageSummary(c())}>
+              <For
+                each={[
+                  ...coverageSummary(c()).filter((p) => !p.text.includes("question")),
+                  {
+                    n: pageQuestions().length,
+                    text: pageQuestions().length === 1 ? " question" : " questions",
+                  },
+                ]}
+              >
                 {(p) => (
-                  <span classList={{ m: !!p.missing }}>
+                  <span classList={{ q: p.text.includes("question") && p.n > 0 }}>
                     <b>{p.n}</b>
                     {p.text}
                   </span>
@@ -1909,9 +2118,44 @@ export function Board(props: {
           </Show>
         </div>
         <Show when={!hideUi()}>
-          <div class="bcard" ref={(el) => (card = el)}>
-            {pageHead(false)}
+          <div class="bcard" classList={{ one: !ideasPage() }} ref={(el) => (card = el)}>
+            {pageLine()}
           </div>
+          <Show when={!ideasPage() && mapOpen() && data()?.coverage}>
+            {(c) => (
+              <div class="bmappop" id="board-map" role="dialog" aria-label="Map of the page">
+                <Show when={data()?.description}>{(t) => <p>{t()}</p>}</Show>
+                <CoverageMap coverage={c()} onCell={pickCell} onFlow={fitSection} />
+              </div>
+            )}
+          </Show>
+          <Show when={askError()}>
+            {(e) => (
+              <p class="bask-err" role="alert">
+                {`Couldn't send that: ${e()}`}
+                <button type="button" class="bhint-got" onClick={() => setAskError(null)}>
+                  OK
+                </button>
+              </p>
+            )}
+          </Show>
+          <Show when={pageQuestions().length}>
+            {(n) => (
+              <Show when={pathOf(pageQuestions()[0])}>
+                {(path) => (
+                  <a
+                    class="bqpill"
+                    href={path()}
+                    onClick={(e) => linkClick(e, path(), true)}
+                    onPointerDown={(e) => e.stopPropagation()}
+                  >
+                    <span>{`${questionsWord(n())} waiting`}</span>
+                    <b>Answer ›</b>
+                  </a>
+                )}
+              </Show>
+            )}
+          </Show>
           <Show when={selected()}>
             <div class="bselbar">
               <span>{selName()}</span>
@@ -1924,33 +2168,88 @@ export function Board(props: {
             </div>
           </Show>
           <Show
-            when={!coarse()}
+            when={!keysKnown()}
             fallback={
-              <div class="bhint touch">
-                Pinch to zoom · drag to pan · double-tap a frame to open
-              </div>
+              <Show when={!coarse()}>
+                <button
+                  type="button"
+                  class="bkeys-btn"
+                  aria-label="Shortcuts"
+                  aria-expanded={keysOpen()}
+                  aria-controls="board-keys"
+                  title="Shortcuts (?)"
+                  onClick={() => setKeysOpen(!keysOpen())}
+                >
+                  ?
+                </button>
+                <Show when={keysOpen()}>
+                  <div class="bkeys" id="board-keys" role="dialog" aria-label="Shortcuts">
+                    <dl>
+                      <dt>
+                        <kbd>↵</kbd>
+                      </dt>
+                      <dd>Open, or double-click</dd>
+                      <dt>
+                        <kbd>⇧1</kbd>
+                      </dt>
+                      <dd>Fit the page</dd>
+                      <dt>
+                        <kbd>⇧2</kbd>
+                      </dt>
+                      <dd>Fit the selection</dd>
+                      <dt>
+                        <kbd>Space</kbd>
+                      </dt>
+                      <dd>Drag to pan, or scroll</dd>
+                      <dt>
+                        <kbd>⌘</kbd> scroll
+                      </dt>
+                      <dd>Zoom, or pinch</dd>
+                      <dt>
+                        <kbd>⌘/</kbd>
+                      </dt>
+                      <dd>Hide the interface</dd>
+                    </dl>
+                  </div>
+                </Show>
+              </Show>
             }
           >
-            <div class="bhint">
-              <span>
-                <kbd>dbl-click</kbd>/<kbd>↵</kbd> open
-              </span>
-              <span>
-                <kbd>⇧1</kbd> fit page
-              </span>
-              <span>
-                <kbd>⇧2</kbd> fit selection
-              </span>
-              <span>
-                <kbd>Space</kbd>+drag or scroll to pan
-              </span>
-              <span>
-                <kbd>⌘</kbd>+scroll or pinch to zoom
-              </span>
-              <span>
-                <kbd>⌘/</kbd> hide UI
-              </span>
-            </div>
+            <Show
+              when={!coarse()}
+              fallback={
+                <div class="bhint touch">
+                  <span>Pinch to zoom · drag to pan · double-tap a frame to open</span>
+                  <button type="button" class="bhint-got" onClick={gotKeys}>
+                    Got it
+                  </button>
+                </div>
+              }
+            >
+              <div class="bhint">
+                <span>
+                  <kbd>dbl-click</kbd>/<kbd>↵</kbd> open
+                </span>
+                <span>
+                  <kbd>⇧1</kbd> fit page
+                </span>
+                <span>
+                  <kbd>⇧2</kbd> fit selection
+                </span>
+                <span>
+                  <kbd>Space</kbd>+drag or scroll to pan
+                </span>
+                <span>
+                  <kbd>⌘</kbd>+scroll or pinch to zoom
+                </span>
+                <span>
+                  <kbd>⌘/</kbd> hide UI
+                </span>
+                <button type="button" class="bhint-got" onClick={gotKeys}>
+                  Got it
+                </button>
+              </div>
+            </Show>
           </Show>
         </Show>
       </div>
@@ -2091,7 +2390,7 @@ export function Board(props: {
   );
 }
 
-const MAP_KEY = "mockpit:board-map";
+const KEYS_KEY = "mockpit:board-keys";
 // The margin a fit of the whole page leaves at the stage's sides.
 const PAGE_FIT_PAD = 40;
 // A finger that moved less than this tapped; more, it pans.
@@ -2112,6 +2411,8 @@ const CELL_CLASS: Record<Cell, string> = {
   Missing: "m",
 };
 const stateName = (s: string | null) => s ?? "Single state";
+// A Missing cell is a state the user asked for: the viewer says so.
+const cellWord = (c: Cell) => (c === "Missing" ? "Asked for" : c);
 
 // Designs down, states across, the cells as the legend says; a cell is a way to its frame.
 function CoverageMap(props: {
@@ -2148,7 +2449,8 @@ function CoverageMap(props: {
                         <Show when={cell} fallback={<span class="bmc" />}>
                           {(x) => {
                             const state = () => props.coverage.states[i()] ?? null;
-                            const what = () => `${r.title} · ${stateName(state())}: ${x()}`;
+                            const what = () =>
+                              `${r.title} · ${stateName(state())}: ${cellWord(x())}`;
                             return (
                               <button
                                 type="button"
@@ -2174,7 +2476,7 @@ function CoverageMap(props: {
           {(x) => (
             <span>
               <i class={`bmc ${CELL_CLASS[x]}`} aria-hidden="true" />
-              {x}
+              {cellWord(x)}
             </span>
           )}
         </For>

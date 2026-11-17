@@ -15,8 +15,10 @@ import {
 } from "./types.ts";
 
 // Ready: marked Ready, and the state still shows what the mark recorded. In design:
-// drawn. Planned: declared, nothing drawn. Missing: a standard state a drawn screen is
-// owed, which nobody dismissed. A design without the state has no cell (null).
+// drawn. Planned: declared, nothing drawn. Missing: a state the user asked for that isn't
+// drawn yet. A design without the state has no cell (null). The standard states a screen
+// lacks are only suggested (`suggested` on its row): on a landing page "Loading" is noise,
+// so nothing counts as missing until someone asks for it.
 export type Cell = "Ready" | "In design" | "Planned" | "Missing";
 export const CELLS: readonly Cell[] = ["Ready", "In design", "Planned", "Missing"];
 
@@ -120,6 +122,8 @@ export interface CoverageRow {
   status: ReadyWord;
   // One per column of `states`, null where the design has no such state.
   cells: (Cell | null)[];
+  // Standard states it lacks that nobody asked for or dismissed: offered, never counted.
+  suggested: string[];
 }
 
 export interface Coverage {
@@ -146,12 +150,14 @@ export function coverageOf(input: {
   const own = pageDesigns(input.live, input.area);
   const rows = own.map((d) => {
     const ps = posts(d);
-    const owed = outlinable(d, ps) ? owedStates(d).map((o) => o.name) : [];
+    const outlines = outlinable(d, ps) ? owedStates(d) : [];
+    const owed = outlines.filter((o) => o.requested).map((o) => o.name);
+    const suggested = outlines.filter((o) => !o.requested).map((o) => o.name);
     const cells = new Map<string | null, Cell>([
       ...statesOf(d).map((s): [string | null, Cell] => [s, cellOf(d, ps, s)]),
       ...owed.map((n): [string, Cell] => [n, "Missing"]),
     ]);
-    return { d, status: wordOf(d, ps), cells };
+    return { d, status: wordOf(d, ps), cells, suggested };
   });
   const named = [...new Set(rows.flatMap((r) => [...r.cells.keys()]))].filter(
     (s): s is string => s !== null,
@@ -183,6 +189,7 @@ export function coverageOf(input: {
       kind: r.d.kind,
       status: r.status,
       cells: states.map((s) => r.cells.get(s) ?? null),
+      suggested: r.suggested,
     })),
     flows,
     ready: rows.filter((r) => r.status === "Ready").length,
@@ -198,7 +205,7 @@ export function coverageOf(input: {
 export function coverageSummary(c: Coverage): { n: number; text: string; missing?: true }[] {
   return [
     { n: c.ready, text: ` of ${c.of} ready` },
-    ...(c.missing ? [{ n: c.missing, text: " missing", missing: true as const }] : []),
+    ...(c.missing ? [{ n: c.missing, text: " asked for", missing: true as const }] : []),
     ...(c.planned ? [{ n: c.planned, text: " planned" }] : []),
     { n: c.questions, text: c.questions === 1 ? " question" : " questions" },
   ];
@@ -222,7 +229,7 @@ export function coverageText(c: Coverage) {
       .map((p) => `${p.n}${p.text}`)
       .join(" · "),
     legend:
-      "Ready: marked Ready, showing what was marked · In design: drawn · Planned: declared, not drawn · Missing: a standard state the screen is owed, not drawn · -: no such state",
+      "Ready: marked Ready, showing what was marked · In design: drawn · Planned: declared, not drawn · Missing: asked for by the user, not drawn · -: no such state",
     map: c.states.length
       ? [
           line("", c.states.map(head)),
