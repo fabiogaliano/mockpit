@@ -516,6 +516,9 @@ export interface Ask {
   other?: string;
   // The user's comment qualifying the answer ("Table on desktop, Cards on mobile").
   comment?: string;
+  // Option id → the user's comment on that one answer, picked or not ("not this, but its
+  // colour"). Kept by answer so a comment never drifts to another pick.
+  answerComments?: Record<string, string>;
   // Asset ids of the images the user attached to the write-in / the comment.
   otherImages?: string[];
   commentImages?: string[];
@@ -609,6 +612,8 @@ export interface Draft {
   // text still counts: its write-in or comment is then present as "".
   otherImages?: Record<string, string[]>;
   askCommentImages?: Record<string, string[]>;
+  // askId → option id → a comment on that one answer.
+  answerComments?: Record<string, Record<string, string>>;
   updatedAt: string;
 }
 
@@ -624,6 +629,7 @@ export interface Reply {
   askComments?: Record<string, string>;
   otherImages?: Record<string, string[]>;
   askCommentImages?: Record<string, string[]>;
+  answerComments?: Record<string, Record<string, string>>;
   text?: string;
   // Sent to a session other than the design's owner, so it has to read up first.
   routed?: true;

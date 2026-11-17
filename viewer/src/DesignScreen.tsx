@@ -63,6 +63,7 @@ import {
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { PhoneBar, QuestionCard } from "./QuestionCard.tsx";
+import { QuestionDot, questionDotted } from "./QuestionDot.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
 import { Present } from "./Present.tsx";
@@ -549,6 +550,7 @@ export function DesignScreen(props: {
       style={{
         "--swipe-x": `${swipeX()}px`,
         "--pbar-h": `${barH()}px`,
+        "--foot-top": `${bottomTop()}px`,
         "--canvas-l": `${m.band().left}px`,
         "--canvas-r": `${m.band().right}px`,
         "--canvas-top": `${canvasTop()}px`,
@@ -686,6 +688,9 @@ export function DesignScreen(props: {
               <QuestionCard s={s} />
               <PhoneBar s={s} ref={(el) => measured(el, setBarH)} />
             </div>
+            <Show when={questionDotted(s)}>
+              <QuestionDot s={s} />
+            </Show>
             <Show when={s.panel()}>
               <BottomPanel s={s} onHeight={setPanelH} />
             </Show>

@@ -75,6 +75,7 @@ import {
   type HomePlace,
   navigate,
   projectPath,
+  questionPath,
   type RecentShow,
   linkClick,
   replaceUrl,
@@ -395,7 +396,9 @@ export function Board(props: {
         ...(c.archived ? { archived: true as const } : {}),
         key: frameKey(node.slug, c.state, false, c.alternative),
       }));
-    const cap = query ? Infinity : node.kind === "component" ? GRID_COMPONENT_ROWS : 1;
+    // A phone's rows scroll down anyway, so folding alternatives there only hides them.
+    const cap =
+      query || phoneLayout() ? Infinity : node.kind === "component" ? GRID_COMPONENT_ROWS : 1;
     const firstRows = new Set(rowsIn(grid, all).slice(0, cap));
     const inColumn = new Map<string | null, number>();
     const kept = all.filter((f) => {
@@ -829,12 +832,14 @@ export function Board(props: {
     moved(zoomAbout(view(), by, cx ?? stage.clientWidth / 2, cy ?? stage.clientHeight / 2));
   };
 
+  // From the project alone: the Ideas page is drawn from the tree, so a page read that
+  // failed must not leave its frames dead.
   const open = (f: Frame | null) => {
-    const d = data();
-    if (!f || !d) return;
+    const p = project();
+    if (!f || !p) return;
     navigate(
       designPath(
-        d.project,
+        p,
         f.slug,
         f.missing || (f.state === null && !f.alternative)
           ? null
@@ -1118,6 +1123,23 @@ export function Board(props: {
     );
     return [...slugs].reduce((n, slug) => n + (designOf(slug)?.open ?? 0), 0);
   };
+  // The count is the way in: the first of the section's questions, as Needs you lists them.
+  const firstQuestion = (s: Section) => {
+    const d = data();
+    const p = project();
+    if (!d || !p) return null;
+    const slugs = new Set(
+      s.kind === "grid"
+        ? [s.grid.slug]
+        : s.kind === "screen"
+          ? [s.slug]
+          : s.kind === "flow"
+            ? framesOf(s).map((f) => f.slug)
+            : [],
+    );
+    const q = d.questions.find((x) => slugs.has(x.slug));
+    return q ? questionPath(p, q.slug, q.id) : null;
+  };
   const flowCoverage = (s: Extract<Section, { kind: "flow" }>) =>
     data()?.coverage.flows.find((f) => f.name === s.name) ?? { ready: 0, steps: s.steps.length };
 
@@ -1340,7 +1362,7 @@ export function Board(props: {
               <Show when={!g().grid.idea && designOf(g().grid.slug)?.status}>
                 {(w) => chip(w, () => statusClass(w()))}
               </Show>
-              <Show when={g().grid.live}>
+              <Show when={!phoneLayout() && g().grid.live}>
                 {(n) =>
                   chip(
                     () =>
@@ -1396,12 +1418,26 @@ export function Board(props: {
         <Match when={s().kind === "planned"}>{chip(() => "not drawn yet")}</Match>
       </Switch>
       <Show when={sectionAsks(s())}>
-        {(n) =>
-          chip(
-            () => (n() === 1 ? "1 question" : `${n()} questions`),
-            () => "q",
-          )
-        }
+        {(n) => (
+          <Show
+            when={firstQuestion(s())}
+            fallback={chip(
+              () => (n() === 1 ? "1 question" : `${n()} questions`),
+              () => "q",
+            )}
+          >
+            {(path) => (
+              <a
+                class="bchip q"
+                href={path()}
+                title="Answer in Focus"
+                onClick={(e) => linkClick(e, path(), true)}
+              >
+                {n() === 1 ? "Answer 1 question" : `Answer ${n()} questions`}
+              </a>
+            )}
+          </Show>
+        )}
       </Show>
       <Show when={unfoldable(s())}>
         {(slug) => (
@@ -1978,6 +2014,13 @@ export function Board(props: {
               onClick={() => setRailOpen(true)}
             >
               <Icon name="menu" />
+              <Show when={data()?.project === project() && data()?.questions.length}>
+                {(n) => (
+                  <span class="board-menu-n" aria-label={`${n()} waiting for you`}>
+                    {n()}
+                  </span>
+                )}
+              </Show>
             </button>
           </Show>
           <Show when={hideUi()}>

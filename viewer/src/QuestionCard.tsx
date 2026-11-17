@@ -1,7 +1,7 @@
 // The agent's question: its words, the options, and Send. Beside the design it
 // fills the margin with pictures to read; on a phone it is a sheet over the design's
 // lower part, its answers one row a finger swipes, opened and closed from the bar under
-// it (PhoneBar). A tap puts an option on the stage as your pick; the same option
+// it (PhoneBar), or swiped down to a dot that leaves the design the whole screen. A tap puts an option on the stage as your pick; the same option
 // again, or Send, moves on to the next question still owed, or sends the reply
 // when none is.
 
@@ -12,20 +12,29 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { isBuiltinAsk, partLabel } from "./logic.ts";
 import { answersView, setAnswersView } from "./answersView.ts";
-import { AskBody, listed } from "./Questions.tsx";
+import { AskBody, listed, MoreAnswersButton } from "./Questions.tsx";
 import { SendTo } from "./SendTo.tsx";
-import { LayoutToggle, sideAsk } from "./SideBySide.tsx";
+import type { Shortlists } from "./shortlist.ts";
+import { sideAsk, SideBySideToggle } from "./SideBySide.tsx";
 import type { DesignScreenState } from "./state.ts";
+import { questionDotted } from "./QuestionDot.tsx";
+
+// Under this a grabber was tapped; past SWIPE_AWAY a drag down puts the sheet away.
+const GRAB_SLOP = 6;
+const SWIPE_AWAY = 48;
 
 export function QuestionCard(props: {
   s: DesignScreenState;
   beside?: boolean;
   // What goes with this Send beside the question, scrolled with its options.
   below?: JSX.Element;
+  // For Move on an alternative answer.
+  sl?: Shortlists;
 }) {
   const s = props.s;
-  // The comment opens from the card's foot; it stays open once it holds something.
-  const [noteFor, setNoteFor] = createSignal<string | null>(null);
+  // Send pressed with nothing to send: said beside it, rather than a greyed button that
+  // can't say why.
+  const [nothing, setNothing] = createSignal(false);
   const shown = () => !s.questionHidden() && !s.design()?.archivedAt;
   const total = () => s.questions().length;
   const i = () => Math.min(s.cur(), total() - 1);
@@ -37,6 +46,32 @@ export function QuestionCard(props: {
   // No answer yet, yet comments or tuning to send: they go, and the question stays open.
   const sendsAnyway = () => !s.commitKind() && s.sendable();
   const showsList = (a: Ask) => !!props.beside && listed(s, a);
+  // A phone's sheet follows a finger down its grabber and goes away past SWIPE_AWAY; a tap
+  // puts it away at once. Where it goes is the question dot (QuestionDot.tsx).
+  let sheet: HTMLElement | undefined;
+  let grab: { id: number; y: number; dy: number } | null = null;
+  const grabDown = (e: PointerEvent) => {
+    if (e.button !== 0) return;
+    grab = { id: e.pointerId, y: e.clientY, dy: 0 };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const grabMove = (e: PointerEvent) => {
+    if (!grab || e.pointerId !== grab.id || !sheet) return;
+    grab.dy = Math.max(0, e.clientY - grab.y);
+    sheet.style.transition = "none";
+    sheet.style.transform = `translateY(${grab.dy}px)`;
+  };
+  const grabUp = (e: PointerEvent) => {
+    if (!grab || e.pointerId !== grab.id) return;
+    const { dy } = grab;
+    grab = null;
+    if (sheet) Object.assign(sheet.style, { transition: "", transform: "" });
+    if (dy < GRAB_SLOP || dy > SWIPE_AWAY) s.setCardMin(true);
+  };
+  const grabCancel = () => {
+    grab = null;
+    if (sheet) Object.assign(sheet.style, { transition: "", transform: "" });
+  };
   return (
     // Keyed by the question's id, not its object: the asks are rebuilt whenever
     // a frame reports its parts, and remounting on that would drop the focus
@@ -52,7 +87,26 @@ export function QuestionCard(props: {
                 classList={{ beside: !!props.beside }}
                 aria-label="Question"
                 data-ask={ask().id}
+                ref={(el) => (sheet = el)}
               >
+                <Show when={!props.beside}>
+                  <button
+                    type="button"
+                    class="qgrab"
+                    aria-label="Hide the question"
+                    title="Hide the question to see the design; swipe down"
+                    onPointerDown={grabDown}
+                    onPointerMove={grabMove}
+                    onPointerUp={grabUp}
+                    onPointerCancel={grabCancel}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        s.setCardMin(true);
+                      }
+                    }}
+                  />
+                </Show>
                 <div class="sr-only" aria-live="polite">
                   {s.attachStatus()}
                 </div>
@@ -61,7 +115,6 @@ export function QuestionCard(props: {
                     <Show
                       when={
                         showsList(ask()) ||
-                        counted(ask()) ||
                         s.askSlot(ask()) ||
                         s.stageOffer(ask()) ||
                         s.shownWith(ask())
@@ -69,9 +122,6 @@ export function QuestionCard(props: {
                     >
                       <span class="qs">
                         <span class="qs-row">
-                          <Show when={counted(ask())}>
-                            <span class="qcount">{`${i() + 1} of ${asked()}`}</span>
-                          </Show>
                           <Show when={s.shownWith(ask())}>
                             {(w) => (
                               <span class="qwith">
@@ -153,17 +203,18 @@ export function QuestionCard(props: {
                     </Show>
                     <span class="qt">{ask().text}</span>
                   </div>
+                  <span class="qtools">
+                    <MoreAnswersButton s={s} ask={ask()} />
+                    <Show when={props.beside}>
+                      <SideBySideToggle s={s} ask={ask()} />
+                    </Show>
+                  </span>
                 </div>
-                <Show when={props.beside}>
-                  <div class="qlayout-row">
-                    <LayoutToggle s={s} ask={ask()} />
-                  </div>
-                </Show>
                 <div class="qscroll">
                   <AskBody
                     s={s}
                     ask={ask()}
-                    noteOpen={noteFor() === ask().id}
+                    sl={props.sl}
                     beside={props.beside}
                     still={!!props.beside && sideAsk(s)?.id === ask().id}
                   />
@@ -171,24 +222,6 @@ export function QuestionCard(props: {
                 </div>
                 <SendTo s={s} />
                 <div class="qfoot">
-                  <Show when={!readonly()}>
-                    <button
-                      type="button"
-                      class={props.beside ? "qaddnote" : "ib qnote"}
-                      classList={{ on: noteFor() === ask().id || s.commentOf(ask()) !== undefined }}
-                      aria-label="Add a comment for the agent"
-                      aria-expanded={noteFor() === ask().id || s.commentOf(ask()) !== undefined}
-                      title="Comment for the agent"
-                      onClick={() => setNoteFor(noteFor() === ask().id ? null : ask().id)}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M5 5h14a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1h-8l-4 3v-3H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
-                      </svg>
-                      <Show when={props.beside}>
-                        <span>Add a comment</span>
-                      </Show>
-                    </button>
-                  </Show>
                   <Show when={s.flow().length > 1}>
                     <button
                       type="button"
@@ -199,6 +232,9 @@ export function QuestionCard(props: {
                     >
                       <Icon name="prev" />
                     </button>
+                    <Show when={counted(ask())}>
+                      <span class="qcount">{`${i() + 1} of ${asked()}`}</span>
+                    </Show>
                     <button
                       type="button"
                       class="ib"
@@ -211,16 +247,21 @@ export function QuestionCard(props: {
                   </Show>
                   <span class="grow" />
                   <Show when={!readonly()}>
+                    <Show when={nothing() && !s.commitKind() && !sendsAnyway()}>
+                      <span class="qnothing" role="status">
+                        Pick an answer first
+                      </span>
+                    </Show>
                     <button
                       type="button"
                       class="btn go qsend"
-                      disabled={(!s.commitKind() && !sendsAnyway()) || s.sending()}
-                      title={
-                        !s.commitKind() && !sendsAnyway()
-                          ? "Pick an answer, or add a comment"
-                          : undefined
-                      }
-                      onClick={() => (sendsAnyway() ? s.sendDraft() : s.commit())}
+                      disabled={s.sending()}
+                      onClick={() => {
+                        if (!s.commitKind() && !sendsAnyway()) return setNothing(true);
+                        setNothing(false);
+                        if (sendsAnyway()) s.sendDraft();
+                        else s.commit();
+                      }}
                     >
                       {!sendsAnyway() && s.nextStop(i()) ? "Next" : "Send"}
                     </button>
@@ -248,29 +289,31 @@ export function PhoneBar(props: { s: DesignScreenState; ref?: (el: HTMLElement) 
   const up = () => !s.questionHidden() && !!s.curAsk() && !s.design()?.archivedAt;
   const spec = () => s.panel() === "spec";
   return (
-    <nav class="pbar" aria-label="Question and spec" ref={(el) => props.ref?.(el)}>
-      <button
-        type="button"
-        classList={{ q: waiting(), on: up() }}
-        aria-pressed={up()}
-        disabled={!waiting() && !up()}
-        title={waiting() || up() ? undefined : "Nothing waits on you here"}
-        onClick={() => (up() ? s.setCardMin(true) : s.goOwed())}
-      >
-        <Show when={n()} fallback={waiting() ? "Pick one" : "Question"}>
-          {(k) => `Question · ${k()}`}
-        </Show>
-      </button>
-      <Show when={specShown(s)}>
+    <Show when={!questionDotted(s)}>
+      <nav class="pbar" aria-label="Question and spec" ref={(el) => props.ref?.(el)}>
         <button
           type="button"
-          classList={{ on: spec() }}
-          aria-pressed={spec()}
-          onClick={() => s.setPanel(spec() ? null : "spec")}
+          classList={{ q: waiting(), on: up() }}
+          aria-pressed={up()}
+          disabled={!waiting() && !up()}
+          title={waiting() || up() ? undefined : "Nothing waits on you here"}
+          onClick={() => (up() ? s.setCardMin(true) : s.goOwed())}
         >
-          Spec
+          <Show when={n()} fallback={waiting() ? "Pick one" : "Question"}>
+            {(k) => `Question · ${k()}`}
+          </Show>
         </button>
-      </Show>
-    </nav>
+        <Show when={specShown(s)}>
+          <button
+            type="button"
+            classList={{ on: spec() }}
+            aria-pressed={spec()}
+            onClick={() => s.setPanel(spec() ? null : "spec")}
+          >
+            Spec
+          </button>
+        </Show>
+      </nav>
+    </Show>
   );
 }

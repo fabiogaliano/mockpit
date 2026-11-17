@@ -529,6 +529,10 @@ const feedbackSchema = o({
         ask: str,
         chosen: z.array(o({ label: str, other: z.literal(true).optional() })),
         description: str.optional(),
+        onAnswers: z
+          .array(o({ id: str, label: str, comment: str }))
+          .optional()
+          .describe("The user's comment on single answers, picked or not"),
       }),
     ),
     borrowed: bag.describe("Part → the alternative to take it from"),

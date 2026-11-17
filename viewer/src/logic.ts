@@ -41,11 +41,18 @@ export const emptyDraft = (version: number): DraftInput => ({
   askComments: {},
   otherImages: {},
   askCommentImages: {},
+  answerComments: {},
 });
 
-// The asks a draft says something about: a pick, a write-in or a note.
+// The asks a draft says something about: a pick, a write-in, a note or a comment on an
+// answer.
 const draftAsks = (d: DraftInput): Set<string> =>
-  new Set([...Object.keys(d.answers), ...Object.keys(d.others), ...Object.keys(d.askComments)]);
+  new Set([
+    ...Object.keys(d.answers),
+    ...Object.keys(d.others),
+    ...Object.keys(d.askComments),
+    ...Object.keys(d.answerComments),
+  ]);
 
 export const draftIsEmpty = (d: DraftInput | null): boolean => !d || sendCount(d) === 0;
 
@@ -89,6 +96,22 @@ export function setAskField(
   return field === "other"
     ? { ...d, others: texts, otherImages: imgs }
     : { ...d, askComments: texts, askCommentImages: imgs };
+}
+
+// A comment on one answer of a question; blank is none.
+export function setAnswerComment(
+  d: DraftInput,
+  askId: string,
+  optionId: string,
+  text: string,
+): DraftInput {
+  const byOption = { ...d.answerComments[askId] };
+  if (text.trim()) byOption[optionId] = text;
+  else delete byOption[optionId];
+  const all = { ...d.answerComments };
+  if (Object.keys(byOption).length) all[askId] = byOption;
+  else delete all[askId];
+  return { ...d, answerComments: all };
 }
 
 // Picking an option or "Other…" (option null) in a draft: single asks keep one
@@ -492,7 +515,15 @@ function fmtValue(v: KnobValue): string {
 export function summarizeReply(
   reply: Pick<
     Reply,
-    "answers" | "borrowed" | "tuned" | "comments" | "text" | "verdict" | "others" | "askComments"
+    | "answers"
+    | "borrowed"
+    | "tuned"
+    | "comments"
+    | "text"
+    | "verdict"
+    | "others"
+    | "askComments"
+    | "answerComments"
   >,
   design: Pick<DesignDetail, "asks">,
 ): string {
@@ -505,7 +536,11 @@ export function summarizeReply(
       other !== undefined ? (other ? `“${other}”` : "an image") : "",
     ].filter(Boolean);
     if (said.length) parts.push(`${askTopic(ask)} ${said.join(" + ")}`);
-    else if (reply.askComments?.[ask.id] !== undefined) parts.push(`${askTopic(ask)} noted`);
+    else if (
+      reply.askComments?.[ask.id] !== undefined ||
+      reply.answerComments?.[ask.id] !== undefined
+    )
+      parts.push(`${askTopic(ask)} noted`);
   }
   for (const [id, answer] of Object.entries(reply.answers)) {
     if (!design.asks.some((a) => a.id === id))
@@ -577,6 +612,7 @@ export function carryOver(
       askComments: known(draft.askComments),
       otherImages: known(draft.otherImages),
       askCommentImages: known(draft.askCommentImages),
+      answerComments: known(draft.answerComments ?? {}),
     },
     flagged,
   };
@@ -823,13 +859,20 @@ export function threadRows(
           text: commentText(x),
         }));
       }
-      const notes = Object.entries(reply?.askComments ?? {}).filter(([, text]) => text);
-      if (notes.length) {
-        row.notes = notes.map(([id, text]) => ({
-          ask: design.asks.find((a) => a.id === id)?.text ?? id,
+      const askOf = (id: string) => design.asks.find((a) => a.id === id);
+      const notes = [
+        ...Object.entries(reply?.askComments ?? {}).map(([id, text]) => ({
+          ask: askOf(id)?.text ?? id,
           text,
-        }));
-      }
+        })),
+        ...Object.entries(reply?.answerComments ?? {}).flatMap(([id, byOption]) =>
+          Object.entries(byOption).map(([optionId, text]) => ({
+            ask: `${askOf(id)?.text ?? id} · ${askOf(id)?.options.find((o) => o.id === optionId)?.label ?? optionId}`,
+            text,
+          })),
+        ),
+      ].filter((n) => n.text);
+      if (notes.length) row.notes = notes;
       const attached = [
         ...Object.entries(reply?.otherImages ?? {}),
         ...Object.entries(reply?.askCommentImages ?? {}),

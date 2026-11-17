@@ -135,6 +135,9 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
 // A line above each artboard for its label, in screen px.
 // The row above the artboard: its label, and a live one's version and what acts on it.
 const BOARD_LABEL = 44;
+// On a phone, a design this much wider than the screen is drawn as an artboard.
+const ARTBOARD_FROM = 1.15;
+const PHONE_BOARD_PAD = 16;
 const LABEL_AT = 14;
 // The live label gives way to those actions on an artboard too narrow for both.
 const LABEL_ROOM_ONE_VERSION = 360;
@@ -181,28 +184,28 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
   // On a phone the canvas is one page: a single artboard fitted to the width,
   // edge to edge under the header, with nothing beside or below it to pan to.
   const phone = phoneLayout;
+  // Unless the design is wider than the phone (Desktop picked in the preview): then it is
+  // an artboard again, small on the dotted canvas with room round it and its label, so it
+  // reads as a picture of a screen rather than a page that stops halfway down.
+  const roomW = () =>
+    win().w - safeX() - canvasBox().left - canvasBox().right - cardInset().left - cardInset().right;
+  const artboard = () => phone() && frameW() > roomW() * ARTBOARD_FROM;
+  const page = () => phone() && !artboard();
   // Above a phone's page, no label: only room for the tap area of a pin on its
   // very first line, which would otherwise sit under the header.
-  const labelH = () => (phone() ? 12 : BOARD_LABEL);
+  const labelH = () => (page() ? 12 : BOARD_LABEL);
   const order = createMemo(() =>
     boardWidths(s.design()?.widths ?? [], frameW(), s.allWidths(), phone()),
   );
   const others = createMemo(() => order().filter((w) => w !== frameW()));
   // The screen inside its safe area, less the margins and what floats at its sides.
   const availW = createMemo(
-    () =>
-      win().w -
-      safeX() -
-      canvasBox().left -
-      canvasBox().right -
-      cardInset().left -
-      cardInset().right -
-      (phone() ? 0 : 2 * BOARD_PAD),
+    () => roomW() - (page() ? 0 : 2 * (artboard() ? PHONE_BOARD_PAD : BOARD_PAD)),
   );
   // The canvas's left margin, past what floats on its left: the live artboard
   // fitted is centred in the room; all of them start at the margin.
   const padL = () => {
-    const edge = cardInset().left + (phone() ? 0 : BOARD_PAD);
+    const edge = cardInset().left + (page() ? 0 : artboard() ? PHONE_BOARD_PAD : BOARD_PAD);
     return edge + (zoom() === "all" ? 0 : Math.max(0, (availW() - frameW() * fitScale()) / 2));
   };
   const activeKey = createMemo(() => {
@@ -507,7 +510,14 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
     cardInset().right +
     canvasBox().over;
   // The artboards start under whatever rests at the top.
-  const padT = () => cardInset().top;
+  // A phone's artboard sits in the middle of the room above the sheet, once it is shorter.
+  const padT = () =>
+    artboard()
+      ? Math.max(
+          cardInset().top,
+          (availH() - cardInset().bottom - BOARD_LABEL - activeH() * scale()) / 2,
+        )
+      : cardInset().top;
   const [panned, setPanned] = createSignal({ x: 0, y: 0 });
   const onPan = () => setPanned({ x: layersEl.scrollLeft, y: layersEl.scrollTop });
   // The row's first artboard, not the live one: under "All widths" the live one can
@@ -538,14 +548,22 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
   // on a phone, just enough to bring the page's end above the sheet.
   const canvasH = () =>
     phone()
-      ? labelH() + activeH() * scale() + cardInset().bottom
+      ? padT() +
+        labelH() +
+        activeH() * scale() +
+        cardInset().bottom +
+        (artboard() ? PHONE_BOARD_PAD : 0)
       : padT() +
         BOARD_LABEL +
         Math.max(activeH(), ...others().map((w) => boardH[w] ?? 640)) * scale() +
         availH() * 0.4;
 
   return (
-    <div class="stagewrap canvas" style={{ top: `${canvasTop()}px` }}>
+    <div
+      class="stagewrap canvas"
+      classList={{ artboard: artboard() }}
+      style={{ top: `${canvasTop()}px` }}
+    >
       <div class="stage" classList={{ tuning: s.tuning() }}>
         <ArrivedBanner s={s} />
         <div
@@ -555,7 +573,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
           onScroll={onPan}
         >
           <div class="layers-sizer" style={{ height: `${canvasH()}px`, width: `${canvasW()}px` }} />
-          <Show when={!phone() && labelFits()}>
+          <Show when={artboard() || (!phone() && labelFits())}>
             <div
               class="board-label"
               style={{ left: `${Math.max(10, xOf(frameW()))}px`, top: `${padT() + LABEL_AT}px` }}
@@ -1263,7 +1281,7 @@ function Overlay(props: {
             }}
           </For>
         </Show>
-        <Show when={box(s.focusPart())}>
+        <Show when={!s.trying() && box(s.focusPart())}>
           {(b) => (
             <div
               class="spot"

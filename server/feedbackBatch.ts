@@ -74,6 +74,8 @@ export interface AnsweredAsk extends StandingView {
   chosen: (AskOption | OtherChoice)[];
   comment?: string;
   commentImages?: ImageRef[];
+  // What the user said about single answers, picked or not, each by the answer it is on.
+  onAnswers?: { id: string; label: string; comment: string }[];
 }
 
 // A request for more answers, with what the agent needs to answer it in one go: the
@@ -106,6 +108,7 @@ export interface FeedbackReply extends Omit<
   | "askComments"
   | "otherImages"
   | "askCommentImages"
+  | "answerComments"
   | "more"
   | "standings"
   | "update"
@@ -269,6 +272,7 @@ function answered(
 ): AnsweredAsk[] {
   const others = reply.others ?? {};
   const comments = reply.askComments ?? {};
+  const onAnswer = reply.answerComments ?? {};
   const refs = (ids: string[] | undefined): ImageRef[] =>
     (ids ?? []).map((id) => ({ id, url: `${base}/a/${encodeURIComponent(id)}` }));
   const standings = reply.standings ?? {};
@@ -276,6 +280,7 @@ function answered(
     ...Object.keys(reply.answers),
     ...Object.keys(others),
     ...Object.keys(comments),
+    ...Object.keys(onAnswer),
     // A question whose answers the user only kept or hid is still news: more answers
     // should follow the kept ones and avoid the hidden.
     ...Object.keys(standings).filter((id) => id !== reply.more?.ask),
@@ -308,6 +313,11 @@ function answered(
       });
     const commentImages = refs(reply.askCommentImages?.[askId]);
     const st = standings[askId];
+    const onAnswers = Object.entries(onAnswer[askId] ?? {}).map(([id, comment]) => ({
+      id,
+      label: ask?.options.find((o) => o.id === id)?.label ?? id,
+      comment,
+    }));
     out.push({
       ask: askId,
       text: ask?.text ?? "",
@@ -315,6 +325,7 @@ function answered(
       ...(ask && st ? standingView({ ...ask, answer }, st) : {}),
       ...(comments[askId] !== undefined ? { comment: comments[askId] } : {}),
       ...(commentImages.length ? { commentImages } : {}),
+      ...(onAnswers.length ? { onAnswers } : {}),
     });
   }
   return out;
@@ -401,6 +412,7 @@ export function groupFeedback(
         askComments: _askComments,
         otherImages: _otherImages,
         askCommentImages: _askCommentImages,
+        answerComments: _answerComments,
         routed,
         more: asked,
         standings: _standings,

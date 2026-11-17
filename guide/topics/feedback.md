@@ -24,7 +24,12 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
             "text": "Trim above or below?",
             "chosen": [{ "id": "below", "label": "Below", "set": { "trim.position": "bottom" } }],
             "comment": "below on mobile only",
-            "commentImages": [{ "id": "k3Jf9xQ2aLw", "url": "http://localhost:8228/a/k3Jf9xQ2aLw" }]
+            "commentImages": [
+              { "id": "k3Jf9xQ2aLw", "url": "http://localhost:8228/a/k3Jf9xQ2aLw" }
+            ],
+            "onAnswers": [
+              { "id": "above", "label": "Above", "comment": "not this, but its spacing" }
+            ]
           },
           {
             "ask": "lang",
@@ -81,7 +86,9 @@ without taking any feedback.
    `read --history` flags a version the user hid `hidden`. The question `alternative` (per
    state `alternative:<state>`) is the built-in alternative question. A `chosen` entry with
    `other: true` is the user's own answer (its `label`); it flips no alternative and sets
-   no knob. `comment` qualifies the answer and may come with nothing chosen. Images
+   no knob. `comment` qualifies the answer and may come with nothing chosen. `onAnswers`
+   are comments on single answers, picked or not, each naming its answer: read one on an
+   answer not chosen as what to keep or avoid from it. Images
    attached to either come as `images` on the `other` choice and `commentImages` on the
    question, each `{id, url}`; the text may then be `""`. Look at every one: over MCP
    they also arrive as image content; elsewhere fetch the `url` (with your token, if

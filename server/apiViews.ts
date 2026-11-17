@@ -438,9 +438,13 @@ export const draftHolds = (draft: Design["draft"]): boolean =>
   !!draft &&
   (draft.comments.length > 0 ||
     Object.values(draft.answers).some((a) => !Array.isArray(a) || a.length > 0) ||
-    [draft.borrowed, draft.tuned, draft.others ?? {}, draft.askComments ?? {}].some(
-      (rec) => Object.keys(rec).length > 0,
-    ));
+    [
+      draft.borrowed,
+      draft.tuned,
+      draft.others ?? {},
+      draft.askComments ?? {},
+      draft.answerComments ?? {},
+    ].some((rec) => Object.keys(rec).length > 0));
 
 export const designSummaryView = (design: Design, posts: PostHead[]) => {
   const drafted = draftedCount(design);

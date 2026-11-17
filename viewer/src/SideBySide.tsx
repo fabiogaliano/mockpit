@@ -149,45 +149,31 @@ function optionCell(s: DesignScreenState, ask: Ask, o: AskOption, archived: bool
 const sameList = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((x, i) => x === b[i]);
 
-// One answer at a time on the design, or all of them side by side: on every question
-// card beside the design. Words have nothing to set side by side, which its title says.
-export function LayoutToggle(props: { s: DesignScreenState; ask: Ask }) {
+// Side by side as one icon in the question's head, there only when the answers have
+// pictures to set side by side.
+export function SideBySideToggle(props: { s: DesignScreenState; ask: Ask }) {
   const s = props.s;
-  const can = () => pictured(s, props.ask);
   const on = () => sideAsk(s)?.id === props.ask.id;
-  const design = () => s.design()?.id;
   return (
-    <span class="vswitch qlayout" role="group" aria-label="Lay out the answers">
+    <Show when={pictured(s, props.ask)}>
       <button
         type="button"
-        aria-pressed={!on()}
-        onClick={() => {
-          const d = design();
-          if (d && on()) setAnswersLayout(d, "one");
-        }}
-      >
-        One
-      </button>
-      <button
-        type="button"
+        class="ib qside"
+        aria-label="Side by side"
         aria-pressed={on()}
-        aria-disabled={!can() || undefined}
-        title={
-          can()
-            ? "Every answer at full size, in a row on the canvas"
-            : "These answers are words: there are no pictures to set side by side"
-        }
+        title={on() ? "Back to one" : "Side by side"}
         onClick={() => {
-          const d = design();
-          if (!d || !can()) return;
+          const d = s.design()?.id;
+          if (!d) return;
+          if (on()) return setAnswersLayout(d, "one");
           s.setPreview(null);
           setRowAskFor(d, props.ask.id);
           setAnswersLayout(d, "side");
         }}
       >
-        Side by side
+        <Icon name="columns" />
       </button>
-    </span>
+    </Show>
   );
 }
 
@@ -353,7 +339,7 @@ function AnsweredCard(props: { s: DesignScreenState; ask: Ask }) {
       <span class="ansd-st">Answered</span>
       <span class="ansd-q">{props.ask.text}</span>
       <Show when={!phoneLayout()}>
-        <LayoutToggle s={s} ask={props.ask} />
+        <SideBySideToggle s={s} ask={props.ask} />
       </Show>
       <div class="ansd-opts" classList={{ picked: chosen().length > 0 }}>
         <For each={sentOrder(s, props.ask)}>

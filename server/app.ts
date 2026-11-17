@@ -2951,7 +2951,12 @@ export function createApp({
   // can't be placed (free text, a close, a design-wide question) counts.
   function speaksToState(
     r: Pick<Reply, "answers" | "borrowed" | "tuned" | "comments" | "others" | "askComments"> &
-      Partial<Pick<Reply, "otherImages" | "askCommentImages" | "text" | "verdict" | "archived">>,
+      Partial<
+        Pick<
+          Reply,
+          "otherImages" | "askCommentImages" | "answerComments" | "text" | "verdict" | "archived"
+        >
+      >,
     design: Design,
     post: Post,
     siblings: Post[],
@@ -2973,6 +2978,7 @@ export function createApp({
       ...Object.keys(r.askComments ?? {}),
       ...Object.keys(r.otherImages ?? {}),
       ...Object.keys(r.askCommentImages ?? {}),
+      ...Object.keys(r.answerComments ?? {}),
     ];
     return (
       !!r.text ||
@@ -3043,6 +3049,7 @@ export function createApp({
       d.askComments,
       d.otherImages,
       d.askCommentImages,
+      d.answerComments,
     ].some((x) => x && Object.keys(x).length > 0) || d.comments.length > 0;
 
   // Amend and withdraw rewrite a version in place, so only its own session
@@ -3580,6 +3587,7 @@ export function createApp({
             ...Object.keys(r.answers ?? {}),
             ...Object.keys(r.others ?? {}),
             ...Object.keys(r.askComments ?? {}),
+            ...Object.keys(r.answerComments ?? {}),
           ]),
         ]
       : [];
@@ -5086,6 +5094,44 @@ export function createApp({
     return out;
   }
 
+  // askId → option id → text: a comment on one answer, picked or not. Known asks and
+  // answers only; a stored comment on an answer the agent has since taken out is dropped
+  // rather than refused, so it can't wedge the draft.
+  function sanitizeAnswerComments(
+    raw: unknown,
+    design: Design,
+    posts: Post[],
+    stored: boolean,
+  ): Record<string, Record<string, string>> | string {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) return '"answerComments" must be an object';
+    const out: Record<string, Record<string, string>> = {};
+    for (const [askId, byOption] of Object.entries(raw as Record<string, unknown>)) {
+      const ask = askById(design, posts, askId);
+      if (!ask) {
+        if (stored) continue;
+        return `${design.slug} has no ask "${askId}"`;
+      }
+      if (!byOption || typeof byOption !== "object" || Array.isArray(byOption)) {
+        return `answerComments "${askId}" must be an object`;
+      }
+      const texts: Record<string, string> = {};
+      for (const [optionId, value] of Object.entries(byOption as Record<string, unknown>)) {
+        if (!ask.options.some((o) => o.id === optionId)) {
+          if (stored) continue;
+          return `ask "${askId}" has no option "${optionId}"`;
+        }
+        if (value !== undefined && value !== null && typeof value !== "string") {
+          return `answerComments "${askId}" "${optionId}" must be text`;
+        }
+        const text = str(value, MAX_COMMENT_TEXT);
+        if (text) texts[optionId] = text;
+      }
+      if (Object.keys(texts).length) out[askId] = texts;
+    }
+    return out;
+  }
+
   // askId → attached image ids: known asks, ids of stored raster images only,
   // deduped and capped, empty lists dropped.
   async function sanitizeAskImages(
@@ -5142,7 +5188,14 @@ export function createApp({
       (id === BUILTIN_ASK_ID || id.startsWith(`${BUILTIN_ASK_ID}:`)) &&
       !design.asks.some((a) => a.id === id);
     let out = d;
-    for (const key of ["answers", "others", "askComments", "otherImages", "askCommentImages"]) {
+    for (const key of [
+      "answers",
+      "others",
+      "askComments",
+      "otherImages",
+      "askCommentImages",
+      "answerComments",
+    ]) {
       const byAsk = (d as Record<string, unknown>)[key];
       if (!byAsk || typeof byAsk !== "object" || !Object.keys(byAsk).some(stale)) continue;
       if (out === d) out = { ...d };
@@ -5191,6 +5244,13 @@ export function createApp({
       "askCommentImages",
     );
     if (typeof askCommentImages === "string") return askCommentImages;
+    const answerComments = sanitizeAnswerComments(
+      pick("answerComments"),
+      design,
+      posts,
+      raw?.answerComments === undefined,
+    );
+    if (typeof answerComments === "string") return answerComments;
     for (const askId of Object.keys(otherImages)) others[askId] ??= "";
     for (const askId of Object.keys(askCommentImages)) askComments[askId] ??= "";
     for (const askId of Object.keys(others)) {
@@ -5212,6 +5272,7 @@ export function createApp({
       askComments,
       ...(Object.keys(otherImages).length ? { otherImages } : {}),
       ...(Object.keys(askCommentImages).length ? { askCommentImages } : {}),
+      ...(Object.keys(answerComments).length ? { answerComments } : {}),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -5390,7 +5451,14 @@ export function createApp({
     const answer = draft.answers[a.id];
     const other = draft.others?.[a.id];
     const comment = draft.askComments?.[a.id];
-    if (answer === undefined && other === undefined && comment === undefined) return a;
+    const answerComments = draft.answerComments?.[a.id];
+    if (
+      answer === undefined &&
+      other === undefined &&
+      comment === undefined &&
+      answerComments === undefined
+    )
+      return a;
     const next: Ask = { ...a };
     delete next.dismissed;
     if (answer !== undefined || other !== undefined) {
@@ -5411,6 +5479,8 @@ export function createApp({
       const images = draft.askCommentImages?.[a.id];
       if (images) next.commentImages = images;
     }
+    // Each sticks to its own answer, so newer ones add to those sent before.
+    if (answerComments) next.answerComments = { ...a.answerComments, ...answerComments };
     return next;
   }
 
@@ -5480,7 +5550,8 @@ export function createApp({
       !Object.keys(draft.tuned).length &&
       !draft.comments.length &&
       !Object.keys(draft.others ?? {}).length &&
-      !Object.keys(draft.askComments ?? {}).length;
+      !Object.keys(draft.askComments ?? {}).length &&
+      !Object.keys(draft.answerComments ?? {}).length;
     if (empty) return fail(400, "nothing to send");
     const target = await sendTarget(design, posts, body?.to);
     if (isResult(target)) return target;
@@ -5509,6 +5580,9 @@ export function createApp({
       ...(Object.keys(draft.askComments ?? {}).length ? { askComments: draft.askComments } : {}),
       ...(draft.otherImages ? { otherImages: draft.otherImages } : {}),
       ...(draft.askCommentImages ? { askCommentImages: draft.askCommentImages } : {}),
+      ...(Object.keys(draft.answerComments ?? {}).length
+        ? { answerComments: draft.answerComments }
+        : {}),
       ...(text ? { text } : {}),
     };
     // A question this reply answers keeps the answers it was answered among, the
@@ -6000,9 +6074,16 @@ export function createApp({
   // draft they were still writing, else on their last reply, unless a version has
   // answered that since.
   async function reasonFromNote(design: Design, posts: Post[]): Promise<string | null> {
-    const lastWords = (r: { text?: string; askComments?: Record<string, string> }) =>
+    const lastWords = (r: {
+      text?: string;
+      askComments?: Record<string, string>;
+      answerComments?: Record<string, Record<string, string>>;
+    }) =>
       r.text?.trim() ||
-      Object.values(r.askComments ?? {})
+      [
+        ...Object.values(r.askComments ?? {}),
+        ...Object.values(r.answerComments ?? {}).flatMap((byOption) => Object.values(byOption)),
+      ]
         .map((n) => n.trim())
         .filter(Boolean)
         .at(-1) ||
@@ -6476,7 +6557,8 @@ export function createApp({
       Object.keys(draft.tuned).length === 0 &&
       draft.comments.length === 0 &&
       Object.keys(draft.others ?? {}).length === 0 &&
-      Object.keys(draft.askComments ?? {}).length === 0;
+      Object.keys(draft.askComments ?? {}).length === 0 &&
+      Object.keys(draft.answerComments ?? {}).length === 0;
     await store.putDraft(design.id, nothing ? null : next);
     bus.broadcast({ type: "draft-updated", designId: design.id });
   }

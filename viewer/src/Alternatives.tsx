@@ -128,27 +128,7 @@ export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists })
     const st = step();
     if (st && !inUse()) void s.archiveAlternatives([st.alternative]);
   };
-  // Keep copies it into a gathered idea or another design; Move also takes it from here,
-  // which archives it, unless it is in use.
-  const saveFor = (st: VersionStep): SaveFor | null => {
-    const m = s.design();
-    if (!m) return null;
-    const state = s.activeState();
-    const leaves = !inUse();
-    return {
-      items: [
-        {
-          ref: { design: m.id, state, alternative: st.alternative, version: st.version },
-          name: s.nameOf(st),
-        },
-      ],
-      here: state ? `${m.title} · ${state}` : m.title,
-      leaves: leaves ? "archived" : null,
-      out: leaves ? 1 : 0,
-      archives: leaves ? [st.alternative] : [],
-      leave: () => s.archiveAlternatives([st.alternative], st.alternative, true),
-    };
-  };
+  const saveFor = (st: VersionStep) => saveForStep(s, st, inUse());
   const saved = () => {
     const m = s.design();
     const st = step();
@@ -170,63 +150,139 @@ export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists })
   return (
     <Show when={!readonly() && !s.product() && live() && step()} keyed>
       {(st) => (
-        <section class="altacts" aria-label={`What to do with ${name()}`}>
-          <h3>{name()}</h3>
-          <div class="altacts-row">
-            <button type="button" class="btn" onClick={more}>
-              <Icon name="spark" />
-              More like this
-            </button>
-            <button
-              type="button"
-              class="btn"
-              aria-expanded={borrowing()}
-              onClick={() => setBorrowing(!borrowing())}
-            >
-              <Icon name="borrow" />
-              Borrow
-            </button>
-            <button
-              type="button"
-              class="btn"
-              aria-pressed={saved()}
-              onClick={(e) => open(e, false)}
-            >
-              <Icon name="bookmark" />
-              {saved() ? "Kept" : "Keep"}
-            </button>
-            <button type="button" class="btn" onClick={(e) => open(e, true)}>
-              <Icon name="move" />
-              Move
-            </button>
-            <Show when={!inUse()}>
-              <button type="button" class="btn quiet" onClick={archive}>
-                Archive
+        <Show when={!answeredInRow(s, st.alternative)}>
+          <section class="altacts" aria-label={`What to do with ${name()}`}>
+            <h3>{name()}</h3>
+            <div class="altacts-row">
+              <button type="button" class="btn" onClick={more}>
+                <Icon name="spark" />
+                More like this
               </button>
-            </Show>
-          </div>
-          <Show when={borrowing()}>
-            <BorrowBox s={s} to={st} onDone={() => setBorrowing(false)} />
-          </Show>
-          <Show when={saving()} keyed>
-            {(at) => (
-              <Show when={saveFor(st)}>
-                {(item) => (
-                  <SaveMenu
-                    sl={props.sl}
-                    project={s.project}
-                    anchor={at.from}
-                    item={item()}
-                    move={at.move}
-                    onClose={() => setSaving(null)}
-                  />
-                )}
+              <button
+                type="button"
+                class="btn"
+                aria-expanded={borrowing()}
+                onClick={() => setBorrowing(!borrowing())}
+              >
+                <Icon name="borrow" />
+                Borrow
+              </button>
+              <button
+                type="button"
+                class="btn"
+                aria-pressed={saved()}
+                onClick={(e) => open(e, false)}
+              >
+                <Icon name="bookmark" />
+                {saved() ? "Kept" : "Keep"}
+              </button>
+              <button type="button" class="btn" onClick={(e) => open(e, true)}>
+                <Icon name="move" />
+                Move
+              </button>
+              <Show when={!inUse()}>
+                <button type="button" class="btn quiet" onClick={archive}>
+                  Archive
+                </button>
               </Show>
-            )}
-          </Show>
-        </section>
+            </div>
+            <Show when={borrowing()}>
+              <BorrowBox s={s} to={st} onDone={() => setBorrowing(false)} />
+            </Show>
+            <Show when={saving()} keyed>
+              {(at) => (
+                <Show when={saveFor(st)}>
+                  {(item) => (
+                    <SaveMenu
+                      sl={props.sl}
+                      project={s.project}
+                      anchor={at.from}
+                      item={item()}
+                      move={at.move}
+                      onClose={() => setSaving(null)}
+                    />
+                  )}
+                </Show>
+              )}
+            </Show>
+          </section>
+        </Show>
       )}
     </Show>
+  );
+}
+
+// Keep copies it into a gathered idea or another design; Move also takes it from here,
+// which archives it, unless it is in use.
+function saveForStep(s: DesignScreenState, st: VersionStep, inUse: boolean): SaveFor | null {
+  const m = s.design();
+  if (!m) return null;
+  const state = s.activeState();
+  const leaves = !inUse;
+  return {
+    items: [
+      {
+        ref: { design: m.id, state, alternative: st.alternative, version: st.version },
+        name: s.nameOf(st),
+      },
+    ],
+    here: state ? `${m.title} · ${state}` : m.title,
+    leaves: leaves ? "archived" : null,
+    out: leaves ? 1 : 0,
+    archives: leaves ? [st.alternative] : [],
+    leave: () => s.archiveAlternatives([st.alternative], st.alternative, true),
+  };
+}
+
+// The question on the card answers with this alternative, so its row carries what to do
+// with it, and the panel says it once.
+function answeredInRow(s: DesignScreenState, alternative: string): boolean {
+  const ask = s.curAsk();
+  return !!ask && s.shownOptions(ask).some((o) => o.alternative === alternative);
+}
+
+// An answer that is a live alternative of an idea's state on stage: Borrow and Move apply.
+export function answerAlternative(s: DesignScreenState, alternative: string | undefined) {
+  if (!alternative || readonly() || s.product()) return undefined;
+  const v = s
+    .alternatives()
+    .find((x) => x.state === s.activeState() && x.alternative === alternative);
+  return v && isLive(v.status) ? newestOf(s, alternative) : undefined;
+}
+
+// What an answer's ⋯ opened for its alternative: Borrow under the row, Move as a menu.
+export function AnswerAlternativeTools(props: {
+  s: DesignScreenState;
+  sl?: Shortlists;
+  step: VersionStep;
+  borrowing: boolean;
+  moving: HTMLElement | null;
+  onDone: () => void;
+}) {
+  const s = props.s;
+  const inUse = () => sameVersion(s.inUse(), props.step);
+  return (
+    <>
+      <Show when={props.borrowing}>
+        <BorrowBox s={s} to={props.step} onDone={props.onDone} />
+      </Show>
+      <Show when={props.sl && props.moving} keyed>
+        {(anchor) => (
+          <Show when={saveForStep(s, props.step, inUse())}>
+            {(item) => (
+              <SaveMenu
+                sl={props.sl!}
+                project={s.project}
+                anchor={anchor}
+                item={item()}
+                move
+                onClose={props.onDone}
+              />
+            )}
+          </Show>
+        )}
+      </Show>
+    </>
   );
 }
 

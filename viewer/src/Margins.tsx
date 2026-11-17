@@ -819,7 +819,7 @@ function Talk(props: { s: DesignScreenState; m: Margins; sl: Shortlists }) {
         </>
       }
     >
-      <QuestionCard s={s} beside below={below()} />
+      <QuestionCard s={s} beside below={below()} sl={props.sl} />
     </Show>
   );
 }

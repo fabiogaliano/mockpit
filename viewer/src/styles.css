@@ -2487,12 +2487,13 @@ a {
   line-height: 18px;
 }
 
-/* An answer with its actions: the bookmark on its left, more like this and hide on its
-   right. They wait for a hover, except a kept answer's bookmark, which is how it reads
-   as kept. A touch screen has no hover, so they stay. */
+/* An answer with its actions on its right: comment, more like this, archive and a menu.
+   They wait for a hover, except the comment on the picked answer or on one that has a
+   comment. A touch screen has no hover, so they stay. */
 .optw {
   position: relative;
   display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 .optw > .opt {
@@ -2567,12 +2568,115 @@ a {
   .optic {
     opacity: 0.9;
   }
-  .optw.on .optacts {
-    right: 40px;
+}
+.optw.on .optcomment,
+.optcomment.has {
+  opacity: 1;
+}
+.optcomment.has .icon path {
+  fill: currentColor;
+}
+/* The agent's suggestion, on the picture's corner where the eye already is; the actions
+   take the other corner. */
+.opt .pickmark {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9);
+  pointer-events: none;
+}
+.opt .keptmark {
+  display: inline-grid;
+  margin-inline-start: 6px;
+  vertical-align: -2px;
+  color: var(--accent);
+}
+.opt .keptmark .icon {
+  width: 13px;
+  height: 13px;
+}
+.opt .keptmark .icon path {
+  fill: currentColor;
+}
+.optmenu {
+  position: absolute;
+  top: 40px;
+  right: 9px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 12px 32px #0008;
+}
+.optmenu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--t2);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+}
+.optmenu .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--t4);
+}
+.optmenu button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .optmenu button:hover {
+    background: var(--row-hover);
   }
-  .optw.on .opt .tick {
-    opacity: 1;
-  }
+}
+.optw.menuopen .optic {
+  opacity: 1;
+}
+/* A comment sits on its own answer, under it and joined to it. */
+.optw:has(> .optcomment-box) > .opt {
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+.optcomment-box {
+  padding: 6px 10px 8px;
+  border-radius: 0 0 14px 14px;
+  background: var(--row);
+  border-top: 1px solid var(--line);
+}
+.optw.on > .optcomment-box {
+  box-shadow:
+    inset 2px 0 0 var(--t1),
+    inset -2px 0 0 var(--t1),
+    inset 0 -2px 0 var(--t1);
+}
+.optcomment-box textarea {
+  display: block;
+  width: 100%;
+  min-height: 38px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--t1);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  field-sizing: content;
 }
 .optic:focus-visible {
   opacity: 1;
@@ -2612,13 +2716,13 @@ a {
   right: 6px;
 }
 .qcard:not(.beside) .optw .opt {
-  padding-right: 92px;
+  padding-right: 64px;
 }
 /* With hover, the list's text has the row's full width and the actions fade in over its
    end; without hover they always show, so the text makes room for them. */
 @media (hover: none) {
   .qcard.beside .opts.aslist .optw .opt:not(.pill) {
-    padding-right: 92px;
+    padding-right: 124px;
   }
 }
 @media (hover: hover) {
@@ -2675,9 +2779,19 @@ a {
   color: var(--t4);
   overflow-wrap: anywhere;
 }
-.hiddenans-list .vrestore {
+.hiddenans-list .hiddenans-back {
   margin-left: auto;
   flex: none;
+  align-self: center;
+  opacity: 1;
+  background: none;
+  color: var(--t4);
+}
+@media (hover: hover) {
+  .hiddenans-list .hiddenans-back:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .optic {
@@ -3429,7 +3543,7 @@ html.theming *:not(iframe) {
 }
 /* The design is the page here, not an artboard on a board: a page whose own
    background is transparent must not show the canvas's dots through its text. */
-.design-screen.phone .stagewrap.canvas {
+.design-screen.phone .stagewrap.canvas:not(.artboard) {
   background-image: none;
 }
 /* The stage is the one scroller: native, with momentum, sideways too once
@@ -4900,17 +5014,42 @@ html:has(.design-screen) {
   align-items: center;
   gap: 2px;
 }
-.qfoot .qnote svg {
-  width: 18px;
-  height: 18px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linejoin: round;
-}
 .qfoot .qsend {
   height: 34px;
   padding: 0 16px;
+}
+.qfoot .qcount {
+  min-width: 44px;
+  color: var(--t4);
+  font-size: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.qnothing {
+  margin-right: 10px;
+  color: var(--t3);
+  font-size: 12.5px;
+}
+/* More answers and Side by side: icons in the question's head, each there only when it
+   applies. */
+.qtools {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.qtools .ib {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+.qtools .ib svg {
+  width: 17px;
+  height: 17px;
+}
+.qtools .ib[aria-pressed="true"],
+.qtools .ib[aria-expanded="true"] {
+  background: var(--row);
+  color: var(--t1);
 }
 /* High on the edge: mid-height it sits on the next screen's picture. */
 /* A phone's foot: the question's sheet over the design's lower part, and under it the bar
@@ -4979,6 +5118,95 @@ html:has(.design-screen) {
 }
 .pdock .qcard .opts:has(.crop) .optw .opt {
   padding-right: 6px;
+}
+/* The sheet's grabber: a tap or a swipe down puts the question away. The bar is drawn
+   small; the button is the sheet's whole top edge, so a thumb finds it. */
+.pdock .qgrab {
+  display: block;
+  width: calc(100% + 32px);
+  height: 22px;
+  margin: -12px -16px 2px;
+  touch-action: none;
+  cursor: grab;
+}
+.pdock .qgrab::before {
+  content: "";
+  display: block;
+  width: 36px;
+  height: 4px;
+  margin: 8px auto 0;
+  border-radius: 99px;
+  background: var(--t5);
+}
+.pdock .qcard {
+  transition: transform 0.18s ease-out;
+}
+/* The question put away: one tab flush against an edge, at one of six places. */
+.qdot {
+  position: fixed;
+  z-index: 37;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 56px;
+  background: color-mix(in srgb, var(--q) 22%, var(--panel));
+  color: var(--q);
+  border: 1px solid color-mix(in srgb, var(--q) 40%, transparent);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.qdot.right {
+  right: 0;
+  border-right: 0;
+  border-radius: 14px 0 0 14px;
+}
+.qdot.left {
+  left: 0;
+  border-left: 0;
+  border-radius: 0 14px 14px 0;
+}
+.qdot.top {
+  top: calc(var(--canvas-top, 0px) + 12px);
+}
+.qdot.middle {
+  top: calc(50% - 28px);
+}
+/* Low, it sits over whatever the foot holds (the version's bar), never on it. */
+.qdot.bottom {
+  top: calc(var(--foot-top, 100dvh) - 56px - 16px);
+}
+.qdot.dragging {
+  border-width: 1px;
+  border-radius: 14px;
+}
+.qdot.settling {
+  transition: transform 0.2s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+.qdot-q {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1;
+}
+.qdot-n {
+  position: absolute;
+  top: 4px;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 99px;
+  background: var(--q);
+  color: var(--panel);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+.qdot.right .qdot-n {
+  left: 4px;
+}
+.qdot.left .qdot-n {
+  right: 4px;
 }
 .pbar {
   display: flex;
@@ -6234,29 +6462,6 @@ html:has(.design-screen) {
   padding: 8px 12px calc(8px + env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
 }
-.qaddnote {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 8px;
-  border-radius: 9px;
-  color: var(--t4);
-  font-size: 13px;
-  white-space: nowrap;
-}
-.qaddnote svg {
-  width: 16px;
-  height: 16px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linejoin: round;
-}
-.qaddnote.on {
-  color: var(--t1);
-}
 .cmts {
   display: flex;
   flex-direction: column;
@@ -6327,10 +6532,6 @@ html:has(.design-screen) {
     background: var(--row);
     color: var(--t2);
   }
-  .qaddnote:hover {
-    background: var(--row);
-    color: var(--t1);
-  }
 }
 /* A finger on a tablet: the same 44px these controls get everywhere else. */
 @media (pointer: coarse) {
@@ -6342,8 +6543,7 @@ html:has(.design-screen) {
     margin-block: -4px;
   }
   .toolstrip .ib,
-  .mact .ib,
-  .qaddnote {
+  .mact .ib {
     width: auto;
     min-width: 44px;
     height: 44px;
@@ -8794,22 +8994,6 @@ a.ideas-row {
   }
 }
 
-/* One | Side by side on a question card beside the design. */
-.qlayout-row {
-  padding: 0 16px 10px;
-}
-.vswitch.qlayout {
-  display: inline-flex;
-}
-.vswitch.qlayout button {
-  padding: 3px 12px;
-  font-size: 12.5px;
-}
-.vswitch.qlayout button[aria-disabled="true"] {
-  opacity: 0.4;
-  cursor: default;
-}
-
 /* A sent question beside the design, as its answers were left. */
 .ansd {
   display: flex;
@@ -9055,8 +9239,12 @@ a.ideas-row {
   background: #231f3b;
   color: #c3b8ff;
 }
-button.bchip:hover {
+button.bchip:hover,
+a.bchip:hover {
   filter: brightness(1.25);
+}
+a.bchip {
+  text-decoration: none;
 }
 .bfilter {
   width: 16em;
@@ -9448,6 +9636,22 @@ button.bmc {
 }
 .board-top .board-menu {
   margin-left: -8px;
+}
+/* Needs you lives in the rail, which a phone hides: its count shows on the way in. */
+.board-menu-n {
+  position: absolute;
+  top: 2px;
+  right: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 99px;
+  background: #3a1d12;
+  color: #ffa97a;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
 }
 /* A phone: no free canvas. The page is its sections as rows a finger swipes, each
    stopping on a frame, and the page's words above them. */

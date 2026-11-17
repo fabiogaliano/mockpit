@@ -85,6 +85,7 @@ import {
   pickInDraft,
   readDeviceWidth,
   setAskField,
+  setAnswerComment,
   tuneVisible,
   unanswered,
   canOutline,
@@ -384,6 +385,9 @@ export function createDesignScreen(
   const otherOf = (ask: Ask) => (drafted(ask) ? draft()?.others[ask.id] : ask.other);
   const otherTicked = (ask: Ask) => !!otherOpen()[ask.id] || otherOf(ask) !== undefined;
   const commentOf = (ask: Ask) => draft()?.askComments[ask.id] ?? ask.comment;
+  // A comment on one answer: the draft's, else the one a Send left on it.
+  const answerCommentOf = (ask: Ask, optionId: string): string | undefined =>
+    draft()?.answerComments[ask.id]?.[optionId] ?? ask.answerComments?.[optionId];
   const otherImagesOf = (ask: Ask) =>
     (drafted(ask) ? draft()?.otherImages[ask.id] : ask.otherImages) ?? [];
   const commentImagesOf = (ask: Ask) =>
@@ -644,7 +648,8 @@ export function createDesignScreen(
       !!d &&
       (d.answers[ask.id] !== undefined ||
         d.others[ask.id] !== undefined ||
-        d.askComments[ask.id] !== undefined)
+        d.askComments[ask.id] !== undefined ||
+        d.answerComments[ask.id] !== undefined)
     );
   };
   const live = (ask: Ask) =>
@@ -743,7 +748,20 @@ export function createDesignScreen(
   });
   // The part outlined on the stage. selectedPart outlives the question that set
   // it (Tune opens on it), so outside Tune the outline follows the question.
-  const stagePart = createMemo(() => (tuning() ? selectedPart() : (tapped() ?? focusPart())));
+  // Under Try the page is being used, not pointed at: nothing is outlined, and what was
+  // picked before is let go, so turning Try off doesn't bring it back.
+  const stagePart = createMemo(() =>
+    trying() ? null : tuning() ? selectedPart() : (tapped() ?? focusPart()),
+  );
+  createEffect(
+    on(trying, (on) => {
+      if (!on) return;
+      batch(() => {
+        setTapped(null);
+        setSelectedPart(null);
+      });
+    }),
+  );
   // A borrow made before the user chose that part's fate would contradict it.
   createEffect(() => {
     const mix = draft()?.borrowed ?? {};
@@ -799,6 +817,7 @@ export function createDesignScreen(
       askComments: { ...base.askComments },
       otherImages: { ...base.otherImages },
       askCommentImages: { ...base.askCommentImages },
+      answerComments: { ...base.answerComments },
     });
     batch(() => {
       setDraftSignal(next);
@@ -906,6 +925,7 @@ export function createDesignScreen(
             askComments: d.askComments ?? {},
             otherImages: d.otherImages ?? {},
             askCommentImages: d.askCommentImages ?? {},
+            answerComments: d.answerComments ?? {},
           }
         : null,
     );
@@ -1197,7 +1217,14 @@ export function createDesignScreen(
     setRevising(rest);
     if (inDraft(ask)) {
       writeDraft((d) => {
-        for (const rec of [d.answers, d.others, d.askComments, d.otherImages, d.askCommentImages]) {
+        for (const rec of [
+          d.answers,
+          d.others,
+          d.askComments,
+          d.otherImages,
+          d.askCommentImages,
+          d.answerComments,
+        ]) {
           delete rec[ask.id];
         }
         return d;
@@ -1442,6 +1469,8 @@ export function createDesignScreen(
   const setOther = (ask: Ask, text: string) => setField(ask, "other", text, otherImagesOf(ask));
   const setComment = (ask: Ask, text: string) =>
     setField(ask, "comment", text, commentImagesOf(ask));
+  const setAnswerCommentOf = (ask: Ask, optionId: string, text: string) =>
+    writeDraft((d) => setAnswerComment(d, ask.id, optionId, text));
 
   function setPending(slot: string, fn: (list: PendingImage[]) => PendingImage[]) {
     const all = { ...uploads() };
@@ -2641,6 +2670,8 @@ export function createDesignScreen(
     setOther,
     setComment,
     commentOf,
+    answerCommentOf,
+    setAnswerComment: setAnswerCommentOf,
     foldedOf,
     setFolded,
     imagesOf,

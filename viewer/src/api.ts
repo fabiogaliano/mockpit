@@ -130,6 +130,8 @@ export interface DraftInput {
   askComments: Record<string, string>;
   otherImages: Record<string, string[]>;
   askCommentImages: Record<string, string[]>;
+  // askId → option id → a comment on that one answer, picked or not.
+  answerComments: Record<string, Record<string, string>>;
 }
 
 export interface Shortlist {
