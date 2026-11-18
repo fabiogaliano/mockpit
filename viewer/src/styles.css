@@ -5074,13 +5074,6 @@ html:has(.design-screen) {
   color: var(--t5);
   font-size: 12px;
 }
-.sheet-keys kbd {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--row);
-  font: 11px var(--mono);
-  color: var(--t3);
-}
 .sheet-grid {
   display: grid;
   align-items: center;
@@ -10119,6 +10112,18 @@ a.bf-q:focus-visible {
 .bkeys dd {
   margin: 0;
   color: var(--t2);
+}
+/* Focus's: the canvas's bottom corner, clear of the panel docked or floating there. */
+.bkeys-btn.fkeys,
+.bkeys.fkeys {
+  position: fixed;
+  right: calc(var(--canvas-end, 0px) + 16px);
+}
+.bkeys-btn.fkeys {
+  z-index: 31;
+}
+.bkeys.fkeys {
+  z-index: 46;
 }
 .bask-err {
   position: absolute;

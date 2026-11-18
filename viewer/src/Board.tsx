@@ -73,6 +73,7 @@ import {
   rootPath,
 } from "./route.ts";
 import { openJump } from "./Jump.tsx";
+import { createShortcuts, ShortcutsButton } from "./Shortcuts.tsx";
 import { coarse, phoneLayout, railSlides } from "./viewport.ts";
 import {
   type BoardQuestion,
@@ -876,10 +877,10 @@ export function Board(props: {
         open(selected());
       } else if (e.key === "?" && !onControl) {
         e.preventDefault();
-        setKeysOpen(!keysOpen());
-      } else if (e.key === "Escape" && (keysOpen() || mapOpen())) {
+        keys.toggle();
+      } else if (e.key === "Escape" && (keys.open() || mapOpen())) {
         e.preventDefault();
-        setKeysOpen(false);
+        keys.setOpen(false);
         setMapOpen(false);
       } else if ((e.key === "p" || e.key === "P") && !e.shiftKey) {
         e.preventDefault();
@@ -1070,15 +1071,7 @@ export function Board(props: {
   // for every page.
   // The map is a popover from the page's line: closed until asked for.
   const [mapOpen, setMapOpen] = createSignal(false);
-  // Shortcuts are behind a "?", which says what it is until it has been opened once
-  // (KEYS_KEY).
-  const [keysKnown, setKeysKnown] = createSignal(host().storage?.getItem(KEYS_KEY) === "known");
-  const [keysOpen, setKeysOpen] = createSignal(false);
-  createEffect(() => {
-    if (!keysOpen() || keysKnown()) return;
-    setKeysKnown(true);
-    host().storage?.setItem(KEYS_KEY, "known");
-  });
+  const keys = createShortcuts(KEYS_KEY);
   const foldMap = () => setMapOpen(!mapOpen());
 
   const sinceLine = () => {
@@ -1567,69 +1560,52 @@ export function Board(props: {
               </button>
             </div>
           </Show>
-          <button
-            type="button"
-            class="bkeys-btn"
-            classList={{ first: !keysKnown() }}
-            aria-label="Shortcuts"
-            aria-expanded={keysOpen()}
-            aria-controls="board-keys"
-            title="Shortcuts (?)"
-            onClick={() => setKeysOpen(!keysOpen())}
-          >
-            ?
-            <Show when={!keysKnown()}>
-              <span>shortcuts</span>
-            </Show>
-          </button>
-          <Show when={keysOpen()}>
-            <div class="bkeys" id="board-keys" role="dialog" aria-label="Shortcuts">
-              <Show
-                when={!coarse()}
-                fallback={
-                  <dl>
-                    <dt>Pinch</dt>
-                    <dd>Zoom</dd>
-                    <dt>Drag</dt>
-                    <dd>Pan</dd>
-                    <dt>Double-tap</dt>
-                    <dd>Open</dd>
-                  </dl>
-                }
-              >
+          <ShortcutsButton k={keys} id="board-keys">
+            <Show
+              when={!coarse()}
+              fallback={
                 <dl>
-                  <dt>
-                    <kbd>↵</kbd>
-                  </dt>
-                  <dd>Open, or double-click</dd>
-                  <dt>
-                    <kbd>⇧1</kbd>
-                  </dt>
-                  <dd>Fit the page</dd>
-                  <dt>
-                    <kbd>⇧2</kbd>
-                  </dt>
-                  <dd>Fit the selection</dd>
-                  <dt>
-                    <kbd>Space</kbd>
-                  </dt>
-                  <dd>Drag to pan, or scroll</dd>
-                  <dt>
-                    <kbd>⌘</kbd> scroll
-                  </dt>
-                  <dd>Zoom, or pinch</dd>
-                  <dt>
-                    <kbd>⌘/</kbd>
-                  </dt>
-                  <dd>Hide the interface</dd>
-                  <dt>
-                    <kbd>P</kbd>
-                  </dt>
-                  <dd>Present a flow: → ← walk it, R starts over, Esc ends</dd>
+                  <dt>Pinch</dt>
+                  <dd>Zoom</dd>
+                  <dt>Drag</dt>
+                  <dd>Pan</dd>
+                  <dt>Double-tap</dt>
+                  <dd>Open</dd>
                 </dl>
-              </Show>
-            </div>
-          </Show>
+              }
+            >
+              <dl>
+                <dt>
+                  <kbd>↵</kbd>
+                </dt>
+                <dd>Open, or double-click</dd>
+                <dt>
+                  <kbd>⇧1</kbd>
+                </dt>
+                <dd>Fit the page</dd>
+                <dt>
+                  <kbd>⇧2</kbd>
+                </dt>
+                <dd>Fit the selection</dd>
+                <dt>
+                  <kbd>Space</kbd>
+                </dt>
+                <dd>Drag to pan, or scroll</dd>
+                <dt>
+                  <kbd>⌘</kbd> scroll
+                </dt>
+                <dd>Zoom, or pinch</dd>
+                <dt>
+                  <kbd>⌘/</kbd>
+                </dt>
+                <dd>Hide the interface</dd>
+                <dt>
+                  <kbd>P</kbd>
+                </dt>
+                <dd>Present a flow: → ← walk it, R starts over, Esc ends</dd>
+              </dl>
+            </Show>
+          </ShortcutsButton>
         </Show>
       </div>
     );

@@ -484,7 +484,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     or scroll to pan; ⌘-scroll, a pinch or +/- zooms; Shift 1 fits the page and Shift 2 the
     selection; Enter, a double-click or Open ↵ opens Focus; Esc lets go; ⌘/ hides the rail
     and the cards. The shortcuts are behind a "?" in the corner (and the ? key), labelled
-    "? shortcuts" until first opened (`mockpit:board-keys`). A selected frame offers Copy link. P or ▶ Present plays a flow full
+    "? shortcuts" until first opened (`Shortcuts.tsx`, `mockpit:board-keys`). A selected frame offers Copy link. P or ▶ Present plays a flow full
     screen (`Present.tsx`): → and ← walk it, R starts over.
   - **The rail** (`BoardRail.tsx`; over Focus it opens from ☰, `SideOver.tsx`): Needs
     you, the one inbox, each question opening Focus on it (`?question=`); Pages, the
@@ -520,7 +520,9 @@ Stances reversed knowingly, so nobody restores them by accident:
     `Margins.tsx`, level with its top, the stage leaving its band): Try, Comment (C), Tune, the
     preview (the widths and the QR, `PreviewTool`) and the palette pick beside Light | Dark
     (`PaletteTool`); not over the Sheet, Side by side or a document. Esc and the page in the path go back
-    to the Board, fit to the frame, selected. `Margins.tsx`: the states on the left (not
+    to the Board, fit to the frame, selected. Focus's keys are behind a "?" at the canvas's
+    corner and the ? key, listed for where the user is: one frame, the Sheet or a cell open
+    from it (`FocusShortcuts`, `mockpit:focus-keys`). `Margins.tsx`: the states on the left (not
     drawn ones dashed; the standard states a screen lacks wait behind New state) and the
     state's alternatives (`Alternatives.tsx`; headed Variants on a variants design,
     archived ones folded); on the right one panel, there only while a question is open

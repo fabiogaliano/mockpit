@@ -112,6 +112,7 @@ import {
   win,
 } from "./viewport.ts";
 import { setPeek } from "./systemRev.ts";
+import { createShortcuts, FocusShortcuts } from "./Shortcuts.tsx";
 
 // A phone's swipe: how far the finger goes before it is a step, and how long the frame
 // takes to leave and the next to come in.
@@ -494,13 +495,25 @@ export function DesignScreen(props: {
     });
   });
 
+  const keys = createShortcuts("mockpit:focus-keys");
   // Esc turns a canvas tool off, then closes what floats, one at a time, then goes back
-  // up to the Board, fit to this frame. C takes up Comment, as in a design tool.
+  // up to the Board, fit to this frame. C takes up Comment, as in a design tool; ? opens
+  // the shortcuts.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || presenting) return;
       const at = e.composedPath()[0];
       if (at instanceof Element && at.closest(FIELD)) return;
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        keys.toggle();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Escape" && keys.open()) {
+        keys.setOpen(false);
+        e.preventDefault();
+        return;
+      }
       if (e.key === "c" || e.key === "C") {
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
         if (readonly() || reading() || !m.page()) return;
@@ -809,6 +822,9 @@ export function DesignScreen(props: {
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
                 <RightMargin s={s} t={t} m={m} sl={shortlists} />
+                <Show when={!presenting}>
+                  <FocusShortcuts s={s} k={keys} reading={reading()} page={m.page()} />
+                </Show>
               </>
             }
           >

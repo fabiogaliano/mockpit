@@ -6,7 +6,7 @@
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { AlternativeView } from "./api.ts";
 import { subjectOf } from "./frameActions.ts";
-import { host, readonly } from "./host.ts";
+import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { alternativeName } from "./logic.ts";
 import { MarkPill } from "./MarkPill.tsx";
@@ -84,25 +84,10 @@ export function Sheet(props: { s: DesignScreenState }) {
             {`All ${sh.frames().length}`}
           </button>
         </div>
-        <span class="sheet-keys">
-          <Show when={sh.total() > MAX_COLUMNS}>
-            <span>{`${MAX_COLUMNS} of ${sh.total()}`}</span>
-          </Show>
-          <Show when={sh.frames().length > 1 && !readonly()}>
-            <span>
-              <kbd>P</kbd> pick
-            </span>
-            <span>
-              <kbd>M</kbd> main
-            </span>
-            <span>
-              <kbd>X</kbd> archive
-            </span>
-          </Show>
-          <span>
-            <kbd>double-click</kbd> open
-          </span>
-        </span>
+        {/* Its keys are behind Focus's "?". */}
+        <Show when={sh.total() > MAX_COLUMNS}>
+          <span class="sheet-keys">{`${MAX_COLUMNS} of ${sh.total()}`}</span>
+        </Show>
       </div>
       <div
         class="sheet-grid"
