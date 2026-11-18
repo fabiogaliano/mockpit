@@ -25,8 +25,8 @@ every design at once.
 
 ## The loop
 
-Nothing waits for the user. Publish each alternative, ask, tell the user in one line where to look,
-then end your turn. The question lives in the design (`ask`), never in chat. Never poll.
+Nothing waits for the user. Publish each alternative, tell the user in one line where to look,
+then end your turn. A question lives in the design (`ask`), never in chat. Never poll.
 
 Declare structure only when designing a product's screens: `--kind screen` for a screen,
 `--flow <name> --step N` for states the user moves between, and each reusable component as its
@@ -50,8 +50,8 @@ user sees ("Hold menu"), never by your process ("Round 2 · …", "v2", "Prototy
 moves a design themselves (kind, area) or marks it Ready, you hear it in `feedback` as `edited`.
 Explore for a screen or component in an idea for it (`--for <slug>`), or say what an idea
 would become (`--becomes screen|component|flow|system`). Its read and replies carry
-`target.ruledOut`: what that design turned down; don't offer it again unless the user asks. Using an alternative
-there copies it onto the design (`usedIn`).
+`target.ruledOut`: what that design turned down; don't offer it again unless the user asks. A Use there
+copies the user's picks onto the design (`usedIn`; its read lists `usedFrom`).
 A batch's `followUps` is what a decision now requires (`mockpit guide --topic feedback`):
 edit the `spec` yourself; publish `apply` on its target; for `gaps`, publish an idea for the
 target with the missing states drawn and one question, never write onto the product design; for `lift`,
@@ -67,7 +67,6 @@ Prefer the MCP tools when connected (`publish`, `ask`, `read`, `feedback`,
 ```sh
 mockpit publish --design writer --state "Writing" --alternative quiet --html quiet.html
 mockpit publish --design writer --state "Writing" --alternative dark  --html dark.html
-mockpit ask     --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark
 mockpit export  --design writer
 ```
 
@@ -77,13 +76,14 @@ The plugin waits for a reply from your first mockpit call on, so don't arm `mock
 Send wakes you even when idle, with a line like:
 
 ```
-mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · borrowed body←quiet · 1 comment
+mockpit reply on writer: Quiet or dark? → Dark · dark tuned: body.size 19 · body from quiet
 ```
 
 If nothing is waiting, the viewer shows the user a line to paste to you, which means the same.
 
 Treat it as a message from the user and run `feedback` (`mockpit feedback`) for the full reply. It
-returns at once. `pending` says whether they are still answering (`viewerOpen`,
+returns at once; `reply.lines` is the Send as the user read it, and a Use is an instruction to put
+its picks in the code. `pending` says whether they are still answering (`viewerOpen`,
 `draft {answered, of, comments}`). Drafts are never delivered before Send; each Send is delivered
 exactly once, in `feedback` or the `feedback` field on a write.
 
@@ -94,14 +94,14 @@ Rules of thumb:
 
 - One design per concept, with a stable kebab-case slug; publishing the same
   (design, state, alternative) again makes a new version.
-- A choice is several alternatives plus one question that binds them. An alternative decides
-  everything it differs on; don't re-ask it. Visual options carry an `alternative`
-  or knob `set`, or a `palette` of the system. One render plus a control → declare a knob; declare knobs for
-  what is worth fine-tuning even unasked. When a publish result nudges, send
-  its `suggestedAsk`.
+- Publish what varies as alternatives or a choice knob (a `select` the user can Spread into a
+  Sheet): the user compares, picks and presses Use without a question. An alternative decides
+  everything it differs on; don't re-ask it. Declare knobs for what is worth fine-tuning even
+  unasked.
 - The html is the UI alone. Say what an alternative is in `description`, never as text
   beside the design; name the widths it ships at once with `widths`.
-- Ask when a decision is genuinely the user's, not after every publish.
+- Ask only when a choice blocks your next step; options carry an `alternative`, knob `set` or
+  `palette`, so the user sees each.
 - Use the kit, tokens and icons from `mockpit guide` before writing CSS.
 - `mockpit read` first in a new session: its `decisionLog` is what the user
   already settled. Treat it as settled unless they say otherwise; don't re-ask it.

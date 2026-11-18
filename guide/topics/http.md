@@ -51,9 +51,10 @@ curl -s -X POST $B/api/designs -H 'content-type: application/json' -d '{
   "html": "<section data-part=\"total\" data-part-label=\"Summary\">Nothing here yet</section>"}'
 # → …,"partChanges":{"vanished":[],"renamed":[{"from":"summary","to":"total"}]}
 
-curl -s -X POST $B/api/designs/checkout/asks -H 'content-type: application/json' -d '{
-  "session": "S", "project": "demo", "asks": [{"id": "pad", "text": "How roomy?", "scope": "part",
-  "part": "total", "options": [{"label": "Tight", "set": {"pad": 8}}, {"label": "Roomy", "set": {"pad": 24}}]}]}'
+# looks alone: named knob values for the user to try, no new version
+curl -s -X POST $B/api/designs -H 'content-type: application/json' -d '{
+  "session": "S", "project": "demo", "design": "checkout",
+  "looks": {"Tight": {"pad": 8}, "Roomy": {"pad": 24}}}'
 
 # tell the user where to look and end your turn; once they say they answered:
 curl -s "$B/api/feedback?session=S"
@@ -66,8 +67,7 @@ curl -s -X POST $B/api/designs/checkout/say -H 'content-type: application/json' 
 curl -s "$B/api/designs/checkout/export?project=demo"
 ```
 
-A publish that leaves two or more alternatives with no question binding them adds
-`nudges` and a ready `suggestedAsk`; POST it to `/asks` as `{"asks": [...]}`.
+A `suggestedAsk` in a publish's result is ready to POST to `/asks` as `{"asks": [...]}`.
 
 ## Errors
 

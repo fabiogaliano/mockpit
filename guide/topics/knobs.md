@@ -1,9 +1,25 @@
 # mockpit topic: knobs
 
-A knob is a value the user tunes live on one render. For a choice between renders, publish
-alternatives and ask (topic `asks`). A 2–3 option knob is a choice: ask with options that `set`
-it; publishing one returns that nudge. Declare knobs for what is worth fine-tuning (size,
-spacing, colour, density) even unasked; they wait in Tune.
+A knob is a value the user tunes live on one render. Declare knobs for what is worth
+fine-tuning (size, spacing, colour, density) even unasked; they wait in Tune. A tune belongs
+to the frame it was made on: tuning one alternative leaves the others as they were.
+
+## Choice knobs, the Sheet and looks
+
+A choice knob is a `select` or an `image` with options, or a part's swaps. Publish what
+varies across renders as one, not as a question: the user presses Spread beside it in Tune
+and sees the frame in every value, then every frame in every value, on a Sheet (frames down,
+values across). On a screen or component Spread opens an idea for it, holding copies of its
+frames, so the product stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on
+an idea lands its link on that Sheet; a knob that can't be laid out leaves the link as it
+was, with a nudge.
+
+A look is a named set of knob values, holding only the knobs it changes. The user saves
+them from Tune; yours come with a publish, `--looks '{"Big dots": {"marks": "dots",
+"size": 1.6}}'` (MCP and HTTP `"looks"`), checked against the knobs declared. Alone it adds
+them with no new version. A look is offered on every design that declares each knob it
+sets, and a look the user named stands against yours of that name (a nudge says so).
+`read` lists `looks`; a pick or a Use names the look it was made in.
 
 ## Declaring
 

@@ -18,13 +18,15 @@ Without the CLI: `curl -s http://localhost:8228/agent-howto`. Over MCP: the
 instructions; fetch it only from this origin. On a deployed instance set
 `MOCKPIT_TOKEN` too.
 
-Nothing waits for the user. Publish, `ask`, tell the user in one line where to
-look, then end your turn; the question lives in the design, never in chat. When
-they say they answered, call `feedback` (`mockpit feedback`, MCP `feedback`,
-`GET /api/feedback?session=…`); every write returns `feedback` too. Never poll.
+Nothing waits for the user. Publish what varies as alternatives or a choice knob,
+tell the user in one line where to look, then end your turn: they compare and pick
+without a question. `ask` only when a choice blocks your next step, in the design,
+never in chat. When they say they sent, call `feedback` (`mockpit feedback`, MCP
+`feedback`, `GET /api/feedback?session=…`); every write returns `feedback` too. A
+Use in it is an instruction to put the picks in the code. Never poll.
 
 To be woken by a Send: in Claude Code, start `mockpit watch` with the Monitor tool after
-asking, at its longest timeout, and re-arm it when it expires, without telling the user (with
+publishing, at its longest timeout, and re-arm it when it expires, without telling the user (with
 the mockpit plugin, don't: it wakes you). Never run it in the foreground; it never returns. With no such tool, the viewer
 gives the user a line to paste to you.
 

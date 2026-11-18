@@ -1,8 +1,8 @@
 # mockpit topic: scripts
 
 `run` executes a JavaScript script on the server against the mockpit API: one run can
-publish two alternatives and ask which. A script never waits for the user. End the turn after the
-run that asks; once they say they answered, a later run reads `mockpit.feedback()`.
+publish every alternative. A script never waits for the user. End the turn after the
+run that publishes; once they say they sent, a later run reads `mockpit.feedback()`.
 
 ## When to use it
 
@@ -26,7 +26,7 @@ template literals; a backtick or `${` inside the markup needs a backslash.
 
 <!-- run-api -->
 
-## Publish A/B, ask
+## Publish A/B
 
 ```js
 const card = (tone) => `
@@ -40,21 +40,16 @@ await mockpit.publish({
   alternative: "calm",
   html: card("calm"),
 });
-await mockpit.publish({ design: "writer", alternative: "bold", html: card("bold") });
-const { url } = await mockpit.ask("writer", [
-  {
-    id: "tone",
-    text: "Calm or bold?",
-    options: [
-      { label: "Calm", alternative: "calm" },
-      { label: "Bold", alternative: "bold" },
-    ],
-  },
-]);
+const { url } = await mockpit.publish({
+  design: "writer",
+  alternative: "bold",
+  html: card("bold"),
+  knobs: { label: { type: "select", options: ["Start writing", "New page"] } },
+});
 return url;
 ```
 
-Tell the user where to look and end your turn. Once they say they answered:
+Tell the user where to look and end your turn. Once they say they sent:
 
 ```js
 const { feedback, pending } = await mockpit.feedback();
@@ -66,12 +61,11 @@ return feedback.length ? feedback : pending;
 ```json
 {
   "ok": true,
-  "value": "http://localhost:8228/project/demo/writer",
+  "value": "http://localhost:8228/project/demo/writer?alternative=bold",
   "prints": [],
   "calls": [
     { "fn": "publish", "ok": true, "summary": "writer/calm v1" },
-    { "fn": "publish", "ok": true, "summary": "writer/bold v1" },
-    { "fn": "ask", "ok": true, "summary": "writer 1 ask(s)" }
+    { "fn": "publish", "ok": true, "summary": "writer/bold v1" }
   ],
   "feedback": [],
   "session": "S"

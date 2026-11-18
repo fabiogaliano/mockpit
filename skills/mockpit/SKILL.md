@@ -43,8 +43,8 @@ The loop never waits for the user:
    a design themselves (kind, area), correcting its spec or marking it Ready: build on it.
    Explore for a screen or component in an idea for it (`--for <slug>`), or say what an
    idea would become (`--becomes screen|component|flow|system`). Its read and replies
-   carry `target.ruledOut`: what that design turned down; don't offer it again unless the user asks. Using
-   an alternative there copies it onto the design (`usedIn`).
+   carry `target.ruledOut`: what that design turned down; don't offer it again unless the user asks. A Use
+   there copies the user's picks onto the design (`usedIn`; its read lists `usedFrom`).
    A batch's `followUps` is what a decision now requires (topic `feedback`): edit the
    `spec` yourself; publish `apply` on its target; for `gaps`, publish an idea for the target with the
    missing states drawn and one question, never write onto the product design; for `lift`,
@@ -53,24 +53,25 @@ The loop never waits for the user:
    `edit --for flow:<name>` the idea and ask `placement` there;
    for each design in `instanceIn`, and anything else touching another design, publish
    an idea for it with one question, never a direct change. `read` lists open ones.
-3. A choice is several alternatives plus one question that binds them: `mockpit ask`
-   with options bound to alternatives. An alternative decides everything it differs on;
-   don't re-ask it. Visual options carry an `alternative`, knob `set` or `palette`. One render
-   plus a control: `--knobs`; declare knobs for what is worth fine-tuning
-   even unasked. When a publish result nudges, send its `suggestedAsk`.
+3. Publish what varies as alternatives or a choice knob (`--knobs`, a `select` the user
+   can Spread into a Sheet): the user compares, picks frames, saves looks and presses
+   Use without a question. `mockpit ask` only when a choice blocks your next step; its
+   options carry an `alternative`, knob `set` or `palette`. An alternative decides
+   everything it differs on; don't re-ask it. Declare knobs for what is worth
+   fine-tuning even unasked.
    What every design shares (sheet, tokens, scales, palettes, project knobs) is the
    project's system: `mockpit system` reads and changes it, for every design at once
    (`mockpit guide --topic system`).
 4. Tell the user in one line where to look (a write's `url` opens the Board fit to the
-   design), then end your turn. The question lives in the
-   design (`ask`), never in chat. Never poll.
-5. When the user says they answered (or a `mockpit watch` line wakes you), run
-   `mockpit feedback`. Every write also returns `feedback`; read it. Empty `feedback` with a
+   design), then end your turn. A question lives in the design, never in chat. Never poll.
+5. When the user says they sent (or a `mockpit watch` line wakes you), run
+   `mockpit feedback`. Every write also returns `feedback`; read it, `reply.lines` first.
+   A Use is an instruction to put its picks in the code. Empty `feedback` with a
    `pending` draft means they are still answering.
 6. `mockpit publish` the revision (`--parts name=file` for one part);
    `mockpit export` once an alternative is in use; `mockpit export` alone writes the system.
 
-In Claude Code, arm `mockpit watch` under Monitor after asking, then end the turn:
+In Claude Code, arm `mockpit watch` under Monitor after publishing, then end the turn:
 `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
 A monitor expires (30 minutes at most) with one notice: re-arm it while you still expect a
 reply, without telling the user. Arm one per conversation, and never run `mockpit watch` in the

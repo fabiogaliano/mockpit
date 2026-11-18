@@ -1,9 +1,9 @@
 # mockpit topic: asks
 
-A question (`ask`) is your structured question on a design. A choice is several
-alternatives plus one question that binds them. Ask only when the decision is the
-user's, and ask in the design, never in chat. To the user they are questions;
-`ask` is only the tool's name.
+A question (`ask`) is your structured question on a design. The user compares and picks
+alternatives and knob values without one (topic `knobs`), so ask only when a choice
+blocks your next step, and ask in the design, never in chat. To the user they are
+questions; `ask` is only the tool's name.
 
 ```sh
 mockpit ask --design writer "Quiet or dark?" --option Quiet=quiet --option Dark=dark --id tone
@@ -75,8 +75,8 @@ answer on purpose, it arrives as a normal Send.
 
 An option binds to one of:
 
-- an `alternative`: picking it puts that alternative in use and archives its siblings
-  in that state. Add `version` to offer one version of it (`"version": 2`, CLI
+- an `alternative`: picking it puts that alternative in use and releases its siblings in
+  that state from use, archiving none; it is also a pick (`marks` on `read`). Add `version` to offer one version of it (`"version": 2`, CLI
   `--option Before=quiet@2`): two options can be two versions of one alternative,
   and the picked one is put in use. It needs the question's `state` when the
   design has several.
@@ -174,30 +174,21 @@ differs. Each alternative may have parts with swaps.
 
 ## The alternative question
 
-When you publish alternatives, ask `scope: "design"` with one option per alternative, and
-ask it first: questions appear in the order you ask them. Tune then offers, per
-part, to borrow that part from another alternative. Alternatives without an alternative
-question get a plain switcher in the frame header.
+When the choice between alternatives blocks your next step, ask `scope: "design"` with
+one option per alternative, and ask it first: questions appear in the order you ask
+them. An alternative decides everything it differs on; don't re-ask it. Ask other axes
+as knob `set`s.
 
-An alternative decides everything it differs on; don't re-ask it. Ask other axes as
-knob `set`s.
-
-## When you forget to ask
-
-A publish that leaves a state with two or more open alternatives and no question
-binding them returns a nudge and a ready `suggestedAsk` (design-wide when alternative
-names line up across states, else for that state), or your existing question plus
-the new alternatives. Send it with `ask`, or write your own with options bound to the
-alternatives; the CLI prints the `mockpit ask` command. Sending it stops the nudge and
-keeps your answered question on the design.
+## Answers mockpit adds
 
 An open question of yours that names some of a state's alternatives is that state's
-alternative question: a Send answering it puts the pick in use and archives every other
+alternative question: a Send answering it puts the pick in use and releases every other
 live alternative there, so the viewer shows them all in it. One you left out appears as an
-answer mockpit added, by name only (`added: true`, id `added:<alternative>`); ask again to
-describe it, or archive it if you don't mean to offer it.
+answer mockpit added, by name only (`added: true`, id `added:<alternative>`), and a publish
+nudges with your question plus them as `suggestedAsk`: ask again to describe them, or
+archive what you don't mean to offer.
 
 With no question of yours naming a state's alternatives, the viewer shows a built-in
 "Which alternative?" with a picture of each alternative, gone once answered. It doesn't count as open. Its answer reads like any
 other under the reserved id `alternative` (per state: `alternative:<state>`), and puts in
-use and archives per state. Your own question over those alternatives replaces it.
+use per state. Your own question over those alternatives replaces it.

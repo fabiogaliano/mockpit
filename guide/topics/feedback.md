@@ -1,7 +1,7 @@
 # mockpit topic: feedback
 
-The user's picks, tuned values, borrowed parts and comments stay drafts until they
-press Send. Nothing waits for that: ask, tell the user in one line where to look,
+The user's answers, tuned values, borrowed parts, comments and requests stay drafts until
+they press Send; their picks and looks are saved at once and sent to no one (`read`). Nothing waits for that: ask, tell the user in one line where to look,
 and end your turn. When they say they answered, call `feedback` (`mockpit feedback`,
 MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
 
@@ -11,6 +11,16 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
     {
       "design": "writer",
       "reply": {
+        "lines": [
+          "Quiet or dark? → Dark",
+          "Trim above or below? → Below · “below on mobile only” · on Above: “not this, but its spacing”",
+          "Which language? → Both, side by side",
+          "body from quiet",
+          "dark tuned: body.size 19",
+          "Comment on title on dark@1, Writing: “bigger”",
+          "👍 part \"title\" (alternative dark, state Writing)",
+          "“close, go dark”"
+        ],
         "version": 1,
         "answers": { "tone": "dark", "trim": "below" },
         "asks": [
@@ -51,20 +61,34 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
           },
           "knobs": { "trim.position": "bottom", "body.size": 19 }
         },
-        "comments": [{ "part": "title", "state": "Writing", "text": "bigger" }],
+        "comments": [
+          {
+            "part": "title",
+            "state": "Writing",
+            "alternative": "dark",
+            "version": 1,
+            "text": "bigger"
+          }
+        ],
         "reactions": ["👍 part \"title\" (alternative dark, state Writing)"],
         "text": "close, go dark"
       },
       "messages": [],
       "inUse": [{ "state": "Writing", "alternative": "dark", "version": 2 }],
-      "archived": [{ "state": "Writing", "alternative": "quiet" }]
+      "archived": []
     }
   ],
   "pending": [
     {
       "design": "cart",
       "viewerOpen": true,
-      "draft": { "answered": 2, "of": 3, "comments": 1, "touchedAt": "2026-10-09T10:12:00.000Z" }
+      "draft": {
+        "answered": 2,
+        "of": 3,
+        "comments": 1,
+        "requests": 0,
+        "touchedAt": "2026-10-09T10:12:00.000Z"
+      }
     }
   ]
 }
@@ -78,8 +102,12 @@ without taking any feedback.
 
 ## Reading order
 
+`lines` is the Send in the user's words, one line per thing in it, exactly as their Send
+list showed it before it went (a Use first). Read it first, then the fields:
+
 1. `answers` and `asks` decide structure. An alternative-bound answer has already put that
-   alternative in use and released its siblings from use, archiving none (`inUse`). Each `inUse` entry
+   alternative in use and released its siblings from use, archiving none (`inUse`), and it
+   is a pick too (`marks` on `read`). Each `inUse` entry
    is pinned at the `version` the user put in use (`read` → `inUse`): `export` and
    instances show that one, not your newer publishes, until the user picks again.
    A batch's `system` (`{rev, changes}`) is what its Send decided for the whole project:
@@ -96,7 +124,8 @@ without taking any feedback.
    the server has one) and open the file.
 2. `tunedOn` holds each frame's tuned knob values, by alternative: write each back into
    that alternative's source as its new defaults (`skills/tunekit` in the tunekit package
-   covers applying copied values). `tuned` repeats the frame in use's, for one release.
+   covers applying copied values). `tuned` repeats the Main frame's (else the one in use or
+   on screen) for one release; a reply from before `tunedOn` has only `tuned`, for every frame.
 3. `borrowed` maps a part to the alternative it was borrowed from. Compose that part from
    the other alternative into the chosen one. If a borrow conflicts with an answer, the
    answer wins.
@@ -104,17 +133,34 @@ without taking any feedback.
    each one. A comment naming an `alternative` and `version` is a steer: publish a new
    version of that alternative. One with `borrow` (`{from: "felt@2", part?}`) asks for a
    new version that takes a part from `from`: the declared `part`, else what its `text`
-   says. `reactions` are one-tap verdicts, one line each, never also in `comments`: 👍
+   says. One on a written document has `anchor.paragraph` (`{surface, index, kind, text}`),
+   the block it is about. `reactions` are one-tap verdicts, one line each, never also in `comments`: 👍
    keep it, 👎 rework it, "more like this" means publish 2–3 new alternatives forked from
    that version (`fork: "felt@2"`), each a different step the same way. A reaction
    without a part is about the whole alternative; one may end with the user's words in quotes.
-5. `verdict` (`{kind: use|revise, state, alternative}`; on a variants design `variant`, as
-   are its batch's `inUse`, `archived` and messages, and `move`'s result) is the user's word on one alternative
-   outside any question. `use` is Use, with the `version` now in use, and its `picks` when the user used
-   what they picked (Main first, each with its `look` or `values`): put them in the code; `revise` is
-   New version: publish another version of that alternative (its `text` says from which).
-   Archived alternatives stay in view, muted, and the user can restore them.
-6. `text` is the user's message on the Send.
+5. `requests` is everything the user asked of you, in the order asked, each by `kind`:
+   - `more` (`{ask, like?, note?}`): more answers to one question. Each is resolved in `more`,
+     then `moreAlso`, as `{ask, text, existing, note, like, kept, hidden, answered}`: ask it
+     again under the same id with every `existing` answer plus new ones that differ from them
+     and respect `answered`, each with something to see; with `like`, close to that answer.
+     Follow `kept`, stay away from `hidden` and each `why`.
+   - `update` (`{ask, option}`): bring one kept screen up to date with the one in use, once.
+     Resolved in `update`, then `updateAlso`, as `{ask, text, kept, inUse}`: publish a new
+     version of `kept.alternative` with the changes made to the one in use since.
+   - `revise` (`{state, alternative, version?}`): New version of that frame; the first is
+     also `verdict` `{kind: "revise"}`.
+   - `state` (`{name, detail?}`): a state the screen lacks; draw it.
+   - `draw` (`{state}`): draw a planned state.
+6. `verdict` `{kind: "use", state, alternative, version, picks}` is Use: an instruction to
+   change the code. `picks` are what goes in, Main first, each `{state, alternative, version,
+   main?, look?, values?, tuned?, as?}`: the frame at that version, worn in that look or those
+   values, with its own tune. On an idea for a design, `usedIn` says where mockpit copied
+   them and `lines[0]` reads "Use in hero: put football (Main) with marks petals; flowers in
+   the code". Build them into the product's code, then `export`. Picks arrive whether or not
+   you asked a question. A reply from before picks has only `alternative` and `version`.
+   On a variants design every entry says `variant` instead of `alternative`, as do its
+   batch's `inUse`, `archived` and messages, and `move`'s result.
+7. `text` is the user's message on the Send.
 
 `messages` (outside `reply`) are what the user wrote in the design's Activity, delivered
 at once rather than with a Send.
@@ -225,10 +271,10 @@ Each Send is delivered exactly once, by whichever of `feedback` or a write picks
    the same shape. Read it whenever it is not empty.
 2. On request: `feedback` when the user says they answered.
 3. Background watch: `mockpit watch` says one landed and delivers nothing: call `feedback`
-   for the reply. It prints one line per Send
-   (`mockpit reply on writer: Quiet or dark?: Dark · 1 tuned · 1 comment`) and one per
+   for the reply. It prints one line per Send, its `lines` joined
+   (`mockpit reply on writer: Quiet or dark? → Dark · dark tuned: body.size 19`), and one per
    thread message (`mockpit message on writer: “…”`). It never returns, so never run it in
-   the foreground. In Claude Code, arm it under Monitor after asking, then end your turn:
+   the foreground. In Claude Code, arm it under Monitor after publishing, then end your turn:
    `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.
    A monitor expires with one notice; re-arm it while you still expect a reply, without
    telling the user. With the
@@ -245,7 +291,7 @@ mockpit publish --design writer --state "Writing" --alternative dark --html dark
 mockpit say "Went dark; body at 19px" --design writer
 mockpit export  --design writer             # .mockpit/accepted/writer/<state>/{index.html,history.json,…}
 mockpit read                              # one line per design, plus pending (open follow-ups too), then what is decided
-mockpit read    writer                    # states, alternatives, questions and answers, parts, knobs, settled
+mockpit read    writer                    # states, alternatives, questions, parts, knobs, looks, marks, settled
 mockpit read    --tree                    # the project as a tree: alternatives, forkedFrom, instances / instanceIn
 mockpit read    --area Food               # one area: what it is for, its designs, decisions, ideas waiting
 mockpit read    --decisions               # the whole decision log, when a read cut it
@@ -357,19 +403,23 @@ mockpit read    --decisions               # the whole decision log, when a read 
   questions and the frame in Focus on top of it, so ask the deciding question first and its
   dependents after.
 - `standings` (on `read`), by question id, is what the user said about answers besides
-  choosing one: `kept` answers are runners-up they want to come back to, `hidden` ones
-  (each `{id, label, why}`) they don't want offered again, and `carried` names kept
-  screens to change along with the one in use, every time. A reply's `asks` carry the
-  same as labels when they changed since the last one. Never offer a hidden answer
-  again, and treat a `why` as taste that holds across the project. Hiding an alternative
-  answer archives that alternative, with the `why` as its reason, and restoring the alternative
-  unhides it: an alternative answer whose alternative is archived counts as hidden. An alternative a question
-  keeps reads `kept: true`; it is not archived when another is chosen, and nothing
-  else changes it unless it is `carried`. Values follow every new version by themselves;
-  a kept screen doesn't, so leave it as it is.
-- `update: {ask, text, kept, inUse}` asks you to bring one kept screen up to date with
-  the one in use, once: publish a new version of `kept.alternative` with the changes made
-  to the one in use since.
+  choosing one: `kept` answers are runners-up (each also a pick in `marks`), `hidden` ones
+  (`{id, label, why}`) they don't want offered again, and `carried` names kept screens to
+  change along with the one in use, every time. A reply's `asks` carry the same as labels
+  when they changed. Never offer a hidden answer again, and treat a `why` as taste that
+  holds across the project. Hiding an alternative answer archives that alternative (the
+  `why` its reason), and restoring it unhides the answer. A kept screen (`kept: true`) is
+  not archived when another is chosen and doesn't follow new versions unless `carried`:
+  leave it as it is.
+- `marks` (on `read` of an idea) is what the user picked, saved on the click and sent to
+  no one: `{kind: pick|main|archived, state, alternative, look?, values?, at, by}`, one
+  Main a state. A kept answer reads as a pick with its `answer` (`{ask, option, label}`);
+  an archived frame reads `archived`. Read them before you publish more: build on the picks.
+- `looks` (on `read`) are named knob values, `{name, values, author, design}`: the
+  design's own, then those of other designs that declare every knob they set. Add yours
+  with `publish --looks` (alone, no new version); one the user named stands against yours.
+- `usedFrom` (on `read` of a screen or component) names the ideas its entries were used
+  from, `{id, slug, title}`.
 - An alternative's `status` is `open`, `inUse` (with `inUseVersion`) or `archived`
   (with `archiveReason` if the user gave one). `changedTo` is a newer version
   than the one in use, which the user hasn't taken or passed on yet. Both are
