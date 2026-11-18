@@ -1,7 +1,8 @@
 // Focus: one design, decided on. One bar on top: where you are (project / page / design),
-// the tools, the version and its menu, Send, and the panel's toggle while there is a
-// question. Under it the design live on a canvas, its states (or variants, or
-// alternatives) in a margin on its left while there is more than one frame, and a panel on
+// the version and its menu, Use, Send, and the panel's toggle while there is a question.
+// Under it the design live on a canvas with its tools in a strip at its left edge, its
+// states (or variants, or alternatives) in a margin on its left while there is more than
+// one frame, and a panel on
 // its right that a question opens; Spec and Activity open there from ⋯ (Margins.tsx). Esc and the
 // page in the path go back up to the Board, fit to the frame. A phone has no room beside
 // the design: it is one frame a swipe walks through the states, named in tabs above with a
@@ -52,7 +53,14 @@ import {
 } from "./logic.ts";
 import { sectionOf } from "./albums.ts";
 import { turnClock } from "./Album.tsx";
-import { createMargins, LeftMargin, type Margins, PanelToggle, RightMargin } from "./Margins.tsx";
+import {
+  createMargins,
+  LeftMargin,
+  type Margins,
+  PanelToggle,
+  RightMargin,
+  ToolStrip,
+} from "./Margins.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { PhoneBar, QuestionCard } from "./QuestionCard.tsx";
@@ -80,8 +88,8 @@ import {
   SHEET_LOOKS,
 } from "./route.ts";
 import { usePopover } from "./popover.ts";
-import { PaletteDotNow, PalettePanel, PaletteTool, paletteChoices } from "./PaletteTool.tsx";
-import { PreviewPanel, PreviewTool, previewNow } from "./PreviewTool.tsx";
+import { PaletteTool } from "./PaletteTool.tsx";
+import { PreviewTool } from "./PreviewTool.tsx";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { carryToast, Toast } from "./toast.tsx";
@@ -90,7 +98,7 @@ import { Thumb } from "./Thumb.tsx";
 import { WakeLine } from "./Thread.tsx";
 import { createTune } from "./tune.ts";
 import { SendButton } from "./SendList.tsx";
-import { CanvasTools, UseButton, VersionBar, VersionMenu } from "./VersionBar.tsx";
+import { UseButton, VersionBar, VersionMenu } from "./VersionBar.tsx";
 import { draftIsEmpty } from "./logic.ts";
 import {
   canvasBox,
@@ -458,7 +466,7 @@ export function DesignScreen(props: {
       return;
     }
     const ghost = m.ghosts() ? GHOST_W : 0;
-    setCardInset({ ...NO_INSET, left: ghost, right: ghost });
+    setCardInset({ ...NO_INSET, left: m.stripW() + ghost, right: ghost });
   });
   onCleanup(() => setCardInset(NO_INSET));
 
@@ -625,7 +633,12 @@ export function DesignScreen(props: {
   return (
     <div
       class="screen design-screen"
-      classList={{ phone: phoneLayout(), sbsmode: !!sideRow(), gliding: gliding() }}
+      classList={{
+        phone: phoneLayout(),
+        sbsmode: !!sideRow(),
+        gliding: gliding(),
+        stripped: m.stripW() > 0,
+      }}
       style={{
         "--swipe-x": `${swipeX()}px`,
         "--pbar-h": `${barH()}px`,
@@ -649,7 +662,6 @@ export function DesignScreen(props: {
           tabs={m.statesShown()}
           shortlists={shortlists}
           m={m}
-          view={m.active() && !reading() && !undrawn() && !sideRow() && !s.sheet.view()}
           bar={
             <Show when={m.active()}>
               <FocusBar
@@ -769,6 +781,7 @@ export function DesignScreen(props: {
             when={phoneLayout()}
             fallback={
               <>
+                <ToolStrip s={s} m={m} />
                 <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
                   <VersionCaption s={s} reading={false} />
                 </Show>
@@ -854,9 +867,8 @@ function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
   );
 }
 
-// The bar's tools, version and Send. The tools change what a tap on the design does; how
-// it's shown (width, mode, palette) waits in ⋯. The version holds everything about
-// versions behind its menu.
+// The bar's version, Use and Send; the canvas tools stand in their strip by the design
+// (ToolStrip). The version holds everything about versions behind its menu.
 function FocusBar(props: {
   s: DesignScreenState;
   m: Margins;
@@ -868,7 +880,6 @@ function FocusBar(props: {
 }) {
   const s = props.s;
   const m = props.m;
-  const page = () => !props.reading && props.drawn && !props.sideRow && !s.sheet.view();
   return (
     <div class="fbar" role="toolbar" aria-label="Tools">
       <Show when={m.leftTab()}>
@@ -883,9 +894,6 @@ function FocusBar(props: {
         >
           <Icon name="layers" />
         </button>
-      </Show>
-      <Show when={page()}>
-        <CanvasTools s={s} page={m.page()} />
       </Show>
       <Show when={props.drawn}>
         <VersionMenu
@@ -920,9 +928,7 @@ function TopRow(props: {
   tabs: boolean;
   shortlists: Shortlists;
   m: Margins;
-  // A page on stage, which the preview and the palette act on.
-  view: boolean;
-  // The tools, the version and Send: in this row they cost the design no room.
+  // The version, Use and Send: in this row they cost the design no room.
   bar: JSX.Element;
   // The right panel's toggle.
   panels: JSX.Element;
@@ -962,16 +968,7 @@ function TopRow(props: {
     copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
   };
   const [more, setMore] = createSignal(false);
-  // ⋯ turns into the preview's or the palette's own panel, in its place.
-  const [sub, setSub] = createSignal<"preview" | "palette" | null>(null);
-  const closeMore = () => {
-    setMore(false);
-    setSub(null);
-  };
-  const preview = previewNow(s);
-  const previewIn = () =>
-    props.view && props.m.previewHas() && (preview.choosing() || props.m.page());
-  const paletteIn = () => props.view && paletteChoices(s).length > 0;
+  const closeMore = () => setMore(false);
   let moreMenu: HTMLDivElement | undefined;
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
@@ -1101,18 +1098,7 @@ function TopRow(props: {
               >
                 <Icon name="more" />
               </button>
-              <Show when={more() && sub() === "preview"}>
-                <PreviewPanel
-                  s={s}
-                  qr={props.m.page()}
-                  onDone={closeMore}
-                  ref={(el) => (moreMenu = el)}
-                />
-              </Show>
-              <Show when={more() && sub() === "palette"}>
-                <PalettePanel s={s} onDone={closeMore} ref={(el) => (moreMenu = el)} />
-              </Show>
-              <Show when={more() && !sub()}>
+              <Show when={more()}>
                 <div
                   class="wmenu"
                   role="menu"
@@ -1168,29 +1154,6 @@ function TopRow(props: {
                     <Icon name="thread" />
                     Activity
                   </button>
-                  <Show when={previewIn()}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-haspopup="dialog"
-                      title={preview.current().label}
-                      onClick={() => setSub("preview")}
-                    >
-                      <Icon name={preview.current().icon} />
-                      Preview
-                    </button>
-                  </Show>
-                  <Show when={paletteIn()}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      aria-haspopup="menu"
-                      onClick={() => setSub("palette")}
-                    >
-                      <PaletteDotNow s={s} />
-                      Palette
-                    </button>
-                  </Show>
                   <button
                     type="button"
                     role="menuitem"

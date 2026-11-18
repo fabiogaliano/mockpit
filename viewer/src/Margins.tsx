@@ -5,7 +5,8 @@
 // margin would shrink the design past what marginLayout allows it stops standing there:
 // it opens floating over the canvas instead, which stays the size it was. The centre only
 // reads the bands they take (--canvas-l, --canvas-r, canvasBox), so it needn't be the
-// stage. The tools and the versions are the top bar's (DesignScreen.tsx).
+// stage. The canvas tools stand in a strip against the design's left edge (ToolStrip); the
+// versions are the top bar's (DesignScreen.tsx).
 
 import {
   createEffect,
@@ -37,8 +38,11 @@ import {
   LEFT_THUMBS_W,
   marginLayout,
   RIGHT_MARGIN_W,
+  TOOL_BAND_W,
   widthChoices,
 } from "./logic.ts";
+import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
+import { PreviewTool } from "./PreviewTool.tsx";
 import { Spec, specShown } from "./Spec.tsx";
 import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
@@ -54,6 +58,7 @@ import type { DesignScreenState } from "./state.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
+import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, tabletLayout, win } from "./viewport.ts";
 
 // "built" is Tune's: the panel while Tune is on, with no tabs.
@@ -103,6 +108,17 @@ export function createMargins(
   // A document has no widths to choose between, and nothing to scan onto a phone.
   const previewHas = () =>
     columnW() === null && (page() || widthChoices(s.design()?.widths ?? []).length > 1);
+  // The strip is the canvas's: not over a document, the sheet, answers side by side or a
+  // state with nothing drawn, and only while it holds something.
+  const onCanvas = () =>
+    active() &&
+    !sideBySide() &&
+    columnW() === null &&
+    !s.sheet.view() &&
+    s.alternatives().some((v) => v.state === s.activeState());
+  const stripHas = () =>
+    onCanvas() &&
+    (page() || s.tunable().length > 0 || previewHas() || paletteChoices(s).length > 0);
 
   const closed = () => !!s.design()?.archivedAt;
   // Only an open question opens the panel by itself. What else it holds (what this Send
@@ -127,7 +143,7 @@ export function createMargins(
     return marginLayout({
       winW: win().w - safeX(),
       designW: columnW() ?? row.reduce((sum, w) => sum + w, 0) + BOARD_GAP * (row.length - 1),
-      tools: false,
+      tools: stripHas(),
       left,
       right,
       leftW: leftW(),
@@ -164,6 +180,7 @@ export function createMargins(
   const rightDocked = () => fit().right;
   const leftTab = () => active() && leftHas() && !leftDocked();
   const leftFloats = () => leftTab() && over();
+  const stripW = () => (stripHas() ? TOOL_BAND_W : 0);
   const band = () => ({
     left: leftDocked() ? leftW() : 0,
     right: rightDocked() ? RIGHT_MARGIN_W : 0,
@@ -175,7 +192,8 @@ export function createMargins(
     !sideBySide() &&
     walkable() &&
     boards().length === 1 &&
-    win().w - safeX() - band().left - band().right - 2 * BOARD_PAD - 2 * GHOST_W >= s.frameW();
+    win().w - safeX() - band().left - band().right - stripW() - 2 * BOARD_PAD - 2 * GHOST_W >=
+      s.frameW();
 
   createEffect(() => {
     if (!active()) return setCanvasBox(NO_BOX);
@@ -259,6 +277,7 @@ export function createMargins(
     rightDocked,
     leftTab,
     leftFloats,
+    stripW,
     previewHas,
     band,
     ghosts,
@@ -268,6 +287,34 @@ export function createMargins(
     toggleSide,
     togglePanel,
   };
+}
+
+// Try, Comment, Tune, the preview and the palette, against the design's left edge. They
+// change what a tap on it does or how it's shown, so they stay by it however narrow it is
+// or wherever it's panned.
+export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
+  const s = props.s;
+  const m = props.m;
+  const tools = () => m.page() || s.tunable().length > 0;
+  return (
+    <Show when={m.stripW() > 0}>
+      <div class="toolstrip" role="toolbar" aria-label="Tools">
+        <CanvasTools s={s} page={m.page()} />
+        <Show when={m.previewHas()}>
+          <Show when={tools()}>
+            <span class="toolstrip-sep" />
+          </Show>
+          <PreviewTool s={s} qr={m.page()} />
+        </Show>
+        <Show when={paletteChoices(s).length}>
+          <Show when={tools() || m.previewHas()}>
+            <span class="toolstrip-sep" />
+          </Show>
+          <PaletteTool s={s} />
+        </Show>
+      </div>
+    </Show>
+  );
 }
 
 const TITLES: Record<Side, string> = {

@@ -1,6 +1,6 @@
-// How the design is being previewed: the widths to see it at, and the code to feel it on
-// the device it's for. Focus's ⋯ opens the panel; a phone has no ⋯ and is already that
-// device, so it keeps the widths as a button in its top row.
+// How the design is being previewed, in one button: the widths to see it at, and the
+// code to feel it on the device it's for. The tool strip's, since both act on the canvas;
+// a phone has no strip and is already that device, so it keeps the widths in its top row.
 
 import { createSignal, For, Show } from "solid-js";
 import { Icon, type IconName } from "./icons.tsx";

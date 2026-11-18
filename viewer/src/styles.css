@@ -4173,8 +4173,7 @@ html:has(.design-screen) {
   position: relative;
   flex: none;
 }
-.mmore .wmenu,
-.mmore > .wpop {
+.mmore .wmenu {
   right: auto;
   left: 0;
 }
@@ -4334,6 +4333,15 @@ html:has(.design-screen) {
 }
 .wpop-code {
   width: 288px;
+}
+/* It opens beside the strip, level with its top, wherever in the strip the button is. */
+.toolstrip .wpick {
+  position: static;
+}
+.toolstrip .wpop {
+  top: 0;
+  right: auto;
+  left: calc(100% + 8px);
 }
 .wpop .wmenu {
   position: static;
@@ -6330,6 +6338,37 @@ html:has(.design-screen) {
   fill: currentColor;
   fill-opacity: 0.35;
 }
+.design-screen {
+  /* Its width and a gap short of the design, stopping at the canvas's edge when the
+     design runs up to it or pans past it. */
+  --strip-at: max(
+    var(--canvas-l, 0px) + max(8px, env(safe-area-inset-left)),
+    var(--design-l, 0px) - 66px
+  );
+}
+.toolstrip {
+  position: fixed;
+  /* Level with the top of the design, however short it is, staying on the canvas. */
+  top: max(var(--canvas-top, 0px) + 8px, var(--design-t, 0px));
+  left: var(--strip-at);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--edge);
+  border-radius: 14px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+}
+.toolstrip-sep {
+  flex: none;
+  width: 24px;
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
+}
 .lmargin,
 .rmargin {
   position: fixed;
@@ -6365,6 +6404,10 @@ html:has(.design-screen) {
   left: max(8px, env(safe-area-inset-left));
   width: 240px;
   padding-left: 8px;
+}
+/* Beside the tool strip, which stands over the canvas's left edge. */
+.design-screen.stripped .lmargin.float {
+  left: calc(var(--strip-at) + 58px);
 }
 .lm-close {
   position: absolute;
@@ -6909,6 +6952,7 @@ html:has(.design-screen) {
   .mact .ib {
     margin-block: -4px;
   }
+  .toolstrip .ib,
   .mact .ib {
     width: auto;
     min-width: 44px;

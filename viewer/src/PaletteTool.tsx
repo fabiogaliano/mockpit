@@ -1,5 +1,5 @@
-// What the frames are viewed in: light or dark and the project's visible palettes, from
-// Focus's ⋯, or on a phone a tiny swatch of the palette on screen. View settings kept per project;
+// What the frames are viewed in: a tiny swatch of the palette on screen that opens
+// light or dark and the project's visible palettes. View settings kept per project;
 // they settle nothing and send nothing. Shown once the project has a palette.
 
 import { createSignal, For, Show } from "solid-js";
@@ -47,11 +47,6 @@ export function paletteNow(s: DesignScreenState) {
     return `View in: ${c.label}${c.status === "default" ? ", the default" : ""}, ${mode()}`;
   };
   return { project, visible, current, mode, label };
-}
-
-export function PaletteDotNow(props: { s: DesignScreenState }) {
-  const { current, mode } = paletteNow(props.s);
-  return <Show when={current()}>{(c) => <PaletteDot p={c()} small mode={mode()} />}</Show>;
 }
 
 export function PalettePanel(props: {
