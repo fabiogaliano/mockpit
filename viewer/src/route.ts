@@ -243,6 +243,21 @@ export function cameFrom(): { from?: string } {
   return typeof from === "string" ? { from } : {};
 }
 
+// A frame picked on the Board is a step of its own, so Back lets go of it. The entry says
+// so, for letting go by hand to go back to the entry before it instead of leaving two of
+// the same address.
+export function pushSelection(path: string) {
+  host().history.pushState({ selection: true }, "", path);
+  setRoute(read());
+}
+
+export function dropSelection(path: string) {
+  const st: unknown = host().history.state;
+  if (st && typeof st === "object" && (st as { selection?: unknown }).selection === true)
+    host().history.back();
+  else replaceUrl(path);
+}
+
 // The current entry's address changes with no step in history.
 export function replaceUrl(path: string) {
   host().history.replaceState(host().history.state, "", path);

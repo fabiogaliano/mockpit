@@ -78,6 +78,8 @@ import {
   questionPath,
   type RecentShow,
   linkClick,
+  dropSelection,
+  pushSelection,
   replaceUrl,
   rootPath,
 } from "./route.ts";
@@ -704,7 +706,9 @@ export function Board(props: {
     if (!d) return;
     const sel = f ? selOf(f) : null;
     picked = sel ? JSON.stringify(sel) : "";
-    replaceUrl(here(d, sel));
+    if (!sel) dropSelection(here(d, null));
+    else if (props.sel) replaceUrl(here(d, sel));
+    else pushSelection(here(d, sel));
   };
   const linkSel = createMemo<string>((was) => {
     const at = props.sel ? JSON.stringify(props.sel) : "";
