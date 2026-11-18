@@ -312,15 +312,15 @@ Stances reversed knowingly, so nobody restores them by accident:
   section header.
 - A **gathered idea** is a design with `shortlist` set (the stored name, which is also in
   `read`), gathered by the user from the project's other designs: New idea on the Ideas
-  page (`AddCandidates`), or Keep on an idea's alternative in Focus, with Move beside it (`SaveMenu`,
-  `viewer/src/shortlist.ts`), which can also copy into any other design or state
+  page (`AddCandidates`), or Copy to… on an idea's alternative in Focus, with Move to… beside it
+  (`SaveMenu`, `viewer/src/shortlist.ts`), which can also copy into any other design or state
   and take the version out of where it is. Each is one version copied as an alternative
   with `copiedFrom`, originals untouched unless the user moves it. Until an agent writes to it, replies go to
   the project's live agent (`replySessionId` in `server/app.ts`).
 - Answers in `Questions.tsx`: `OptionCard` holds a preview after the pointer rests `HOLD_MS`
   (`heldPreview` in `state.ts`, which the stage falls back to when no answer is hovered; it never
   answers). Each answer's row carries its own actions as icons: Comment, More like this, Archive
-  and ⋯ (Keep, and for an idea's live alternative Borrow and Move); the agent's suggestion is a
+  and ⋯ (Pick, and for an idea's live alternative Borrow and Move); the agent's suggestion is a
   mark on the picture. A comment belongs to one answer, picked or not (`Draft.answerComments`,
   askId → option id, delivered as an answered ask's `onAnswers`), so changing the pick never moves
   it. More answers is an icon in the question's head; `MoreAnswers` sends `reply.more` through `sendAlone`, so the draft stays;
@@ -474,9 +474,11 @@ Stances reversed knowingly, so nobody restores them by accident:
     archived ones folded); on the right one panel, there only while a question is open
     (or something answered waits) or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
-    when it would take the design below 80%). On an idea's alternative the panel offers
-    More like this, Borrow, Keep, Move and Archive, unless the question on the card answers
-    with it, whose row carries them instead. `Compare.tsx` is two versions in one frame
+    when it would take the design below 80%). On an idea, a frame and a sheet cell carry a
+    pill on hover (`MarkPill`: Pick, Main, Archive, More like this, Comment; keys P, M, X),
+    and the panel offers the same, with Borrow, Copy to… and Move to… behind ⋯, unless the
+    question on the card answers with it, whose row carries them instead. Which action a
+    frame has is `frameActions.ts`'s, never a kind check in a component. `Compare.tsx` is two versions in one frame
     with a divider, and Compare with last seen opens it on the version `seen.ts` last had
     on screen. `SideBySide.tsx` lays the
     design as it stands and every answer of a pictured question in a row at full height
@@ -736,9 +738,9 @@ the finding needs.
   one design, a component a whole design others include as instances. Each level has one
   status ladder, capitalised wherever it shows: a screen or component is In design, Ready
   or Changed (or Archived); an idea Exploring or In use in <target> (or how many questions
-  wait); an alternative is Kept, In use or Archived; a version is current or, older ones, Hidden.
-  Hide only ever means a version, taking an alternative out is Archive, and the bookmark
-  is Keep. An alternative has a `description`,
+  wait); an alternative is Picked, Main, In use or Archived; a version is current or, older
+  ones, Hidden. Hide only ever means a version, taking an alternative out is Archive, and a
+  frame's tick is Pick and its star Main. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group (for a lead's followers; a component's library `group` is live),
   snippet, stream, `part` for a surface, trace, slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
