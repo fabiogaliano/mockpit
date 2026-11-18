@@ -78,7 +78,7 @@ verbs:
                         with no html it plans one, drawn by a later publish
       --area <name>     where in the product it belongs ("Shell"); its page of the Board
       --group <word>    a component's library group (Actions, Inputs, Navigation, ...)
-      --for <slug>      an idea's screen or component: Use this changes it
+      --for <slug>      an idea's screen or component: Use changes it
       --becomes <what>  an idea for nothing yet: screen|component|flow|system
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
@@ -257,10 +257,10 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --group <word>     a component's group in the library, by what it does: Actions,
                      Inputs, Navigation, Feedback, Containers, or the project's own
                      word. A component with no area is shared. "" clears
-  --for <slug>       an idea only: the screen or component it explores. Use this on
+  --for <slug>       an idea only: the screen or component it explores. Use on
                      it copies the version used onto that design, state by state;
                      read then hands you what that design turned down. "" clears
-  --becomes <what>   an idea for nothing yet: screen or component (Use this makes
+  --becomes <what>   an idea for nothing yet: screen or component (Use makes
                      one from what is used), flow or system. "" clears
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape

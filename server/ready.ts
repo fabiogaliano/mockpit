@@ -1,5 +1,5 @@
 // A product design (a screen or a component) holds what ships, so nothing on it is
-// chosen: no Use this, no Which alternative?, nothing in use. The newest version of each
+// chosen: no Use, no Which alternative?, nothing in use. The newest version of each
 // entry is current, and the user's one mark is Ready, which records what each state
 // showed. Changed is derived from it on every read, never stored. Runtime-agnostic;
 // the viewer shares these rules.

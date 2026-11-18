@@ -303,6 +303,27 @@ export function checkKnobValue(
   }
 }
 
+// The knob with `value` as its default, where it could hold it; else as it was. What a
+// Use leaves on a copy, so the frame opens in the values it was picked in.
+export function withDefault(config: KnobConfig, value: KnobValue): KnobConfig {
+  const checked = checkKnobValue("", config, value);
+  if (!checked.ok) return config;
+  const knob = explicitKnob(config);
+  switch (knob.type) {
+    case "pad": {
+      const v = checked.value as { x: number; y: number };
+      const axis = (a: KnobAxis | undefined, at: number): KnobAxis =>
+        a ? ([at, ...a.slice(1)] as KnobAxis) : [at, -1, 1];
+      return { ...knob, x: axis(knob.x, v.x), y: axis(knob.y, v.y) };
+    }
+    case "spring":
+    case "easing":
+      return checked.value as ExplicitKnob;
+    default:
+      return { ...knob, value: checked.value } as ExplicitKnob;
+  }
+}
+
 // The declared knob for a path: the design's own, else an alternative's override,
 // else the knob an alternative's slot implies (swaps.ts), so an option can `set` a
 // slot's swap without the agent declaring anything.

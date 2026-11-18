@@ -32,7 +32,7 @@ type Written = {
 };
 type Feedback = {
   design: string | null;
-  reply: null | { asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; comment?: string }[]; borrowed: Record<string, string>; tuned: Knobs; tunedOn?: Record<string, Knobs>; comments: { part: string | null; text: string }[]; verdict?: { kind: "use" | "revise"; state: string | null; alternative: string; version?: number } };
+  reply: null | { lines: string[]; asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; comment?: string }[]; borrowed: Record<string, string>; tuned: Knobs; tunedOn?: Record<string, Knobs>; comments: { part: string | null; text: string }[]; verdict?: { kind: "use" | "revise"; state: string | null; alternative: string; version?: number; picks?: { state: string | null; alternative: string; version: number; main?: true; look?: string; values?: Record<string, unknown>; as?: string }[] } };
   messages: { text: string; state: string | null; alternative: string | null }[];
   inUse: { state: string | null; alternative: string; version: number }[]; archived: { state: string | null; alternative: string }[];
   system?: { rev: number; changes: string[] };

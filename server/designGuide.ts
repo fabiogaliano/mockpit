@@ -577,7 +577,7 @@ a later draft of that section isn't applied, and the result says so.
 ## Ready
 
 A screen or component holds what ships, one entry a state, so nothing on it is chosen:
-its newest version is current, with no Use this, no Which alternative? and nothing in use.
+its newest version is current, with no Use, no Which alternative? and nothing in use.
 Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` (and a nudge
 says so once) until they leave. Publish an idea for it and \`move\` them there, or, when
 they all ship, make it a variants design (\`edit <slug> --variants\`), and \`read\` lists

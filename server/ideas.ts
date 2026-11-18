@@ -66,8 +66,12 @@ export function ideaStatus(
   target?: Pick<Design, "title"> | null,
 ): string {
   if (open) return `${open} question${open === 1 ? "" : "s"}`;
-  if (posts.some((p) => p.status === "accepted"))
-    return target ? `In use in ${target.title}` : "In use";
+  if (posts.some((p) => p.status === "accepted")) {
+    // A partial Use leaves the idea open: what nobody decided waits there.
+    const waiting = posts.filter((p) => p.status === "open").length;
+    const used = target ? `In use in ${target.title}` : "In use";
+    return waiting ? `${used} · ${waiting} waiting` : used;
+  }
   return "Exploring";
 }
 

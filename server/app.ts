@@ -1,4 +1,5 @@
 import { boardPages, boardView, pageOf } from "./board.ts";
+import { requestKey, valuesWords } from "./sendLines.ts";
 import { Hono, type Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { getCookie, setCookie } from "hono/cookie";
@@ -17,6 +18,7 @@ import {
   designSummaryView,
   ideaLink,
   type IdeaLink,
+  type UsedFrom,
   offShelf,
   ideaPlaceOf,
   type IdeaTarget,
@@ -130,7 +132,7 @@ import {
 } from "./decisionLog.ts";
 import { chosenSwaps, decisionsFor, settledByAlternative, settledValues } from "./decisions.ts";
 import { checkLooks, looksFor, MAX_LOOK_NAME, withLooks } from "./looks.ts";
-import { heldAlternatives, mainOf, MAX_MARKS, marksOf, withMark } from "./marks.ts";
+import { framePicks, mainOf, MAX_MARKS, marksOf, pickKey, withMark } from "./marks.ts";
 import {
   checkAnswerSwap,
   checkAnswerStyle,
@@ -151,6 +153,7 @@ import {
   discreteChoices,
   explicitKnob,
   knobFor,
+  withDefault,
 } from "./knobs.ts";
 import {
   MAX_STILLS_ASKED,
@@ -300,6 +303,9 @@ import {
   type Surface,
   surfacesByteLength,
   type TerminalSurface,
+  type DraftRequest,
+  MAX_REQUESTS,
+  type UsedPick,
 } from "./types.ts";
 import {
   coerceSurfaces,
@@ -310,7 +316,6 @@ import {
 import { isViewerRequest } from "./viewerRequest.ts";
 import { jumpHits, recentHits } from "./jump.ts";
 import {
-  isKeptAlternative,
   MAX_WHY,
   remapStanding,
   reoffered,
@@ -1019,7 +1024,7 @@ export function createApp({
   }
 
   // Where a Send goes: the user's pick, else the one the picker would have shown,
-  // which also covers what has no picker beside it (Use this, New version, a steer).
+  // which also covers what has no picker beside it (Use, New version, a steer).
   // `routed` when that isn't the owner, who then loses the design to it.
   async function sendTarget(
     design: Design,
@@ -4422,8 +4427,10 @@ export function createApp({
     idea?: ReturnType<typeof ideaPlaceOf>;
     target?: IdeaTarget;
     ideasFor?: IdeaLink[];
+    usedFrom?: UsedFrom[];
   }> {
-    if (isProduct(design)) return { ideasFor: await ideasForOf(design) };
+    if (isProduct(design))
+      return { ideasFor: await ideasForOf(design), usedFrom: await usedFromOf(design) };
     const target = await targetOf(design);
     return {
       idea: ideaPlaceOf(design, target),
@@ -4440,6 +4447,21 @@ export function createApp({
     const posts = await store.listPosts({ designId: target.id });
     const lines = opts.lines ?? (await decisionLines(target.project));
     return { ...base, ...ruledOutOf(target, posts, lines) };
+  }
+
+  // The ideas a product design's live entries were used from: what its "From idea" says.
+  async function usedFromOf(design: Design): Promise<UsedFrom[]> {
+    const ids = new Set(
+      (await store.listPosts({ designId: design.id }))
+        .filter((p) => isLive(p.status) && p.copiedFrom)
+        .map((p) => p.copiedFrom!.design),
+    );
+    const out: UsedFrom[] = [];
+    for (const id of ids) {
+      const idea = await store.getDesign(id);
+      if (idea?.kind === "idea") out.push({ id: idea.id, slug: idea.slug, title: idea.title });
+    }
+    return out;
   }
 
   // The ideas for a design that are still on a shelf: one in the Archive is not waiting.
@@ -5532,6 +5554,54 @@ export function createApp({
 
   // A draft, validated against the design as it is now: unknown asks, options,
   // alternatives, knob paths or out-of-range values are refused, never stored.
+  // The draft's requests that still stand: one whose question, answer or frame has gone
+  // since it was asked is dropped rather than failing the Send it waits in.
+  function sanitizeRequests(raw: unknown, design: Design, posts: Post[]): DraftRequest[] {
+    if (!Array.isArray(raw)) return [];
+    const out: DraftRequest[] = [];
+    for (const r of raw.slice(0, MAX_REQUESTS) as any[]) {
+      let next: DraftRequest | null = null;
+      if (r?.kind === "more") {
+        const ask = design.asks.find((a) => a.id === r.ask);
+        const like = str(r.like, MAX_LABEL);
+        const note = str(r.note, MAX_COMMENT_TEXT);
+        if (ask && ask.allowMore !== false && (!like || ask.options.some((o) => o.id === like)))
+          next = {
+            kind: "more",
+            ask: ask.id,
+            ...(note ? { note } : {}),
+            ...(like ? { like } : {}),
+          };
+      } else if (r?.kind === "update") {
+        const update = sanitizeUpdate(r, design, posts);
+        if (update && typeof update !== "string") next = { kind: "update", ...update };
+      } else if (r?.kind === "revise") {
+        const verdict = sanitizeVerdict({ ...r, kind: "revise" }, design, posts);
+        const version = Number(r.version);
+        if (verdict && typeof verdict !== "string")
+          next = {
+            kind: "revise",
+            state: verdict.state,
+            alternative: verdict.alternative,
+            ...(Number.isInteger(version) && version > 0 ? { version } : {}),
+          };
+      } else if (r?.kind === "state") {
+        const name = str(r.name, MAX_LABEL);
+        const detail = str(r.detail, MAX_COMMENT_TEXT);
+        if (name) next = { kind: "state", name, ...(detail ? { detail } : {}) };
+      } else if (r?.kind === "draw") {
+        const state = stateArg(r.state) ?? null;
+        if (state === null || design.states.includes(state)) next = { kind: "draw", state };
+      }
+      if (!next) continue;
+      // Asked twice, it is one request: the later words win.
+      const at = out.findIndex((x) => requestKey(x) === requestKey(next));
+      if (at >= 0) out[at] = next;
+      else out.push(next);
+    }
+    return out;
+  }
+
   async function sanitizeDraft(
     given: any,
     design: Design,
@@ -5570,6 +5640,8 @@ export function createApp({
       raw?.answerComments === undefined,
     );
     if (typeof answerComments === "string") return answerComments;
+    const requests = sanitizeRequests(pick("requests"), design, posts);
+    const text = str(pick("text"), MAX_COMMENT_TEXT);
     for (const askId of Object.keys(otherImages)) others[askId] ??= "";
     for (const askId of Object.keys(askCommentImages)) askComments[askId] ??= "";
     for (const askId of Object.keys(others)) {
@@ -5592,6 +5664,8 @@ export function createApp({
       ...(Object.keys(otherImages).length ? { otherImages } : {}),
       ...(Object.keys(askCommentImages).length ? { askCommentImages } : {}),
       ...(Object.keys(answerComments).length ? { answerComments } : {}),
+      ...(requests.length ? { requests } : {}),
+      ...(text ? { text } : {}),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -5653,9 +5727,10 @@ export function createApp({
     return { kind, state: chosen.state, alternative: chosen.alternative };
   }
 
-  // Which alternatives a reply puts in use and archives. An alternative-bound answer puts
-  // the chosen alternative(s) in use in every state the ask covers and archives
-  // their siblings there; a part-scoped pick is a borrow, not a verdict. The
+  // Which alternatives a reply puts in use. An alternative-bound answer puts the chosen
+  // alternative(s) in use in every state the ask covers, and a sibling that was in use
+  // there leaves use; a part-scoped pick is a borrow, not a verdict. A Send archives
+  // nothing: a frame the user didn't pick waits, until they archive it themselves. The
   // built-in alternative questions flip the same way, per state. Each alternative is put
   // in use at the version the reply was made on (`version`, a design version), not
   // whatever the agent published since — or, for a version option, at its version.
@@ -5673,14 +5748,11 @@ export function createApp({
     const release = new Set<string>();
     // A screen's or a component's answers are recorded and change nothing in it.
     if (isProduct(design)) return { accept, archive, release };
-    const kept = heldAlternatives(design, posts);
     const settle = (inState: Post[], chosen: Set<string>, pins?: Map<string, number>) => {
       if (!inState.some((p) => chosen.has(p.alternative))) return;
       for (const p of inState) {
         if (!chosen.has(p.alternative)) {
-          if (isKeptAlternative(kept, p)) {
-            if (p.status === "accepted") release.add(p.id);
-          } else if (isLive(p.status)) archive.add(p.id);
+          if (p.status === "accepted") release.add(p.id);
           continue;
         }
         const pin = pins?.get(p.alternative);
@@ -5866,10 +5938,10 @@ export function createApp({
     const posts = await store.listPosts({ designId: design.id });
     const draft = await sanitizeDraft(body ?? {}, design, posts, design.draft);
     if (typeof draft === "string") return fail(400, draft);
-    const text = str(body?.text, MAX_COMMENT_TEXT);
-    const verdict = sanitizeVerdict(body?.verdict, design, posts);
-    if (typeof verdict === "string") return fail(400, verdict);
-    if (verdict?.kind === "use" && isProduct(design)) return nothingToUse(design);
+    const text = draft.text;
+    const given = sanitizeVerdict(body?.verdict, design, posts);
+    if (typeof given === "string") return fail(400, given);
+    if (given?.kind === "use" && isProduct(design)) return nothingToUse(design);
     const moreAsk = str(body?.more?.ask, MAX_LABEL);
     if (moreAsk && !design.asks.some((a) => a.id === moreAsk)) {
       return fail(400, `${design.slug} has no question "${moreAsk}"`);
@@ -5885,11 +5957,31 @@ export function createApp({
     ) {
       return fail(400, `question "${moreAsk}" has no answer "${moreLike}"`);
     }
-    const update = sanitizeUpdate(body?.update, design, posts);
-    if (typeof update === "string") return fail(400, update);
+    const updateGiven = sanitizeUpdate(body?.update, design, posts);
+    if (typeof updateGiven === "string") return fail(400, updateGiven);
+    // What the user asked for in the draft, then what a caller of this route asked alone.
+    const requests: DraftRequest[] = [...(draft.requests ?? [])];
+    const add = (r: DraftRequest) => {
+      if (!requests.some((x) => requestKey(x) === requestKey(r))) requests.push(r);
+    };
+    if (moreAsk)
+      add({
+        kind: "more",
+        ask: moreAsk,
+        ...(moreNote ? { note: moreNote } : {}),
+        ...(moreLike ? { like: moreLike } : {}),
+      });
+    if (updateGiven) add({ kind: "update", ...updateGiven });
+    const more = requests.find((r) => r.kind === "more");
+    const update = requests.find((r) => r.kind === "update");
+    const revise = requests.find((r) => r.kind === "revise");
+    const verdict: ReplyVerdict | undefined =
+      given ??
+      (revise
+        ? { kind: "revise", state: revise.state, alternative: revise.alternative }
+        : undefined);
     const empty =
-      !moreAsk &&
-      !update &&
+      !requests.length &&
       !text &&
       !verdict &&
       !Object.keys(draft.answers).length &&
@@ -5908,16 +6000,17 @@ export function createApp({
       designId: design.id,
       version: draft.version,
       ...(routed ? { routed: true as const } : {}),
-      ...(moreAsk
+      ...(more
         ? {
             more: {
-              ask: moreAsk,
-              ...(moreNote ? { note: moreNote } : {}),
-              ...(moreLike ? { like: moreLike } : {}),
+              ask: more.ask,
+              ...(more.note ? { note: more.note } : {}),
+              ...(more.like ? { like: more.like } : {}),
             },
           }
         : {}),
-      ...(update ? { update } : {}),
+      ...(update ? { update: { ask: update.ask, option: update.option } } : {}),
+      ...(requests.length ? { requests } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: {},
@@ -6002,6 +6095,18 @@ export function createApp({
     });
     if (!comment) return fail(409, `${design.slug} has no agent session to reply to`);
     announceComment(comment);
+    // A state asked for is marked so once it has gone, until a state of that name arrives.
+    const statesAsked = requests.flatMap((r) => (r.kind === "state" ? [r.name] : []));
+    if (statesAsked.length) {
+      const now = await store.getDesign(design.id);
+      if (now) {
+        const stateOutlines = { ...now.stateOutlines };
+        for (const name of statesAsked)
+          if (name in stateOutlines || Object.keys(stateOutlines).length < MAX_STATE_OUTLINES)
+            stateOutlines[name] = "requested";
+        await store.updateDesign(design.id, { stateOutlines });
+      }
+    }
     // After the reply, so the agent hears the answer before the marks it settled.
     const liftAnswer = draft.answers[LIFT_ASK];
     if (liftAnswer !== undefined && design.kind === "screen" && design.ready) {
@@ -6060,20 +6165,23 @@ export function createApp({
 
   // The entry of a state a used version lands on: the one of the same name, else the one
   // this idea's last use there landed on (so a later use revises it rather than adding
-  // another), else the state's one entry, else none and a new one is made.
+  // another), else the state's one entry, else none and a new one is made. An entry this
+  // use already landed on is taken.
   function entryFor(
     target: Design,
     posts: Post[],
     state: string | null,
     name: string,
     last: string | undefined,
+    taken: Set<string>,
   ) {
-    const inState = posts.filter((p) => p.state === state);
+    const inState = posts.filter((p) => p.state === state && !taken.has(p.id));
     const named = (n: string) =>
       inState.find((p) => p.alternative === n && isLive(p.status)) ??
       inState.find((p) => p.alternative === n);
     const found = named(name) ?? (last === undefined ? undefined : named(last));
     if (found) return found;
+    if (taken.size && posts.some((p) => p.state === state && taken.has(p.id))) return null;
     const live = inState.filter((p) => isLive(p.status));
     return !target.variants && live.length === 1 ? live[0] : null;
   }
@@ -6085,21 +6193,35 @@ export function createApp({
     return new Map((last?.copies ?? []).map((c) => [c.state, c.alternative]));
   }
 
+  // One version put in use and what it lands as: its entry's name there, when that isn't its
+  // own (a frame picked in two looks lands twice), and the values it opens in.
+  type UsedFrame = {
+    post: Post;
+    version: number;
+    as?: string;
+    values?: Record<string, KnobValue>;
+  };
+
   // Using an alternative of an idea that is for a screen or a component changes that
   // design: each version put in use becomes the next version of the state of the same
   // name there, a copy that names where it came from, current at once as any newer
-  // version is. When the idea draws the alternative in a state the design lacks, nothing is
-  // copied and the agent is told what to bring over. An idea that would become a screen
-  // or a component, and is for nothing yet, makes it from what is used and is then for it.
+  // version is, with the values it was used in as its knobs' defaults. When the idea draws
+  // the alternative in a state the design lacks, nothing is copied and the agent is told
+  // what to bring over. An idea that would become a screen or a component, and is for
+  // nothing yet, makes it from what is used and is then for it. `every`: copy each one,
+  // even what was in use at that version already (a Use of picks has sorted that out).
   async function useInTarget(
     idea: Design,
     posts: Post[],
-    chosen: { post: Post; version: number }[],
+    chosen: UsedFrame[],
+    every = false,
   ): Promise<{ usedIn?: StoredUsedIn; followUps?: StoredFollowUps } | FlowResult> {
     // What was in use at that version already changes nothing, there or here.
-    const used = chosen.filter(
-      (u) => !(u.post.status === "accepted" && u.post.acceptedVersion === u.version),
-    );
+    const used = every
+      ? chosen
+      : chosen.filter(
+          (u) => !(u.post.status === "accepted" && u.post.acceptedVersion === u.version),
+        );
     if (!used.length || idea.kind !== "idea") return {};
     // A flow's steps land on screens the agent picks, so nothing is copied: the batch says
     // which steps and which screens (placeFlowOf).
@@ -6128,8 +6250,7 @@ export function createApp({
       // Everything is checked before anything is written: a page that can't be included
       // where it lands stops the whole use.
       const slug = target?.slug ?? (await uniqueSlug(idea.project, idea.title));
-      const plans: { post: Post; version: number; surfaces: Surface[]; instances: Instance[] }[] =
-        [];
+      const plans: (UsedFrame & { surfaces: Surface[]; instances: Instance[] })[] = [];
       for (const u of used) {
         const surfaces =
           u.version === u.post.version
@@ -6162,9 +6283,13 @@ export function createApp({
       const landed = created ? new Map<string | null, string>() : await lastLanding(idea, into);
       const copies: UsedIn["copies"] = [];
       const besides: string[] = [];
-      for (const { post, version, surfaces, instances } of plans) {
+      const taken = new Set<string>();
+      for (const { post, version, surfaces, instances, as, values } of plans) {
+        const name = as ?? post.alternative;
         const at = postAtVersion(post, version);
-        const knobs = { ...idea.knobs, ...post.knobs };
+        const knobs: Knobs = { ...idea.knobs, ...post.knobs };
+        for (const [path, value] of Object.entries(values ?? {}))
+          if (Object.hasOwn(knobs, path)) knobs[path] = withDefault(knobs[path], value);
         const from: CopyRef = {
           design: idea.id,
           state: post.state,
@@ -6178,10 +6303,10 @@ export function createApp({
         const prompt = `Used from ${idea.title}: ${post.alternative} v${version}`;
         const entry = created
           ? null
-          : entryFor(into, here, post.state, post.alternative, landed.get(post.state));
+          : entryFor(into, here, post.state, name, landed.get(post.state), taken);
         const others = created
           ? []
-          : here.filter((p) => p.state === post.state && isLive(p.status));
+          : here.filter((p) => p.state === post.state && isLive(p.status) && !taken.has(p.id));
         let written: Post | null;
         if (entry) {
           written = await store.updatePost(entry.id, {
@@ -6203,9 +6328,9 @@ export function createApp({
             design: into.id,
             state: post.state,
             alternative:
-              created || (!into.variants && inState.length === 0)
+              (created || (!into.variants && inState.length === 0)) && !taken.size
                 ? DEFAULT_ALTERNATIVE
-                : post.alternative,
+                : name,
             title: into.title,
             surfaces,
             ...(Object.keys(knobs).length ? { knobs } : {}),
@@ -6218,6 +6343,7 @@ export function createApp({
           });
         }
         if (!written) return fail(409, `${into.slug} has no agent session to copy it under`);
+        taken.add(written.id);
         await promoteIncluded(idea.project, instances);
         announcePost(into, written, !entry, "user");
         const added = !entry && others.length > 0;
@@ -6264,10 +6390,11 @@ export function createApp({
     };
   }
 
-  // "Use this": the user puts one exact version of an alternative in use. It
-  // archives the alternative's live siblings in that state and reaches the agent
-  // once, as a reply carrying the verdict, through the same cursor as a Send;
-  // the user's unsent draft is left for their next Send.
+  // Use: what the user picked goes in use, and into the design the idea is for, and the
+  // agent hears it once, as a reply of its own carrying the verdict, through the same
+  // cursor as a Send; the user's unsent draft is left for their next Send. Without an
+  // alternative it takes the picks, else that one exact version (the frame on screen, or
+  // a newer version taking over). Nothing is archived: a frame not picked waits.
   async function useFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const found = await resolveDesign(ref);
@@ -6275,59 +6402,170 @@ export function createApp({
     return serialDecision(found.id, () => useNow(found.id, body, ctx));
   }
 
+  // The picks in the order a Use takes them: Main first, then state by state as marked.
+  // A frame picked in two looks or values lands twice; past the first it is named after
+  // what it wears there.
+  function picksInOrder(design: Design, posts: Post[], body: any) {
+    const order: (string | null)[] = design.states.length ? design.states : [null];
+    const marks = framePicks(marksOf(design, posts));
+    const sorted = [...marks].sort(
+      (a, b) =>
+        Number(b.kind === "main") - Number(a.kind === "main") ||
+        order.indexOf(a.state) - order.indexOf(b.state),
+    );
+    // The versions the viewer had on screen, by frame.
+    const given = new Map<string, number>();
+    for (const f of Array.isArray(body?.frames) ? body.frames.slice(0, MAX_MARKS) : []) {
+      const v = Number(f?.version);
+      if (typeof f?.alternative === "string" && Number.isInteger(v) && v > 0)
+        given.set(JSON.stringify([f.state ?? null, f.alternative]), v);
+    }
+    const tunes = design.draft?.tunedOn ?? {};
+    const named = new Set<string>();
+    const out: (UsedPick & { post: Post })[] = [];
+    for (const m of sorted) {
+      const post = posts.find(
+        (p) => p.state === m.state && p.alternative === m.alternative && isLive(p.status),
+      );
+      if (!post) continue;
+      const asked = given.get(JSON.stringify([m.state, m.alternative]));
+      const version =
+        asked !== undefined && postAtVersion(post, asked)
+          ? asked
+          : post.status === "accepted" && post.acceptedVersion !== undefined
+            ? post.acceptedVersion
+            : shownVersion(design, post);
+      const wears = m.look ?? (m.values ? valuesWords(m.values) : null);
+      const first = `${m.state ?? ""}\u0000${m.alternative}`;
+      const as = named.has(first) && wears ? `${m.alternative} · ${wears}` : undefined;
+      named.add(first);
+      const tuned = tunes[m.alternative];
+      out.push({
+        post,
+        state: m.state,
+        alternative: m.alternative,
+        version,
+        ...(m.kind === "main" ? { main: true as const } : {}),
+        ...(m.look ? { look: m.look } : {}),
+        ...(m.values ? { values: m.values } : {}),
+        ...(tuned && Object.keys(tuned).length ? { tuned } : {}),
+        ...(as ? { as } : {}),
+      });
+    }
+    return out;
+  }
+
   async function useNow(id: string, body: any, ctx: FlowContext): Promise<FlowResult> {
     const design = await resolveDesign(id);
     if (isResult(design)) return design;
     if (isProduct(design)) return nothingToUse(design);
     const posts = await store.listPosts({ designId: design.id });
-    const chosen = chooseAlternative(
-      design,
-      posts,
-      stateArg(body?.state),
-      str(body?.alternative, MAX_LABEL),
+    const byPicks = body?.alternative === undefined || body?.alternative === null;
+    let picks: (UsedPick & { post: Post })[];
+    if (byPicks) {
+      picks = picksInOrder(design, posts, body);
+      if (!picks.length) return fail(400, `${design.slug} has nothing picked to use`);
+    } else {
+      const chosen = chooseAlternative(
+        design,
+        posts,
+        stateArg(body?.state),
+        str(body?.alternative, MAX_LABEL),
+      );
+      if (isResult(chosen)) return chosen;
+      const version = Number(body?.version);
+      if (!Number.isInteger(version) || version < 1) {
+        return fail(400, '"version" must be a positive integer');
+      }
+      if (!postAtVersion(chosen, version)) {
+        return fail(404, `${chosen.alternative} has no version ${version}`, {
+          versions: [chosen.version, ...chosen.history.map((h) => h.version)],
+        });
+      }
+      if (chosen.status === "accepted" && chosen.acceptedVersion === version) {
+        return ok({
+          reply: null,
+          inUse: { state: chosen.state, alternative: chosen.alternative, version },
+          archived: [],
+        });
+      }
+      picks = [{ post: chosen, state: chosen.state, alternative: chosen.alternative, version }];
+    }
+    // A pick the last Use already took, unchanged, lands nowhere again.
+    const last = byPicks
+      ? (await store.latestReplies(design.id, ['"picks":['], 1))[0]?.payload?.verdict?.picks
+      : undefined;
+    const unchanged = (p: UsedPick & { post: Post }) =>
+      !!last?.some(
+        (u) => pickKey(u) === pickKey(p) && u.version === p.version && p.post.status === "accepted",
+      );
+    const landing = byPicks ? picks.filter((p) => !unchanged(p)) : picks;
+    // Each frame goes in use once, at the version its first pick was at. One that was in use
+    // in a state a pick now decides, and is picked no more, leaves use and waits.
+    const accept = new Map<string, number>();
+    for (const p of picks) if (!accept.has(p.post.id)) accept.set(p.post.id, p.version);
+    const decided = new Set(picks.map((p) => p.post.state));
+    const release = posts.filter(
+      (p) => p.status === "accepted" && decided.has(p.state) && !accept.has(p.id),
     );
-    if (isResult(chosen)) return chosen;
-    const version = Number(body?.version);
-    if (!Number.isInteger(version) || version < 1) {
-      return fail(400, '"version" must be a positive integer');
-    }
-    if (!postAtVersion(chosen, version)) {
-      return fail(404, `${chosen.alternative} has no version ${version}`, {
-        versions: [chosen.version, ...chosen.history.map((h) => h.version)],
+    // Used again as it was: nothing moves, and the agent has heard it.
+    if (!landing.length && !release.length) {
+      const head = picks[0];
+      return ok({
+        reply: null,
+        inUse: { state: head.state, alternative: head.alternative, version: head.version },
+        archived: [],
       });
-    }
-    const inUse = { state: chosen.state, alternative: chosen.alternative, version };
-    if (chosen.status === "accepted" && chosen.acceptedVersion === version) {
-      return ok({ reply: null, inUse, archived: [] });
     }
     const target = await sendTarget(design, posts, body?.to);
     if (isResult(target)) return target;
     if (!target) return fail(409, `${design.slug} has no agent session to reply to`);
     const { sessionId, routed } = target;
-    const usedHere = await useInTarget(design, posts, [{ post: chosen, version }]);
+    const usedHere = await useInTarget(
+      design,
+      posts,
+      landing.map((p) => ({
+        post: p.post,
+        version: p.version,
+        ...(p.as ? { as: p.as } : {}),
+        ...(p.tuned || p.values ? { values: { ...p.tuned, ...p.values } } : {}),
+      })),
+      byPicks,
+    );
     if (isResult(usedHere)) return usedHere;
-    const kept = heldAlternatives(design, posts);
-    const siblings = posts.filter((p) => p.state === chosen.state && p.id !== chosen.id);
-    const archive = siblings.filter((p) => isLive(p.status) && !isKeptAlternative(kept, p));
-    const release = siblings.filter((p) => p.status === "accepted" && isKeptAlternative(kept, p));
+    // Each pick names the entry it became there, when that isn't its own name.
+    const copies = usedHere.usedIn?.copies ?? [];
+    const named: UsedPick[] = picks.map(({ post, as, ...p }) => {
+      const at = landing.findIndex((x) => x.post.id === post.id && x.as === as);
+      const became =
+        at >= 0 ? copies[at]?.alternative : last?.find((u) => pickKey(u) === pickKey(p))?.as;
+      return became && became !== p.alternative ? { ...p, as: became } : p;
+    });
+    const head = named[0];
     const comment = await store.commitReply({
       designId: design.id,
       sessionId,
       text: "",
       payload: {
         designId: design.id,
-        version,
+        version: head.version,
         answers: {},
         borrowed: {},
         tuned: {},
         comments: [],
-        verdict: { kind: "use", ...inUse },
+        verdict: {
+          kind: "use",
+          state: head.state,
+          alternative: head.alternative,
+          version: head.version,
+          ...(byPicks ? { picks: named } : {}),
+        },
         ...usedHere,
         ...(routed ? { routed: true as const } : {}),
       },
       asks: design.asks,
-      accept: [{ id: chosen.id, version }],
-      archive: archive.map((p) => p.id),
+      accept: [...accept].map(([id, version]) => ({ id, version })),
+      archive: [],
       release: release.map((p) => p.id),
       keepDraft: true,
       ...(routed ? { owner: sessionId } : {}),
@@ -6336,7 +6574,7 @@ export function createApp({
     announceComment(comment);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
     void announceHosts(design).catch((err) => console.warn("[mockpit] hosts", err));
-    for (const p of [chosen, ...archive, ...release]) {
+    for (const p of posts.filter((x) => accept.has(x.id) || release.includes(x))) {
       bus.broadcast({
         type: "post-updated",
         id: p.id,
@@ -6350,8 +6588,8 @@ export function createApp({
       event: "decision",
       project: design.project,
       slug: design.slug,
-      alternative: chosen.alternative,
-      version,
+      alternative: head.alternative,
+      version: head.version,
       text: "use",
       url: designUrl(ctx.base, design),
     });
@@ -6359,8 +6597,9 @@ export function createApp({
     return ok(
       {
         reply: delivered,
-        inUse,
-        archived: archive.map((p) => ({ state: p.state, alternative: p.alternative })),
+        inUse: { state: head.state, alternative: head.alternative, version: head.version },
+        ...(byPicks ? { picks: named } : {}),
+        archived: [],
         ...(await usedHereView(usedHere)),
       },
       201,
@@ -8844,6 +9083,7 @@ export function createApp({
             answered: draftedCount(design) ?? 0,
             of: openCount(design),
             comments: design.draft.comments.length,
+            ...(design.draft.requests?.length ? { requests: design.draft.requests.length } : {}),
             touchedAt: design.draft.updatedAt,
           }
         : null,

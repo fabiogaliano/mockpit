@@ -394,6 +394,14 @@ export const ideaLink = (
   ...(idea.becomes ? { becomes: idea.becomes } : {}),
 });
 
+// An idea a product design's entries were used from, by its id (what each entry's
+// `copiedFrom.design` names) and how it is called now.
+export interface UsedFrom {
+  id: string;
+  slug: string;
+  title: string;
+}
+
 // The design an idea is for, as a read of the idea carries it: with what that design
 // has turned down for an agent, so it isn't offered again.
 export interface IdeaTarget {
@@ -440,6 +448,8 @@ const plannedOf = (design: Design, alternatives: number) =>
 export const draftHolds = (draft: Design["draft"]): boolean =>
   !!draft &&
   (draft.comments.length > 0 ||
+    (draft.requests?.length ?? 0) > 0 ||
+    !!draft.text ||
     Object.values(draft.answers).some((a) => !Array.isArray(a) || a.length > 0) ||
     tunedCount(draft.tunedOn) > 0 ||
     [draft.borrowed, draft.others ?? {}, draft.askComments ?? {}, draft.answerComments ?? {}].some(
@@ -493,6 +503,8 @@ export const designDetailView = (
     target?: IdeaTarget;
     // On a screen or a component: the ideas that are for it.
     ideasFor?: IdeaLink[];
+    // On a screen or a component: the ideas its entries were used from.
+    usedFrom?: UsedFrom[];
   } = {},
 ) => {
   const posts = shipped(design, all);
@@ -513,6 +525,7 @@ const detailOf = (
     idea?: IdeaPlace;
     target?: IdeaTarget;
     ideasFor?: IdeaLink[];
+    usedFrom?: UsedFrom[];
   },
 ) => ({
   id: design.id,
@@ -524,6 +537,7 @@ const detailOf = (
   ...opts.idea,
   ...(opts.target ? { target: opts.target } : {}),
   ...(opts.ideasFor?.length ? { ideasFor: opts.ideasFor } : {}),
+  ...(opts.usedFrom?.length ? { usedFrom: opts.usedFrom } : {}),
   ...(design.shortlist ? { shortlist: true } : {}),
   // No agent has written to this shortlist yet: who its replies reach for now.
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),

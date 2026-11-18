@@ -325,7 +325,7 @@ export const isIdeaBecomes = (v: unknown): v is IdeaBecomes =>
 export const isDesignKind = (k: unknown): k is DesignKind =>
   k === "screen" || k === "component" || k === "idea";
 // An alternative's review state. An alternative-bound answer puts the chosen alternative in
-// use and archives its siblings in that state; archived alternatives stay in view,
+// use and releases its siblings in that state; archived alternatives stay in view,
 // muted, and are restorable. "accepted" is storage's word for in use; every
 // view says `inUse` (alternativeStatus).
 export type PostStatus = "open" | "accepted" | "archived";
@@ -602,15 +602,42 @@ export interface PartComment {
   borrow?: { from: string; part?: string };
 }
 
-// What a reply says about one alternative outside the ask flow: the user's Use this
-// or New version.
+// What a reply says about one alternative outside the ask flow: the user's Use or New
+// version. A Use of the user's picks names the first (Main first) and carries them all.
 export interface ReplyVerdict {
   kind: "use" | "revise";
   state: string | null;
   alternative: string;
   // On a use: the version put in use, the one the user was looking at.
   version?: number;
+  picks?: UsedPick[];
 }
+
+// One pick a Use put in use: the frame at the version it was at, the look or values it was
+// picked in, and the frame's own tune; together they became the defaults of its copy in the
+// design the idea is for.
+export interface UsedPick {
+  state: string | null;
+  alternative: string;
+  version: number;
+  main?: true;
+  look?: string;
+  values?: Record<string, KnobValue>;
+  tuned?: Record<string, KnobValue>;
+  // The entry it became there, when that isn't its own name.
+  as?: string;
+}
+
+// Something the user asked of the agent, waiting in the draft with everything else until
+// Send: more answers to a question, a kept screen brought up to date, a new version of a
+// frame, a state the screen lacks, a drawing of a planned one.
+export type DraftRequest =
+  | { kind: "more"; ask: string; note?: string; like?: string }
+  | { kind: "update"; ask: string; option: string }
+  | { kind: "revise"; state: string | null; alternative: string; version?: number }
+  | { kind: "state"; name: string; detail?: string }
+  | { kind: "draw"; state: string | null };
+export const MAX_REQUESTS = 40;
 
 // Alternative → knob path → value. A tune belongs to the frame it was made on: tuning
 // one alternative leaves its siblings as they were. An alternative's name is the same
@@ -641,6 +668,9 @@ export interface Draft {
   askCommentImages?: Record<string, string[]>;
   // askId → option id → a comment on that one answer.
   answerComments?: Record<string, Record<string, string>>;
+  requests?: DraftRequest[];
+  // The message the user typed for the Send as a whole.
+  text?: string;
   updatedAt: string;
 }
 
@@ -673,6 +703,9 @@ export interface Reply {
   // A kept screen brought up to date with the one in use, once.
   update?: { ask: string; option: string };
   verdict?: ReplyVerdict;
+  // Everything the user asked for in this Send, in the order asked. `more`, `update` and a
+  // revise `verdict` repeat the first of each kind for readers from before.
+  requests?: DraftRequest[];
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).
   archived?: { dismissed: string[] };
@@ -918,7 +951,7 @@ export interface Design {
   // one an agent started. It has no session until an agent writes to it. The name is
   // in `read`'s contract, so it waits for the words release.
   shortlist: boolean;
-  // Only on an idea: the screen or component (by id) it explores, which Use this
+  // Only on an idea: the screen or component (by id) it explores, which Use
   // changes, or a flow it was placed as (`flow:<name>`, flowFor). null: for nothing yet.
   for: string | null;
   // Only on an idea for nothing yet: what it would become.

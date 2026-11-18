@@ -5,6 +5,7 @@
 
 import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
+import { reactionLine, type SendAsk, sendLines, useLine } from "./sendLines.ts";
 import { standingOf, type StandingView, standingView } from "./standings.ts";
 import { archivedAnswer, optionStates, withAddedAnswers } from "./alternativeQuestion.ts";
 import { shipped } from "./ready.ts";
@@ -26,6 +27,7 @@ import {
   type PartComment,
   type Post,
   type Reaction,
+  type DraftRequest,
   type Reply,
   type Store,
 } from "./types.ts";
@@ -114,8 +116,14 @@ export interface FeedbackReply extends Omit<
   | "update"
   | "followUps"
 > {
+  // The Send in words, one line per thing in it, as the user read it before it went
+  // (sendLines.ts). A Use is its first line.
+  lines: string[];
   more?: MoreAnswers;
+  // The other questions more answers were asked for, past the first.
+  moreAlso?: MoreAnswers[];
   update?: UpdateRequest;
+  updateAlso?: UpdateRequest[];
   seq: number;
   at: string;
   asks: AnsweredAsk[];
@@ -234,34 +242,6 @@ function updateRequest(
   };
 }
 
-const REACTION_LEAD: Record<Reaction, string> = {
-  up: "👍",
-  down: "👎",
-  more: "more like this:",
-};
-
-// `👍 part "hero" (alternative B, state Mobile)`, `👎 alternative B`, `more like this: the page`.
-export function reactionLine(c: PartComment & { reaction: Reaction }): string {
-  // A design published without alternative names has only "default": naming it is noise.
-  const named = c.alternative && c.alternative !== DEFAULT_ALTERNATIVE ? c.alternative : null;
-  // A version is written as agents write it, dark@2.
-  const at = c.version ? `@${c.version}` : "";
-  const alternative = named ? `${named}${at}` : at ? `${DEFAULT_ALTERNATIVE}${at}` : null;
-  const where = [
-    c.part !== null && alternative ? `alternative ${alternative}` : "",
-    c.state ? `state ${c.state}` : "",
-  ].filter(Boolean);
-  const target =
-    c.part !== null
-      ? `part ${JSON.stringify(c.part)}`
-      : alternative
-        ? `alternative ${alternative}`
-        : "the page";
-  const tail = where.length ? ` (${where.join(", ")})` : "";
-  const note = c.text ? ` “${c.text}”` : "";
-  return `${REACTION_LEAD[c.reaction]} ${target}${tail}${note}`;
-}
-
 const isReaction = (c: PartComment): c is PartComment & { reaction: Reaction } => !!c.reaction;
 
 function answered(
@@ -329,6 +309,58 @@ function answered(
     });
   }
   return out;
+}
+
+// The reply in the words the user's Send list showed it: a Use first, then what the Send
+// carried, each question by what it was answered.
+function replyLines(reply: Reply, asks: AnsweredAsk[], design: Design | undefined): string[] {
+  const verdict = reply.verdict;
+  const use =
+    verdict?.kind === "use"
+      ? useLine(
+          verdict.picks ?? [
+            {
+              state: verdict.state,
+              alternative: verdict.alternative,
+              version: verdict.version ?? reply.version,
+            },
+          ],
+          reply.usedIn?.target ?? null,
+        )
+      : null;
+  const said: SendAsk[] = asks.map((a) => ({
+    id: a.ask,
+    text: a.text,
+    chosen: a.chosen.map((o) => o.label),
+    ...(a.comment ? { comment: a.comment } : {}),
+    ...(a.onAnswers ? { onAnswers: a.onAnswers } : {}),
+  }));
+  const requests: DraftRequest[] = reply.requests ?? [
+    ...(reply.more ? [{ kind: "more" as const, ...reply.more }] : []),
+    ...(reply.update ? [{ kind: "update" as const, ...reply.update }] : []),
+    ...(verdict?.kind === "revise"
+      ? [{ kind: "revise" as const, state: verdict.state, alternative: verdict.alternative }]
+      : []),
+  ];
+  const lines = sendLines(
+    {
+      asks: said,
+      borrowed: reply.borrowed ?? {},
+      // A reply from before tunes belonged to a frame tuned the design as a whole.
+      tunedOn:
+        reply.tunedOn ??
+        (Object.keys(reply.tuned ?? {}).length ? { [DEFAULT_ALTERNATIVE]: reply.tuned } : {}),
+      comments: reply.comments ?? [],
+      requests,
+      ...(reply.text ? { text: reply.text } : {}),
+    },
+    {
+      askText: (id) => design?.asks.find((a) => a.id === id)?.text,
+      optionLabel: (id, option) =>
+        design?.asks.find((a) => a.id === id)?.options.find((o) => o.id === option)?.label,
+    },
+  ).map((l) => l.text);
+  return use ? [use, ...lines] : lines;
 }
 
 // Two edits of one design in one batch: the later wins field by field, and the spec
@@ -415,7 +447,7 @@ export function groupFeedback(
         answerComments: _answerComments,
         routed,
         more: asked,
-        standings: _standings,
+        standings: sentStandings,
         update: wanted,
         system: decidedHere,
         // What a use requires is worked out at delivery, from the designs as they stand
@@ -424,22 +456,36 @@ export function groupFeedback(
         ...payload
       } = c.payload;
       if (decidedHere) batch.system = { rev: decidedHere.rev, changes: decidedHere.changes };
-      const more =
-        asked && design
-          ? moreAnswers(design, designPosts, asked, c.payload.standings?.[asked.ask])
-          : undefined;
-      const update = wanted && design ? updateRequest(design, wanted) : undefined;
+      // A reply from before requests carried at most one of each.
+      const requests: DraftRequest[] = payload.requests ?? [
+        ...(asked ? [{ kind: "more" as const, ...asked }] : []),
+        ...(wanted ? [{ kind: "update" as const, ...wanted }] : []),
+      ];
+      const mores = design
+        ? requests.flatMap((r) =>
+            r.kind === "more"
+              ? (moreAnswers(design, designPosts, r, sentStandings?.[r.ask]) ?? [])
+              : [],
+          )
+        : [];
+      const updates = design
+        ? requests.flatMap((r) => (r.kind === "update" ? (updateRequest(design, r) ?? []) : []))
+        : [];
       if (routed) batch.handoff = ROUTED_NOTE;
       const reactions = (payload.comments ?? []).filter(isReaction).map(reactionLine);
+      const asks = answered(c.payload, design, designPosts, base);
       batch.reply = {
         ...payload,
+        lines: replyLines(c.payload, asks, design),
         comments: (payload.comments ?? []).filter((x) => !x.reaction),
         seq: c.seq,
         at: c.createdAt,
-        asks: answered(c.payload, design, designPosts, base),
+        asks,
         ...(reactions.length ? { reactions } : {}),
-        ...(more ? { more } : {}),
-        ...(update ? { update } : {}),
+        ...(mores.length ? { more: mores[0] } : {}),
+        ...(mores.length > 1 ? { moreAlso: mores.slice(1) } : {}),
+        ...(updates.length ? { update: updates[0] } : {}),
+        ...(updates.length > 1 ? { updateAlso: updates.slice(1) } : {}),
       };
       const decisions = design ? decisionsFor(design, designPosts, c.payload) : null;
       if (decisions) batch.reply.decisions = decisions;

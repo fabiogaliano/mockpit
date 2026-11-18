@@ -55,7 +55,7 @@ const field = {
   group:
     'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
   source: 'Code path implementing it. "" clears',
-  for: "An idea's screen or component (Use this changes it), or flow:<name>",
+  for: "An idea's screen or component (Use changes it), or flow:<name>",
   becomes: "An idea for nothing yet: screen, component, flow or system",
   flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
@@ -529,6 +529,7 @@ const followUpsSchema = o({
 const feedbackSchema = o({
   design: nullStr,
   reply: o({
+    lines: strs.describe("The Send in words, one line each, as the user read it; a Use first"),
     asks: z.array(
       o({
         ask: str,
@@ -545,9 +546,17 @@ const feedbackSchema = o({
     tunedOn: bag.optional().describe("Alternative → its tuned knobs: a tune belongs to one frame"),
     comments: z.array(o({ part: nullStr, text: str })),
     reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (alternative B)'),
-    verdict: entryNamed({ kind: z.enum(["use", "revise"]), state: nullStr })
+    verdict: entryNamed({
+      kind: z.enum(["use", "revise"]),
+      state: nullStr,
+      picks: z
+        .array(bag)
+        .optional()
+        .describe("A Use of the user's picks, Main first, each with its look or values"),
+    })
       .optional()
-      .describe("Use this or New version on one alternative (a variants design's variant)"),
+      .describe("Use (put it in the code) or New version (a variants design's variant)"),
+    requests: z.array(bag).optional().describe("What the user asked for, in order"),
     more: o({
       ask: str,
       text: str,
@@ -590,7 +599,13 @@ const pendingSchema = o({
   design: str,
   archived: z.literal(true).optional(),
   viewerOpen: z.boolean(),
-  draft: o({ answered: num, of: num, comments: num, touchedAt: str }).nullable(),
+  draft: o({
+    answered: num,
+    of: num,
+    comments: num,
+    requests: num.optional(),
+    touchedAt: str,
+  }).nullable(),
   followUps: bag.optional().describe("Still open from its last decision"),
 }).meta({ id: "Pending" });
 

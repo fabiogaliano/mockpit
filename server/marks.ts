@@ -8,7 +8,6 @@
 // beside the stored marks, and a new mark is written only here.
 
 import { type AlternativeRow, optionStates, withAddedAnswers } from "./alternativeQuestion.ts";
-import { alternativeKey, keptAlternatives } from "./standings.ts";
 import {
   type Ask,
   type Author,
@@ -91,14 +90,6 @@ export function mainOf(
   return (state === undefined ? undefined : mains.find((m) => m.state === state)) ?? mains[0];
 }
 
-// Every frame a question keeps or the user picked, by state and name: a Send leaves them out
-// of the archive, as it always has the kept ones.
-export function heldAlternatives(design: Design, rows: AlternativeRow[]): Set<string> {
-  const out = keptAlternatives(design, rows);
-  for (const m of standing(design.marks, rows)) out.add(alternativeKey(m.state, m.alternative));
-  return out;
-}
-
 // One mark as a read lists it. A kept answer reads as a pick, with the answer it is; an
 // archived frame as archived, at when it left. A kept answer that sets values is not on
 // any one frame.
@@ -156,4 +147,42 @@ export function marksOf(
       ...(r.archivedAt ? { at: r.archivedAt } : {}),
     }));
   return [...stored, ...kept, ...archived];
+}
+
+// The frames a Use would put in use: every pick and Main still standing, a question's kept
+// answers on a frame included.
+export const framePicks = (marks: MarkView[]): (MarkView & { alternative: string })[] =>
+  marks.filter(
+    (m): m is MarkView & { alternative: string } =>
+      m.kind !== "archived" && m.alternative !== undefined,
+  );
+
+// A pick as a Use compares it with the last: the frame, what it wears, and whether it is Main.
+export const pickKey = (p: {
+  state: string | null;
+  alternative: string;
+  look?: string;
+  values?: Record<string, KnobValue>;
+  main?: boolean;
+}): string =>
+  JSON.stringify([
+    subjectKey({ state: p.state, alternative: p.alternative, look: p.look, values: p.values }),
+    !!p.main,
+  ]);
+
+// Whether the picks have moved since the last Use took them: the idea is "changed since
+// Use", and nothing goes anywhere until Use again.
+export function changedSinceUse(
+  used: {
+    state: string | null;
+    alternative: string;
+    look?: string;
+    values?: Record<string, KnobValue>;
+    main?: true;
+  }[],
+  marks: MarkView[],
+): boolean {
+  const now = new Set(framePicks(marks).map((m) => pickKey({ ...m, main: m.kind === "main" })));
+  const then = new Set(used.map(pickKey));
+  return now.size !== then.size || [...now].some((k) => !then.has(k));
 }
