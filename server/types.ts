@@ -593,6 +593,14 @@ export interface ReplyVerdict {
   version?: number;
 }
 
+// Alternative → knob path → value. A tune belongs to the frame it was made on: tuning
+// one alternative leaves its siblings as they were. An alternative's name is the same
+// take across states, so its tune follows it from state to state.
+export type TunedOn = Record<string, Record<string, KnobValue>>;
+
+export const tunedCount = (t: TunedOn | undefined): number =>
+  Object.values(t ?? {}).reduce((n, values) => n + Object.keys(values).length, 0);
+
 // The user's unsent picks, tuned values and comments for one design. Lives
 // server-side so it survives a reload; never delivered until Send.
 export interface Draft {
@@ -602,7 +610,7 @@ export interface Draft {
   answers: Record<string, AskAnswer>;
   // part → the alternative the user borrowed it from.
   borrowed: Record<string, string>;
-  tuned: Record<string, KnobValue>;
+  tunedOn: TunedOn;
   comments: PartComment[];
   // askId → the write-in under "Other…" / the comment on that question. Optional
   // because drafts stored before they existed lack them.
@@ -623,7 +631,12 @@ export interface Reply {
   version: number;
   answers: Record<string, AskAnswer>;
   borrowed: Record<string, string>;
+  // The Main frame's tuned values, for agents that read tuning as design-wide; kept one
+  // release beside `tunedOn`. A reply from before tunes belonged to a frame has only
+  // this, and it applied to every alternative.
   tuned: Record<string, KnobValue>;
+  // By alternative, what each frame was tuned to.
+  tunedOn?: TunedOn;
   comments: PartComment[];
   others?: Record<string, string>;
   askComments?: Record<string, string>;

@@ -45,6 +45,7 @@ import {
   type Surface,
   type SurfaceHead,
   alternativeStatus,
+  tunedCount,
 } from "./types.ts";
 
 export const surfaceRef = (surface: Pick<Surface, "id" | "kind">, index: number) => ({
@@ -438,13 +439,10 @@ export const draftHolds = (draft: Design["draft"]): boolean =>
   !!draft &&
   (draft.comments.length > 0 ||
     Object.values(draft.answers).some((a) => !Array.isArray(a) || a.length > 0) ||
-    [
-      draft.borrowed,
-      draft.tuned,
-      draft.others ?? {},
-      draft.askComments ?? {},
-      draft.answerComments ?? {},
-    ].some((rec) => Object.keys(rec).length > 0));
+    tunedCount(draft.tunedOn) > 0 ||
+    [draft.borrowed, draft.others ?? {}, draft.askComments ?? {}, draft.answerComments ?? {}].some(
+      (rec) => Object.keys(rec).length > 0,
+    ));
 
 export const designSummaryView = (design: Design, posts: PostHead[]) => {
   const drafted = draftedCount(design);
@@ -479,6 +477,7 @@ export const designDetailView = (
   all: Post[],
   opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
+    settledOn?: Record<string, Record<string, KnobValue>>;
     repliesGoTo?: string;
     // This design's lines of the decision log; absent where the read carries none.
     decisions?: string[];
@@ -501,6 +500,7 @@ const detailOf = (
   posts: Post[],
   opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
+    settledOn?: Record<string, Record<string, KnobValue>>;
     repliesGoTo?: string;
     decisions?: string[];
     decisionsFrom?: string[];
@@ -552,6 +552,8 @@ const detailOf = (
   // Every knob value the user has sent (answers' sets and tuning, later replies
   // winning), never drafts. Later questions render on top of it.
   settled: opts.settled ?? {},
+  // By alternative, where a frame was tuned apart: all of that frame's values.
+  ...(opts.settledOn ? { settledOn: opts.settledOn } : {}),
 });
 
 export const sessionRowView = (session: Session, postCount: number) => ({

@@ -100,7 +100,7 @@ function currentCell(s: DesignScreenState, ask: Ask): Cell | null {
   const without = d
     ? { ...d, answers: Object.fromEntries(Object.entries(d.answers).filter(([k]) => k !== ask.id)) }
     : null;
-  const knobs = draftKnobValues(m, v.knobs, without);
+  const knobs = draftKnobValues(m, v, without);
   const palette = framePalette() ?? m.palettes?.find((p) => p.status === "default")?.id;
   // Named after the answer it already matches, so "Current" says which one it is.
   const same = ask.options.find((o) =>

@@ -47,7 +47,12 @@ export function BuiltFrom(props: {
   const uses = () => (me()?.instances ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
   const parts = () =>
     t.components().filter((c) => c.paths.length || s.mixOpts().some((o) => o.part === c.part));
-  const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length;
+  // The frame on stage's own: tuning one leaves its siblings as they were.
+  const tuned = () => Object.keys(s.knobContext().tuned).length;
+  const frameName = () => {
+    const v = s.activeAlternative();
+    return v && s.inState(v.state).length > 1 ? v.alternative : null;
+  };
   let panel!: HTMLElement;
   // A part tapped with Tune on opens here, scrolled into view.
   createEffect(
@@ -133,7 +138,7 @@ export function BuiltFrom(props: {
           <h3>Parts</h3>
           <Show when={tuned()}>
             <div class="tunedbar" role="status">
-              <span>{`${tuned()} tuned`}</span>
+              <span>{`${tuned()} tuned${frameName() ? ` on ${frameName()}` : ""}`}</span>
               <button type="button" onClick={s.resetTuned}>
                 Reset
               </button>

@@ -254,8 +254,14 @@ function feedbackLines(feedback) {
       for (const [part, alternative] of Object.entries(reply.borrowed ?? {})) {
         lines.push(`- ${prefix}borrow ${part} from ${alternative}`);
       }
-      for (const [path, value] of Object.entries(reply.tuned ?? {})) {
-        lines.push(`- ${prefix}tuned ${path} = ${JSON.stringify(value)}`);
+      // A tune belongs to one frame; an older reply's tuned the whole design.
+      const tunes = reply.tunedOn
+        ? Object.entries(reply.tunedOn).map(([alt, values]) => [` on ${alt}`, values])
+        : [["", reply.tuned ?? {}]];
+      for (const [on, values] of tunes) {
+        for (const [path, value] of Object.entries(values)) {
+          lines.push(`- ${prefix}tuned${on} ${path} = ${JSON.stringify(value)}`);
+        }
       }
       for (const c of reply.comments ?? []) {
         if (c.borrow) {

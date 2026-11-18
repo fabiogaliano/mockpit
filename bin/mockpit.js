@@ -312,8 +312,9 @@ mockpit read --area <name> [--project <name>]
   a read says lines were left out. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per design the user
-  sent since you last heard ({design, reply: {asks, borrowed, tuned, comments,
-  verdict}, messages, inUse, archived}), delivered once across feedback, watch and
+  sent since you last heard ({design, reply: {asks, borrowed, tuned, tunedOn,
+  comments, verdict}, messages, inUse, archived}; tunedOn is each frame's tune),
+  delivered once across feedback, watch and
   every write; and pending ({design, viewerOpen, draft}) so you can tell the
   user "take your time" or "2 of 3 answered". Run it when the user says they
   answered.`,
@@ -1554,7 +1555,13 @@ function watchLines(batch) {
             )
             .join("; ")
         : "",
-      Object.keys(r.tuned ?? {}).length ? `${Object.keys(r.tuned).length} tuned` : "",
+      r.tunedOn
+        ? Object.entries(r.tunedOn)
+            .map(([alt, v]) => `${Object.keys(v).length} tuned on ${alt}`)
+            .join(", ")
+        : Object.keys(r.tuned ?? {}).length
+          ? `${Object.keys(r.tuned).length} tuned`
+          : "",
       Object.keys(r.borrowed ?? {}).length
         ? `borrowed ${Object.entries(r.borrowed)
             .map(([p, v]) => `${p}←${v}`)
@@ -2242,7 +2249,12 @@ const commands = {
             status: entry.status,
             history: entry.history,
             ...(entry.screenshotUrl && { screenshotUrl: entry.screenshotUrl }),
-            ...(data.reply && { tuned: data.reply.tuned }),
+            // A tune belongs to its frame; an older reply's applied to every one.
+            ...(data.reply && {
+              tuned: data.reply.tunedOn
+                ? (data.reply.tunedOn[entry.alternative ?? entry.variant] ?? {})
+                : data.reply.tuned,
+            }),
           },
           null,
           2,

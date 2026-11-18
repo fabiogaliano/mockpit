@@ -762,9 +762,9 @@ Values reach the html unitless: \`calc(var(--k-body-size, 17) * 1px)\`, and as
 ## Feedback
 
 \`feedback\` returns \`{feedback, pending}\`. A batch is \`{design, reply: {asks, tuned,
-borrowed, comments, reactions, more, verdict, text}, messages, inUse, archived}\`. In
+tunedOn, borrowed, comments, reactions, more, verdict, text}, messages, inUse, archived}\`. In
 order: answers decide structure (an alternative answer already put it in use); tuned
-values become defaults; \`borrowed\` names a part to take from another alternative
+values become defaults, each on the frame \`tunedOn\` names (\`tuned\` is the one in use's); \`borrowed\` names a part to take from another alternative
 (if it conflicts with an answer, the answer wins); address each comment and
 reaction on its part (a comment's \`borrow\` asks for a new version taking a part
 from another; "more like this" asks for 2–3 alternatives forked from it; a comment on a

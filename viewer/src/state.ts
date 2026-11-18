@@ -70,6 +70,7 @@ import {
   pruneMix,
   knobPart,
   resolveKnobs,
+  settledOf,
   overflowWidth,
   listedSteps,
   neighbourStep,
@@ -603,7 +604,12 @@ export function createDesignScreen(
     for (const id of Object.keys(d?.others ?? {})) delete answers[id];
     Object.assign(answers, d?.answers ?? {});
     Object.assign(others, d?.others ?? {});
-    return { answers, others, tuned: d?.tuned ?? {} };
+    // Any frame's tune of a part decides that part: a borrow brings it over whole.
+    const tuned = Object.assign({}, ...Object.values(d?.tunedOn ?? {})) as Record<
+      string,
+      KnobValue
+    >;
+    return { answers, others, tuned };
   });
   const settled = createMemo(() => {
     const c = chosen();
@@ -710,15 +716,16 @@ export function createDesignScreen(
     return !!m && tuneVisible(m, inState(activeState()));
   });
   // What Tune reads and writes: the knobs of the alternative on stage, the drafted
-  // answers, the tuned values, and what earlier replies settled.
+  // answers, that frame's tuned values, and what earlier replies settled on it.
   const knobContext = createMemo<KnobContext>(() => {
     const m = design();
+    const v = activeAlternative();
     return {
-      knobs: { ...m?.knobs, ...activeAlternative()?.knobs },
+      knobs: { ...m?.knobs, ...v?.knobs },
       asks: m?.asks ?? [],
       answers: draft()?.answers ?? {},
-      tuned: draft()?.tuned ?? {},
-      settled: m?.settled ?? {},
+      tuned: (v && draft()?.tunedOn[v.alternative]) || {},
+      settled: m ? settledOf(m, v?.alternative) : {},
     };
   });
   // The part the current question is about: the slot it chooses a swap for,
@@ -796,7 +803,7 @@ export function createDesignScreen(
       ...base,
       answers: { ...base.answers },
       borrowed: { ...base.borrowed },
-      tuned: { ...base.tuned },
+      tunedOn: Object.fromEntries(Object.entries(base.tunedOn).map(([k, v]) => [k, { ...v }])),
       comments: [...base.comments],
       others: { ...base.others },
       askComments: { ...base.askComments },
@@ -904,7 +911,7 @@ export function createDesignScreen(
             version: d.version,
             answers: d.answers,
             borrowed: d.borrowed,
-            tuned: d.tuned,
+            tunedOn: d.tunedOn ?? {},
             comments: d.comments,
             others: d.others ?? {},
             askComments: d.askComments ?? {},
@@ -1644,31 +1651,40 @@ export function createDesignScreen(
       setError(e instanceof Error ? e.message : String(e));
     }
   }
-  // Tune's writer (phase 4b): one tuned knob value into the draft.
+  // Tune's writer (phase 4b): one tuned knob value into the draft, on the frame on
+  // stage. Its siblings keep their own.
   function setTuned(path: string, value: KnobValue | undefined) {
+    const alternative = activeAlternative()?.alternative;
+    if (alternative === undefined) return;
     writeDraft((d) => {
-      if (value === undefined) delete d.tuned[path];
-      else d.tuned[path] = value;
+      const own = { ...d.tunedOn[alternative] };
+      if (value === undefined) delete own[path];
+      else own[path] = value;
+      if (Object.keys(own).length) d.tunedOn[alternative] = own;
+      else delete d.tunedOn[alternative];
       return d;
     });
   }
 
-  // Reset and its undo swap the whole set of tuned values at once.
-  function replaceTuned(values: Record<string, KnobValue>) {
+  // Reset and its undo swap a frame's whole set of tuned values at once.
+  function replaceTuned(alternative: string, values: Record<string, KnobValue>) {
     writeDraft((d) => {
-      d.tuned = { ...values };
+      if (Object.keys(values).length) d.tunedOn[alternative] = { ...values };
+      else delete d.tunedOn[alternative];
       return d;
     });
   }
 
   function resetTuned() {
+    const alternative = activeAlternative()?.alternative;
+    if (alternative === undefined) return;
     const before = { ...knobContext().tuned };
-    replaceTuned({});
+    replaceTuned(alternative, {});
     setToast({
       text: "Tuning reset",
       undo: () => {
         setToast(null);
-        replaceTuned(before);
+        replaceTuned(alternative, before);
       },
     });
   }
@@ -1778,6 +1794,9 @@ export function createDesignScreen(
         borrowed: allowedMix(d.borrowed),
         ...extra,
         ...toField(),
+        ...(activeAlternative()
+          ? { shown: { state: activeState(), alternative: activeAlternative()!.alternative } }
+          : {}),
       });
       // The draft holds the picks until the design carrying them as sent answers
       // arrives: dropping it first would put the stage on another alternative for
@@ -2654,6 +2673,7 @@ export function createDesignScreen(
     tuneShown,
     alternativeFor,
     activeAlternative,
+    inState,
     activeState,
     showState,
     chooseAlternative,

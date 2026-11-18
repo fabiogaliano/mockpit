@@ -21,6 +21,7 @@ import {
   HISTORY_LIMIT,
   htmlSurface,
   type Knobs,
+  type KnobValue,
   MAX_WORKSPACE_ASSET_BYTES,
   type Design,
   type DesignReady,
@@ -797,6 +798,34 @@ export class SqlStore implements Store {
     this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('comboWords', '1')");
   }
 
+  // A tune belongs to one frame: a draft's design-wide tuned values become each
+  // alternative's own, so every frame shows what it showed. Stored replies keep theirs,
+  // which `tunedFor` reads as every alternative's.
+  private migrateTunesToFrames() {
+    this.rewriteJson(
+      "designs",
+      "id",
+      "draft",
+      (d, id) => {
+        const draft = d as Record<string, unknown>;
+        if (!("tuned" in draft)) return false;
+        const tuned = draft.tuned as Record<string, KnobValue> | null;
+        delete draft.tuned;
+        const names = this.sql
+          .exec("SELECT DISTINCT variant FROM posts WHERE designId = ?", id)
+          .toArray()
+          .map((r) => r.variant as string);
+        draft.tunedOn =
+          tuned && Object.keys(tuned).length
+            ? Object.fromEntries(names.map((n) => [n, { ...tuned }]))
+            : {};
+        return true;
+      },
+      "draft IS NOT NULL AND draft LIKE '%\"tuned\":%'",
+    );
+    this.sql.exec("INSERT OR REPLACE INTO settings (key, value) VALUES ('tunesByFrame', '1')");
+  }
+
   // What a decision requires next is one object on the reply: an alternative to bring
   // over (`apply`) and a Ready screen's pieces to lift (`lift`) move under `followUps`.
   private migrateToFollowUps() {
@@ -1197,6 +1226,7 @@ export class SqlStore implements Store {
     if (this.settingSync("comboWords") !== "1") this.migrateToComboWords();
     if (this.settingSync("followUpWords") !== "1") this.migrateToFollowUps();
     if (this.settingSync("followUpIds") !== "1") this.migrateFollowUpIds();
+    if (this.settingSync("tunesByFrame") !== "1") this.migrateTunesToFrames();
     // The day it went was never kept, and the design's last change is the nearest thing.
     // Frozen now, or the next reason or draft on the design would move it to that day.
     if (!dated) {
@@ -1660,7 +1690,7 @@ export class SqlStore implements Store {
           version: 1,
           answers: {},
           borrowed: {},
-          tuned: {},
+          tunedOn: {},
           comments: [],
           updatedAt: c.createdAt as string,
         };

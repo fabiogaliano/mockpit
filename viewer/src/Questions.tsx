@@ -128,7 +128,7 @@ export function Answered(props: {
 // A picture that ignored them would show a screen the user never chose.
 function draftValues(s: DesignScreenState, v: AlternativeView): Record<string, KnobValue> {
   const m = s.design();
-  return m ? draftKnobValues(m, v.knobs, s.draft()) : {};
+  return m ? draftKnobValues(m, v, s.draft()) : {};
 }
 
 // Picking one answer replaces the others, so a picture of it doesn't show theirs.

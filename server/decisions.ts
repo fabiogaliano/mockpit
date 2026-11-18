@@ -39,11 +39,20 @@ export interface Decisions {
   knobs: Record<string, KnobValue>;
 }
 
+type Tuned = Pick<Reply, "tuned" | "tunedOn">;
+
+// What a reply tuned one alternative to. A reply from before tunes belonged to a
+// frame tuned the design, so every alternative wore its values.
+export const tunedFor = (reply: Tuned, alternative: string): Record<string, KnobValue> =>
+  reply.tunedOn ? (reply.tunedOn[alternative] ?? {}) : (reply.tuned ?? {});
+
 // The knob values a reply carries: each chosen option's `set`, then tuning,
-// which wins, as in the viewer's resolveKnobs.
+// which wins, as in the viewer's resolveKnobs. With an alternative, its own tuning;
+// without, the reply's design-wide `tuned` (the Main frame's).
 export function replyValues(
-  reply: Pick<Reply, "answers" | "tuned">,
+  reply: Pick<Reply, "answers"> & Tuned,
   design: Pick<Design, "asks">,
+  alternative?: string,
 ): Record<string, KnobValue> {
   const out: Record<string, KnobValue> = {};
   for (const ask of design.asks) {
@@ -51,24 +60,44 @@ export function replyValues(
     const ids = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
     for (const id of ids) Object.assign(out, ask.options.find((o) => o.id === id)?.set ?? {});
   }
-  return { ...out, ...reply.tuned };
+  return { ...out, ...(alternative === undefined ? reply.tuned : tunedFor(reply, alternative)) };
 }
 
 // Every value the user has sent, oldest reply first so a later answer or tune
-// replaces an earlier one. Values the knobs declared now can't hold drop out:
-// the agent may have renamed or narrowed a knob since.
+// replaces an earlier one, for one alternative or (none named) as `replyValues`
+// reads the design. Values the knobs declared now can't hold drop out: the agent
+// may have renamed or narrowed a knob since.
 export function settledValues(
-  replies: Pick<Reply, "answers" | "tuned">[],
+  replies: (Pick<Reply, "answers"> & Tuned)[],
   design: Pick<Design, "asks" | "knobs">,
   posts: (Pick<Post, "knobs"> & { surfaces?: Post["surfaces"] })[],
+  alternative?: string,
 ): Record<string, KnobValue> {
   const all: Record<string, KnobValue> = {};
-  for (const r of replies) Object.assign(all, replyValues(r, design));
+  for (const r of replies) Object.assign(all, replyValues(r, design, alternative));
   const out: Record<string, KnobValue> = {};
   for (const [path, value] of Object.entries(all)) {
     const config = knobFor(path, design, posts);
     const checked = config === undefined ? null : checkKnobValue(path, config, value);
     if (checked?.ok) out[path] = checked.value;
+  }
+  return out;
+}
+
+// The alternatives whose settled values differ from the design-wide ones, each with
+// all of its own. Empty until a reply tuned one frame apart from the others.
+export function settledByAlternative(
+  replies: (Pick<Reply, "answers"> & Tuned)[],
+  design: Pick<Design, "asks" | "knobs">,
+  posts: (Pick<Post, "knobs" | "alternative"> & { surfaces?: Post["surfaces"] })[],
+  settled: Record<string, KnobValue>,
+): Record<string, Record<string, KnobValue>> {
+  const out: Record<string, Record<string, KnobValue>> = {};
+  if (!replies.some((r) => r.tunedOn)) return out;
+  const same = JSON.stringify(settled);
+  for (const name of new Set(posts.map((p) => p.alternative))) {
+    const own = settledValues(replies, design, posts, name);
+    if (JSON.stringify(own) !== same) out[name] = own;
   }
   return out;
 }
@@ -135,7 +164,7 @@ function tree(
 export function decisionsFor(
   design: Design,
   posts: Post[],
-  reply: Pick<Reply, "answers" | "tuned" | "borrowed">,
+  reply: Pick<Reply, "answers" | "tuned" | "tunedOn" | "borrowed">,
 ): Decisions | null {
   const values = replyValues(reply, design);
   const states: Record<string, StateDecision> = {};
@@ -147,7 +176,12 @@ export function decisionsFor(
     for (const s of slots) slotPaths.add(s.part);
     states[state ?? ""] = {
       alternative: post.alternative,
-      parts: tree(slots, chosenSwaps(slots, values), null, reply.borrowed ?? {}),
+      parts: tree(
+        slots,
+        chosenSwaps(slots, replyValues(reply, design, post.alternative)),
+        null,
+        reply.borrowed ?? {},
+      ),
     };
   }
   const knobs = Object.fromEntries(Object.entries(values).filter(([p]) => !slotPaths.has(p)));

@@ -127,7 +127,7 @@ import {
   fullAgentDecisionLog,
   parseDecisionEdits,
 } from "./decisionLog.ts";
-import { chosenSwaps, decisionsFor, settledValues } from "./decisions.ts";
+import { chosenSwaps, decisionsFor, settledByAlternative, settledValues } from "./decisions.ts";
 import {
   checkAnswerSwap,
   checkAnswerStyle,
@@ -205,6 +205,8 @@ import {
   isSandboxedSurfaceKind,
   type AnswerAddition,
   type AnswerCombo,
+  type TunedOn,
+  tunedCount,
   type AnswerStanding,
   type Knobs,
   type KnobValue,
@@ -1900,6 +1902,15 @@ export function createApp({
     );
   }
 
+  // What a read says the user has sent: the values every frame wears, and the frames
+  // tuned apart from them, each with all of its own.
+  async function settledViews(design: Design, posts: Post[]) {
+    const replies = await replyPayloads(design.id);
+    const settled = settledValues(replies, design, posts);
+    const settledOn = settledByAlternative(replies, design, posts, settled);
+    return { settled, ...(Object.keys(settledOn).length ? { settledOn } : {}) };
+  }
+
   // Resolves tags to bodies: the tag's version if it pins one, else a peek
   // (`overrides`, slug → version) the viewer asked for, else the latest. The
   // body shows the component as decided: its slots composed to the swaps its
@@ -1927,6 +1938,7 @@ export function createApp({
             await replyPayloads(design.id),
             design,
             await store.listPosts({ designId: design.id }),
+            post.alternative,
           )
         : {};
       const slots = slotsInSurfaces(surfaces);
@@ -2953,7 +2965,8 @@ export function createApp({
   // this one; another state's questions, parts and comments did not. What
   // can't be placed (free text, a close, a design-wide question) counts.
   function speaksToState(
-    r: Pick<Reply, "answers" | "borrowed" | "tuned" | "comments" | "others" | "askComments"> &
+    r: Pick<Reply, "answers" | "borrowed" | "tunedOn" | "comments" | "others" | "askComments"> &
+      Partial<Pick<Reply, "tuned">> &
       Partial<
         Pick<
           Reply,
@@ -2988,7 +3001,9 @@ export function createApp({
       r.verdict?.state === state ||
       asked.some(askAbout) ||
       Object.entries(r.borrowed).some(([part, from]) => parts.has(part) || names.has(from)) ||
-      Object.keys(r.tuned).length > 0 ||
+      (r.tunedOn
+        ? Object.entries(r.tunedOn).some(([n, v]) => names.has(n) && Object.keys(v).length > 0)
+        : Object.keys(r.tuned ?? {}).length > 0) ||
       r.comments.some((c) => c.state === state)
     );
   }
@@ -3047,13 +3062,14 @@ export function createApp({
     [
       d.answers,
       d.borrowed,
-      d.tuned,
       d.others,
       d.askComments,
       d.otherImages,
       d.askCommentImages,
       d.answerComments,
-    ].some((x) => x && Object.keys(x).length > 0) || d.comments.length > 0;
+    ].some((x) => x && Object.keys(x).length > 0) ||
+    tunedCount(d.tunedOn) > 0 ||
+    d.comments.length > 0;
 
   // Amend and withdraw rewrite a version in place, so only its own session
   // may, and only while the user hasn't acted on it.
@@ -4086,7 +4102,7 @@ export function createApp({
       ...(query.viewer && ideas.length ? { decisionsFrom: ideas.map((i) => i.slug) } : {}),
       body: query.body,
       history: query.history,
-      settled: settledValues(await replyPayloads(design.id), design, posts),
+      ...(await settledViews(design, posts)),
       instances,
       builtFrom: await builtFromOf(
         design.project,
@@ -4306,7 +4322,12 @@ export function createApp({
             ? withAnswerAdditions(html.html, design.answerAdditions)
             : "";
         const slots = slotsInSurfaces([{ kind: "html", html: raw }]);
-        const composed = slots.length ? composeSwaps(raw, chosenSwaps(slots, settled)) : raw;
+        const composed = slots.length
+          ? composeSwaps(
+              raw,
+              chosenSwaps(slots, settledValues(replies, design, posts, post.alternative)),
+            )
+          : raw;
         entries.push({
           state,
           ...(design.variants ? { variant: post.alternative } : { alternative: post.alternative }),
@@ -5209,6 +5230,25 @@ export function createApp({
     return out;
   }
 
+  // Each alternative's tuned values, checked against the knobs declared now. An
+  // alternative that is gone (withdrawn, moved away) takes its tune with it rather than
+  // refusing the whole draft, which the viewer sends whole on every write.
+  function sanitizeTunedOn(raw: unknown, knobs: Knobs, posts: Post[]): TunedOn | string {
+    if (raw === undefined || raw === null) return {};
+    if (typeof raw !== "object" || Array.isArray(raw)) {
+      return "tunedOn must be an object of alternative → knob path → value";
+    }
+    const out: TunedOn = {};
+    for (const [alternative, values] of Object.entries(raw as Record<string, unknown>)) {
+      const own = posts.filter((p) => p.alternative === alternative);
+      if (!own.length) continue;
+      const checked = checkKnobValues(values, { knobs }, own, `tunedOn.${alternative}`);
+      if (!checked.ok) return checked.error;
+      if (Object.keys(checked.value).length) out[alternative] = checked.value;
+    }
+    return out;
+  }
+
   // A draft, validated against the design as it is now: unknown asks, options,
   // alternatives, knob paths or out-of-range values are refused, never stored.
   async function sanitizeDraft(
@@ -5225,13 +5265,8 @@ export function createApp({
     const borrowed = sanitizeBorrowed(pick("borrowed"), posts);
     if (typeof borrowed === "string") return borrowed;
     const projectKnobs = (await systemFor(design.project))?.knobs;
-    const tuned = checkKnobValues(
-      pick("tuned"),
-      { knobs: { ...projectKnobs, ...design.knobs } },
-      posts,
-      "tuned",
-    );
-    if (!tuned.ok) return tuned.error;
+    const tunedOn = sanitizeTunedOn(pick("tunedOn"), { ...projectKnobs, ...design.knobs }, posts);
+    if (typeof tunedOn === "string") return tunedOn;
     const comments = sanitizePartComments(pick("comments"), design, posts);
     if (typeof comments === "string") return comments;
     const others = sanitizeAskTexts(pick("others"), design, posts, "others");
@@ -5269,7 +5304,7 @@ export function createApp({
       version,
       answers,
       borrowed,
-      tuned: tuned.value,
+      tunedOn,
       comments,
       others,
       askComments,
@@ -5504,6 +5539,36 @@ export function createApp({
     return run;
   }
 
+  // The frame on screen when the user pressed Send.
+  function shownArg(raw: any): { state: string | null; alternative: string } | null {
+    const alternative = str(raw?.alternative, MAX_LABEL);
+    if (!alternative) return null;
+    return { state: typeof raw?.state === "string" ? raw.state : null, alternative };
+  }
+
+  // The frame whose tune a reply's design-wide `tuned` carries. Until frames have a Main
+  // mark: the alternative in use after this reply (on the state on screen first), else
+  // the one on screen, else the only one tuned.
+  function mainFrame(
+    posts: Post[],
+    flips: { accept: Map<string, number>; archive: Set<string>; release: Set<string> },
+    shown: { state: string | null; alternative: string } | null,
+    tunedOn: TunedOn,
+  ): string | null {
+    const inUse = posts.filter(
+      (p) =>
+        flips.accept.has(p.id) ||
+        (p.status === "accepted" && !flips.archive.has(p.id) && !flips.release.has(p.id)),
+    );
+    const tuned = Object.keys(tunedOn);
+    return (
+      (shown && inUse.find((p) => p.state === shown.state)?.alternative) ??
+      inUse[0]?.alternative ??
+      shown?.alternative ??
+      (tuned.length === 1 ? tuned[0] : null)
+    );
+  }
+
   async function replyFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const found = await resolveDesign(ref);
@@ -5550,7 +5615,7 @@ export function createApp({
       !verdict &&
       !Object.keys(draft.answers).length &&
       !Object.keys(draft.borrowed).length &&
-      !Object.keys(draft.tuned).length &&
+      !tunedCount(draft.tunedOn) &&
       !draft.comments.length &&
       !Object.keys(draft.others ?? {}).length &&
       !Object.keys(draft.askComments ?? {}).length &&
@@ -5577,7 +5642,8 @@ export function createApp({
       ...(comboName ? { combo: comboName } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
-      tuned: draft.tuned,
+      tuned: {},
+      ...(tunedCount(draft.tunedOn) ? { tunedOn: draft.tunedOn } : {}),
       comments: draft.comments,
       ...(Object.keys(draft.others ?? {}).length ? { others: draft.others } : {}),
       ...(Object.keys(draft.askComments ?? {}).length ? { askComments: draft.askComments } : {}),
@@ -5594,6 +5660,8 @@ export function createApp({
       sentAsk(draft.answers[a.id] === undefined ? a : withAddedAnswers(a, design, posts), draft),
     );
     const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
+    const main = mainFrame(shipped(design, posts), flips, shownArg(body?.shown), draft.tunedOn);
+    if (main) payload.tuned = draft.tunedOn[main] ?? {};
     const usedHere = await useInTarget(
       design,
       posts,
@@ -6557,7 +6625,7 @@ export function createApp({
     const nothing =
       Object.keys(answers).length === 0 &&
       Object.keys(draft.borrowed).length === 0 &&
-      Object.keys(draft.tuned).length === 0 &&
+      tunedCount(draft.tunedOn) === 0 &&
       draft.comments.length === 0 &&
       Object.keys(draft.others ?? {}).length === 0 &&
       Object.keys(draft.askComments ?? {}).length === 0 &&

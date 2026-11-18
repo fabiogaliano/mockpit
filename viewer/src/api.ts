@@ -24,6 +24,7 @@ import type {
   Draft,
   FlowStep,
   KnobValue,
+  TunedOn,
   DesignKind,
   StateOutline,
   PartComment,
@@ -124,7 +125,7 @@ export interface DraftInput {
   version: number;
   answers: Record<string, AskAnswer>;
   borrowed: Record<string, string>;
-  tuned: Record<string, KnobValue>;
+  tunedOn: TunedOn;
   comments: PartComment[];
   others: Record<string, string>;
   askComments: Record<string, string>;
@@ -322,6 +323,8 @@ export const api = {
       more?: { ask: string; note?: string; like?: string };
       update?: { ask: string; option: string };
       combo?: string;
+      // The frame on screen, whose tune the reply's design-wide `tuned` carries.
+      shown?: { state: string | null; alternative: string };
     },
   ) =>
     call<{ reply: CommentRow }>(`/api/designs/${encodeURIComponent(id)}/reply`, json("POST", body)),

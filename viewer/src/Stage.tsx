@@ -701,7 +701,7 @@ function Board(props: {
     if (!m) return "";
     const knobs =
       index === primary()
-        ? { ...draftKnobValues(m, props.alternative.knobs, s.draft()), ...s.preview()?.knobs }
+        ? { ...draftKnobValues(m, props.alternative, s.draft()), ...s.preview()?.knobs }
         : undefined;
     return surfaceUrl(props.alternative.postId, index, {
       version: version(),
@@ -912,7 +912,7 @@ function AlternativeFrame(props: {
     const reported = props.report?.version ?? props.ready;
     if (!m || reported === undefined) return;
     const values = {
-      ...draftKnobValues(m, props.alternative.knobs, s.draft()),
+      ...draftKnobValues(m, props.alternative, s.draft()),
       ...(props.active ? (s.preview()?.knobs ?? {}) : {}),
     };
     const k = `${reported}|${JSON.stringify(values)}`;
@@ -1030,9 +1030,9 @@ function AlternativeFrame(props: {
                         // over one value it can't check, which would blank the stage.
                         const declared = { ...m.knobs, ...props.alternative.knobs };
                         return Object.fromEntries(
-                          Object.entries(
-                            draftKnobValues(m, props.alternative.knobs, s.draft()),
-                          ).filter(([path]) => path in declared),
+                          Object.entries(draftKnobValues(m, props.alternative, s.draft())).filter(
+                            ([path]) => path in declared,
+                          ),
                         );
                       })
                     : undefined,

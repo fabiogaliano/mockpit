@@ -20,7 +20,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { isLive } from "../../server/types.ts";
+import { isLive, tunedCount } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { AnswerCombos, AnsweredLines, keptGroups } from "./Kept.tsx";
@@ -574,7 +574,7 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
     comments()
       .slice(0, i + 1)
       .filter((c) => c.anchor).length;
-  const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length;
+  const tuned = () => tunedCount(s.draft()?.tunedOn);
   const borrowed = () => Object.keys(s.draft()?.borrowed ?? {}).length;
   const elsewhere = () => s.flow()[0];
   return (

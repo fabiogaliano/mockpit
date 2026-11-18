@@ -39,6 +39,7 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
         ],
         "borrowed": { "body": "quiet" },
         "tuned": { "body.size": 19 },
+        "tunedOn": { "dark": { "body.size": 19 } },
         "decisions": {
           "states": {
             "Writing": {
@@ -93,8 +94,9 @@ without taking any feedback.
    question, each `{id, url}`; the text may then be `""`. Look at every one: over MCP
    they also arrive as image content; elsewhere fetch the `url` (with your token, if
    the server has one) and open the file.
-2. `tuned` holds knob values. Write them back into the source as the new defaults
-   (`skills/tunekit` in the tunekit package covers applying copied values).
+2. `tunedOn` holds each frame's tuned knob values, by alternative: write each back into
+   that alternative's source as its new defaults (`skills/tunekit` in the tunekit package
+   covers applying copied values). `tuned` repeats the frame in use's, for one release.
 3. `borrowed` maps a part to the alternative it was borrowed from. Compose that part from
    the other alternative into the chosen one. If a borrow conflicts with an answer, the
    answer wins.
@@ -349,7 +351,8 @@ mockpit read    --decisions               # the whole decision log, when a read 
   into the codebase in its own language and components; mockpit does not
   generate code.
 - `settled` (on `read` and `export`) is every knob value the user has sent: each answered
-  option's `set` and each tuned value, later replies winning. The viewer renders later
+  option's `set` and each tuned value, later replies winning; `settledOn` (on `read`) has
+  every value of each frame tuned apart from the others, by alternative. The viewer renders later
   questions and the frame in Focus on top of it, so ask the deciding question first and its
   dependents after.
 - `standings` (on `read`), by question id, is what the user said about answers besides

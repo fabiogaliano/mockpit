@@ -16,6 +16,8 @@ import {
   type PartComment,
   type Reply,
   sameScreen,
+  tunedCount,
+  type TunedOn,
 } from "../../server/types.ts";
 import { needsBuiltinAsk } from "../../server/alternativeQuestion.ts";
 import { owedStates, type StateOutlineRow } from "../../server/coverage.ts";
@@ -35,7 +37,7 @@ export const emptyDraft = (version: number): DraftInput => ({
   version,
   answers: {},
   borrowed: {},
-  tuned: {},
+  tunedOn: {},
   comments: [],
   others: {},
   askComments: {},
@@ -59,10 +61,7 @@ export const draftIsEmpty = (d: DraftInput | null): boolean => !d || sendCount(d
 // Everything one Send carries, as the count on the button. A question counts
 // once however it was answered (pick, write-in, note, or a pick with a note).
 export const sendCount = (d: DraftInput): number =>
-  draftAsks(d).size +
-  Object.keys(d.borrowed).length +
-  Object.keys(d.tuned).length +
-  d.comments.length;
+  draftAsks(d).size + Object.keys(d.borrowed).length + tunedCount(d.tunedOn) + d.comments.length;
 
 // What a draft adds to a reply sent some other way than Send, in the fewest words:
 // comments by name, since those are what say what to change.
@@ -518,6 +517,7 @@ export function summarizeReply(
     | "answers"
     | "borrowed"
     | "tuned"
+    | "tunedOn"
     | "comments"
     | "text"
     | "verdict"
@@ -548,8 +548,14 @@ export function summarizeReply(
   }
   const borrowed = Object.entries(reply.borrowed).map(([part, v]) => `${part} from ${v}`);
   if (borrowed.length) parts.push(borrowed.join(", "));
-  const tuned = Object.entries(reply.tuned).map(([k, v]) => `${k} ${fmtValue(v)}`);
-  if (tuned.length) parts.push(`tuned ${tuned.join(", ")}`);
+  const tunedLine = (values: Record<string, KnobValue>) =>
+    Object.entries(values)
+      .map(([k, v]) => `${k} ${fmtValue(v)}`)
+      .join(", ");
+  if (reply.tunedOn) {
+    for (const [alternative, values] of Object.entries(reply.tunedOn))
+      if (Object.keys(values).length) parts.push(`${alternative} tuned ${tunedLine(values)}`);
+  } else if (Object.keys(reply.tuned).length) parts.push(`tuned ${tunedLine(reply.tuned)}`);
   const reacted = reply.comments.filter((c) => c.reaction).length;
   const borrows = reply.comments.filter((c) => c.borrow).length;
   const n = reply.comments.length - reacted - borrows;
@@ -592,12 +598,16 @@ export function carryOver(
     if (alternatives.some((v) => v.alternative === alternative && v.parts.includes(part)))
       mix[part] = alternative;
   }
-  const paths = new Set([
-    ...Object.keys(design.knobs),
-    ...alternatives.flatMap((v) => Object.keys(v.knobs ?? {})),
-  ]);
-  const tuned: Record<string, KnobValue> = {};
-  for (const [k, v] of Object.entries(draft.tuned)) if (paths.has(k)) tuned[k] = v;
+  const tunedOn: TunedOn = {};
+  for (const [alternative, values] of Object.entries(draft.tunedOn)) {
+    const own = alternatives.filter((v) => v.alternative === alternative);
+    const paths = new Set([
+      ...Object.keys(design.knobs),
+      ...own.flatMap((v) => Object.keys(v.knobs ?? {})),
+    ]);
+    const kept = Object.fromEntries(Object.entries(values).filter(([k]) => paths.has(k)));
+    if (own.length && Object.keys(kept).length) tunedOn[alternative] = kept;
+  }
   // Words the user wrote outlive the part or alternative they were written on: the
   // comment still names both, so it can go out with the Send rather than vanish.
   const comments = draft.comments;
@@ -606,7 +616,7 @@ export function carryOver(
       version: toVersion,
       answers,
       borrowed: mix,
-      tuned,
+      tunedOn,
       comments,
       others: known(draft.others),
       askComments: known(draft.askComments),
@@ -745,20 +755,27 @@ export function knobDefault(cfg: KnobConfig): KnobValue | undefined {
   return undefined;
 }
 
+// What the replies sent settled on one frame: its own where it was tuned apart.
+export const settledOf = (
+  design: Pick<DesignDetail, "settled" | "settledOn">,
+  alternative: string | undefined,
+): Record<string, KnobValue> =>
+  (alternative !== undefined ? design.settledOn?.[alternative] : undefined) ?? design.settled;
+
 // The knob values a frame should show for the draft: declared defaults (a part
 // knob inheriting the global it refines), then what was already sent, then
-// answered knob-set options, then tuned values.
+// answered knob-set options, then the frame's own tuned values.
 export function draftKnobValues(
-  design: Pick<DesignDetail, "asks" | "knobs" | "settled">,
-  alternativeKnobs: Knobs | undefined,
+  design: Pick<DesignDetail, "asks" | "knobs" | "settled" | "settledOn">,
+  frame: Pick<AlternativeView, "alternative" | "knobs">,
   draft: DraftInput | null,
 ): Record<string, KnobValue> {
   return resolveKnobs({
-    knobs: { ...design.knobs, ...alternativeKnobs },
+    knobs: { ...design.knobs, ...frame.knobs },
     asks: design.asks,
     answers: draft?.answers ?? {},
-    tuned: draft?.tuned ?? {},
-    settled: design.settled,
+    tuned: draft?.tunedOn[frame.alternative] ?? {},
+    settled: settledOf(design, frame.alternative),
   });
 }
 

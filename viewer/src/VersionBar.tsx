@@ -4,6 +4,7 @@
 // behind one menu (VersionMenu).
 
 import { createSignal, For, Show } from "solid-js";
+import { tunedCount } from "../../server/types.ts";
 import { backFromChanged } from "./ChangedNote.tsx";
 import { comparable } from "./Compare.tsx";
 import { readonly } from "./host.ts";
@@ -166,7 +167,7 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
 // Try and Comment need a page to hand taps to or pin on; Tune needs something to tune.
 export function CanvasTools(props: { s: DesignScreenState; page: boolean }) {
   const s = props.s;
-  const tuned = () => Object.keys(s.draft()?.tuned ?? {}).length > 0;
+  const tuned = () => tunedCount(s.draft()?.tunedOn) > 0;
   const tool = (name: "try" | "mark" | "tune", label: string) => (
     <button
       type="button"

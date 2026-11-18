@@ -536,7 +536,8 @@ const feedbackSchema = o({
       }),
     ),
     borrowed: bag.describe("Part → the alternative to take it from"),
-    tuned: bag,
+    tuned: bag.describe("The frame in use's tuned knobs (else the one on screen)"),
+    tunedOn: bag.optional().describe("Alternative → its tuned knobs: a tune belongs to one frame"),
     comments: z.array(o({ part: nullStr, text: str })),
     reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (alternative B)'),
     verdict: entryNamed({ kind: z.enum(["use", "revise"]), state: nullStr })
@@ -705,6 +706,7 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
         "Without design: what the project's renders wear (rev, palettes, counts, failing checks)",
       ),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
+    settledOn: bag.optional().describe("Alternative → its settled values, where tuned apart"),
     tree: z.array(bag).optional(),
     spec: bag.optional(),
     ready: bag
