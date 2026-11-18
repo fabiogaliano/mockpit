@@ -66,8 +66,14 @@ export type Route =
       flow: string | null;
       // A question Needs you named, until Focus has gone to it.
       question: string | null;
+      // Open on the sheet (sheet.ts): the knob across, null for the looks, and the one
+      // frame down if not all of them.
+      sheet: { knob: string | null; one: string | null } | null;
     }
   | { screen: "missing" };
+
+// A sheet address's word for the looks across, which no knob path can be.
+export const SHEET_LOOKS = "@looks";
 
 export type ScreenOpen = {
   state: string | null;
@@ -102,7 +108,8 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
     return { screen: "missing" };
   }
   if (seg[0] === "project" && seg[1]) {
-    if (seg[2] && !focus) {
+    // A sheet's link is for laying frames out, which only Focus does.
+    if (seg[2] && !focus && !q.has("sheet")) {
       return board(dec(seg[1]), {
         slug: dec(seg[2]),
         ...(q.has("state") ? { state: q.get("state") } : {}),
@@ -126,6 +133,12 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
             : null,
         flow: q.get("flow") || null,
         question: q.get("question") || null,
+        sheet: q.has("sheet")
+          ? {
+              knob: [SHEET_LOOKS, ""].includes(q.get("sheet")!) ? null : q.get("sheet"),
+              one: q.get("one") || null,
+            }
+          : null,
       };
     }
     const sel = parseSel(q.get("sel"));

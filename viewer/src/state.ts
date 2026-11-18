@@ -101,6 +101,8 @@ import {
 } from "./logic.ts";
 import { createDesignData } from "./designData.ts";
 import { createOnScreen, type PanelTab, type Preview, type Tool } from "./onScreen.ts";
+import { createSheet } from "./sheet.ts";
+import { createStills } from "./stills.ts";
 import { cameFrom, designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
@@ -2609,6 +2611,27 @@ export function createDesignScreen(
     setFlagged(moved.flagged);
   }
 
+  const stills = createStills(() => design()?.id);
+  const sheet = createSheet({
+    project,
+    design,
+    draft,
+    activeState,
+    activeAlternative,
+    inState,
+    frameVersionOf: versionOf,
+    looksHere,
+    product,
+    view: view.sheet,
+    chooseAlternative,
+    setHeldPreview,
+    tool,
+    toggleTool,
+    setToast,
+    fail,
+    stills,
+  });
+
   const onPop = (e: PopStateEvent) => restoreSnap(e.state);
   host().window.addEventListener("popstate", onPop);
   onCleanup(() => host().window.removeEventListener("popstate", onPop));
@@ -2847,6 +2870,7 @@ export function createDesignScreen(
     setReports,
     frameVersionOf: versionOf,
     answersBaseOf,
+    sheet,
   };
 }
 

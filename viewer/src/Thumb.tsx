@@ -43,6 +43,9 @@ export function Thumb(props: {
   // What the user is deciding from: ahead of every other picture on the screen,
   // however many the margins started before it.
   first?: boolean;
+  // A part to crop to, where the page reports one of that name: a sheet's cell shows what
+  // its knob changes.
+  part?: string | null;
 }) {
   let box!: HTMLDivElement;
   let frameEl: HTMLIFrameElement | undefined;
@@ -51,6 +54,8 @@ export function Thumb(props: {
   const [docH, setDocH] = createSignal<number | null>(null);
   // Near the screen and its turn has come: only then does the page start.
   const [started, setStarted] = createSignal(false);
+  // The part's box in document px, from the page's own parts report.
+  const [partBox, setPartBox] = createSignal<Focus | null>(null);
   let endTurn = () => {};
   const sendKnobs = () => {
     const values = props.knobs;
@@ -86,6 +91,17 @@ export function Thumb(props: {
     const onMessage = (e: MessageEvent) => {
       if (!frameEl || e.source !== frameEl.contentWindow) return;
       const d = e.data as Record<string, unknown> | null;
+      if (d?.__mockpit === true && d.type === "parts" && props.part) {
+        const found = (Array.isArray(d.parts) ? d.parts : []).find(
+          (p: { name?: unknown; visible?: unknown }) => p?.name === props.part && p.visible,
+        ) as { box?: Record<string, unknown> } | undefined;
+        const b = found?.box;
+        const n = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : NaN);
+        const box = b ? { x: n(b.x), y: n(b.y), w: n(b.w), h: n(b.h) } : null;
+        if (box && Object.values(box).every((v) => !Number.isNaN(v)) && box.w > 0 && box.h > 0)
+          setPartBox(box);
+        return;
+      }
       if (!d || d.__mockpit !== true || d.type !== "resize") return;
       const h = typeof d.height === "number" && Number.isFinite(d.height) ? d.height : 0;
       if (h > 0) setDocH(Math.min(h, 20000));
@@ -110,7 +126,7 @@ export function Thumb(props: {
       const s = Math.min(w / frameW, h / doc);
       return { s, x: (w - frameW * s) / 2, y: (h - doc * s) / 2, h, frameH: doc };
     }
-    const fit = fitThumb(w, h, doc, props.focus ?? null, frameW);
+    const fit = fitThumb(w, h, doc, props.focus ?? partBox(), frameW);
     return props.fit && fit.h < h ? { ...fit, y: fit.y + (h - fit.h) / 2 } : fit;
   };
   return (

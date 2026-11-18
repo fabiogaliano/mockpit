@@ -7,7 +7,7 @@ import { createEffect, createMemo, createResource, For, Index, on, Show } from "
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, partLabel, screenPicture, versionName } from "./logic.ts";
+import { designWidth, knobPart, partLabel, screenPicture, versionName } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
 import { SaveLook } from "./Looks.tsx";
 import type { DesignScreenState } from "./state.ts";
@@ -210,9 +210,24 @@ function PartToggle(props: { s: DesignScreenState; part: string | null; label: s
 function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
   const s = props.s;
   const borrow = () => s.mixOpts().filter((o) => o.part === props.part);
+  const spreads = () =>
+    s.sheet.available() ? s.sheet.choiceKnobs().filter((k) => knobPart(k.path) === props.part) : [];
   return (
     <div class="knobs">
       <div class="tune-knobs" ref={(el) => s.setTuneHost(el)} />
+      <For each={spreads()}>
+        {(k) => (
+          <button
+            type="button"
+            class="spread-row"
+            title={`This frame in every ${k.label.toLowerCase()}, side by side`}
+            onClick={() => s.sheet.spread(k.path)}
+          >
+            <span>{k.label}</span>
+            <span class="borrow-act">Spread</span>
+          </button>
+        )}
+      </For>
       {/* By position: the options are rebuilt on every parts report, and a
           row remounted under the pointer would lose its hover. */}
       <Index each={borrow()}>

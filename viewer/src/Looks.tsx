@@ -2,7 +2,7 @@
 // designs with the same knobs. The strip under the frame offers the design's own and
 // those of designs that declare every knob a look sets; Tune saves the frame's as one.
 
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import type { LookView } from "./api.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -27,6 +27,7 @@ export function LooksStrip(props: { s: DesignScreenState }) {
                 previewing: s.preview()?.key === s.lookKey(l),
               }}
             >
+              <LookStill s={s} look={l} />
               <button
                 type="button"
                 class="look-b"
@@ -58,6 +59,29 @@ export function LooksStrip(props: { s: DesignScreenState }) {
           )}
         </For>
       </div>
+    </Show>
+  );
+}
+
+// The frame on stage in the look, once a still of it is made: the strip asks for one as the
+// sheet does, and shows nothing in its place until then.
+function LookStill(props: { s: DesignScreenState; look: LookView }) {
+  const sh = props.s.sheet;
+  const cell = () => {
+    const v = props.s.activeAlternative();
+    return v ? sh.cell(v, sh.lookColumn(props.look)) : null;
+  };
+  const src = () => {
+    const c = cell()?.still;
+    return c ? sh.stills.of(c) : null;
+  };
+  createEffect(() => {
+    const c = cell()?.still;
+    if (c && !src()) sh.stills.want(c);
+  });
+  return (
+    <Show when={src()}>
+      {(url) => <img class="look-pic" src={url()} alt="" decoding="async" draggable={false} />}
     </Show>
   );
 }

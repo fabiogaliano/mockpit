@@ -60,6 +60,7 @@ import { QuestionDot, questionDotted } from "./QuestionDot.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
 import { LooksStrip } from "./Looks.tsx";
+import { Sheet } from "./Sheet.tsx";
 import { Present } from "./Present.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { SideBySide, sideAsk } from "./SideBySide.tsx";
@@ -75,6 +76,7 @@ import {
   projectPath,
   replaceUrl,
   route,
+  SHEET_LOOKS,
 } from "./route.ts";
 import { usePopover } from "./popover.ts";
 import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
@@ -217,6 +219,7 @@ export function DesignScreen(props: {
     if (!s.design()) return;
     s.activeState();
     s.stagePick();
+    s.sheet.view();
     host().window.clearTimeout(urlTimer);
     urlTimer = host().window.setTimeout(() => {
       const w = host().window;
@@ -229,6 +232,9 @@ export function DesignScreen(props: {
       put("state", s.activeState());
       put("alternative", pick?.alternative);
       put("version", pick?.version);
+      const sheet = s.sheet.view();
+      put("sheet", sheet ? (sheet.knob ?? SHEET_LOOKS) : null);
+      put("one", sheet?.one);
       q.delete("owed");
       q.delete("question");
       const next = q.size ? `?${q}` : "";
@@ -270,6 +276,21 @@ export function DesignScreen(props: {
       { defer: true },
     ),
   );
+  // A sheet's link opens on it, once the design has said what it can lay out.
+  let sheetAsked: ReturnType<typeof route> | null = untrack(route);
+  // The link was Focus's to open, so this entry is Focus's: the sheet leaving the address
+  // must not take it to the Board.
+  if (sheetAsked.screen === "design" && sheetAsked.sheet) {
+    const w = host().window;
+    navigate(`${w.location.pathname}${w.location.search}`, { replace: true, focus: true });
+  }
+  createEffect(() => {
+    const r = sheetAsked;
+    if (r?.screen !== "design" || !r.sheet || !s.design() || !s.sheet.available()) return;
+    sheetAsked = null;
+    const at = r.sheet;
+    untrack(() => s.sheet.open(at));
+  });
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   // Played from the Board's ▶ or P: the flow full screen, ended back on the Board.
   const presenting = opening.has("present");
@@ -466,6 +487,7 @@ export function DesignScreen(props: {
       else if (s.askingState()) s.setAskingState(null);
       else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
+      else if (s.sheet.view()) s.sheet.close();
       else if (s.design())
         upToBoard(boardHome(s.design()!, s.activeState(), s.activeAlternative()?.alternative).href);
       else return;
@@ -660,9 +682,13 @@ export function DesignScreen(props: {
                 />
               }
             >
-              <Stage s={s} onGoto={nav.follow} />
-              <Show when={sideRow()}>{(ask) => <SideBySide s={s} ask={ask()} />}</Show>
-              <Show when={!sideRow() && comparing() && s.stageStep()}>
+              <Show when={s.sheet.view()} fallback={<Stage s={s} onGoto={nav.follow} />}>
+                <Sheet s={s} />
+              </Show>
+              <Show when={!s.sheet.view() && sideRow()}>
+                {(ask) => <SideBySide s={s} ask={ask()} />}
+              </Show>
+              <Show when={!s.sheet.view() && !sideRow() && comparing() && s.stageStep()}>
                 <CompareTwo
                   s={s}
                   before={comparing()!}
@@ -671,7 +697,7 @@ export function DesignScreen(props: {
                   onClose={() => setComparing(null)}
                 />
               </Show>
-              <Show when={m.ghosts()}>
+              <Show when={m.ghosts() && !s.sheet.view()}>
                 <Ghost s={s} nav={nav} by={-1} />
                 <Ghost s={s} nav={nav} by={1} />
               </Show>
@@ -700,7 +726,9 @@ export function DesignScreen(props: {
           </Show>
           <SentNote s={s} slug={props.slug} />
           <Show when={s.design()}>
-            <LooksStrip s={s} />
+            <Show when={!s.sheet.view()}>
+              <LooksStrip s={s} />
+            </Show>
             <StateAsk s={s} />
             <Show when={phoneLayout()}>
               <Show when={reading()}>
@@ -795,7 +823,7 @@ function FocusBar(props: {
 }) {
   const s = props.s;
   const m = props.m;
-  const page = () => !props.reading && props.drawn && !props.sideRow;
+  const page = () => !props.reading && props.drawn && !props.sideRow && !s.sheet.view();
   return (
     <div class="fbar" role="toolbar" aria-label="Tools">
       <Show when={m.leftTab()}>
@@ -979,6 +1007,9 @@ function TopRow(props: {
           </nav>
           <ReadyMark s={s} />
         </div>
+        <Show when={!phoneLayout() && !props.reading && s.sheet.available()}>
+          <SheetSwitch s={s} />
+        </Show>
         <Show when={s.design()}>
           <Show
             when={!phoneLayout()}
@@ -1163,6 +1194,34 @@ function TopRow(props: {
         {props.bar}
         {props.panels}
       </div>
+    </div>
+  );
+}
+
+// One frame or the sheet, where there is something to lay out. On a screen or a component
+// the sheet opens in an idea for it, so Sheet says where it goes.
+function SheetSwitch(props: { s: DesignScreenState }) {
+  const s = props.s;
+  const on = () => !!s.sheet.view();
+  return (
+    <div class="seg sheetsw" role="group" aria-label="View">
+      <button
+        type="button"
+        classList={{ on: !on() }}
+        aria-pressed={!on()}
+        onClick={() => s.sheet.close()}
+      >
+        One
+      </button>
+      <button
+        type="button"
+        classList={{ on: on() }}
+        aria-pressed={on()}
+        title={s.product() ? "Lay the frames out in an idea for this design" : undefined}
+        onClick={() => !on() && s.sheet.open(s.sheet.defaultView())}
+      >
+        Sheet
+      </button>
     </div>
   );
 }

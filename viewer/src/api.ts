@@ -9,6 +9,7 @@ import type {
   alternativeView,
 } from "../../server/apiViews.ts";
 import type { LookView } from "../../server/looks.ts";
+import type { StillCell, Stills } from "../../server/stills.ts";
 import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
 import type { FeedEvent } from "../../server/events.ts";
@@ -312,6 +313,14 @@ export const api = {
     body: { name: string } & ({ values: Record<string, KnobValue> } | { remove: true }),
   ) =>
     call<{ looks: LookView[] }>(`/api/designs/${encodeURIComponent(id)}/looks`, json("POST", body)),
+  // A sheet's cached stills, key → asset id, and whether this server can make more.
+  stills: (id: string) =>
+    call<{ stills: Stills; taking: boolean }>(`/api/designs/${encodeURIComponent(id)}/stills`),
+  takeStills: (id: string, cells: Omit<StillCell, "system" | "rewrites">[]) =>
+    call<{ asked: number; taking: boolean }>(
+      `/api/designs/${encodeURIComponent(id)}/stills/take`,
+      json("POST", { cells }),
+    ),
   reply: (
     id: string,
     body: DraftInput & {

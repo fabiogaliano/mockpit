@@ -4859,8 +4859,193 @@ html:has(.design-screen) {
   width: 14px;
   height: 14px;
 }
+.look-pic {
+  width: 28px;
+  height: 25px;
+  margin-left: 3px;
+  border-radius: 999px 4px 4px 999px;
+  object-fit: cover;
+  flex: none;
+}
+.look:has(.look-pic) .look-b {
+  padding-left: 8px;
+}
 .savelook {
   width: 100%;
+}
+
+/* ---------- One / Sheet, and the sheet in place of the frame ---------- */
+.sheetsw {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: 10px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--row);
+}
+.sheetsw button {
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--t4);
+}
+.sheetsw button:hover {
+  color: var(--t1);
+}
+.sheetsw button.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.spread-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  border-radius: var(--r);
+  background: var(--row);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.spread-row:hover {
+  background: var(--row-hover);
+}
+.sheet {
+  position: fixed;
+  top: var(--canvas-top, 0px);
+  right: var(--canvas-r, 0px);
+  bottom: 0;
+  left: var(--canvas-l, 0px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  background: var(--page);
+}
+.sheet-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 6px;
+  font-size: 12.5px;
+  color: var(--t5);
+  background: var(--page);
+}
+.sheet-bar .fchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.fchip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--row);
+  font-size: 12.5px;
+  color: var(--t4);
+}
+.fchip:hover {
+  color: var(--t1);
+}
+.fchip.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.sheet-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--line);
+}
+.sheet-keys {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+  color: var(--t5);
+  font-size: 12px;
+}
+.sheet-keys kbd {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--row);
+  font: 11px var(--mono);
+  color: var(--t3);
+}
+.sheet-grid {
+  display: grid;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px 120px;
+}
+.sheet-h {
+  padding: 2px 0 3px;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--t4);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sheet-h.mine {
+  color: var(--accent);
+}
+.sheet-l {
+  padding-right: 4px;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--t2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sheet-cell {
+  position: relative;
+  display: block;
+  aspect-ratio: 1.12;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--frame);
+  outline: 1px solid var(--engrave);
+  outline-offset: -1px;
+  cursor: pointer;
+}
+.sheet-cell:hover,
+.sheet-cell:focus-visible {
+  outline: 1.5px solid var(--t5);
+}
+.sheet-cell > img,
+.sheet-cell > .thumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.sheet-cell > img {
+  object-fit: cover;
+}
+.sheet-peek {
+  position: absolute;
+  z-index: 15;
+  width: 416px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow:
+    var(--shadow),
+    0 0 0 1px var(--edge);
+  pointer-events: none;
+}
+.sheet-peek-pic {
+  width: 100%;
+  aspect-ratio: 1.3;
+}
+.sheet-peek > div {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 9px;
+  font-size: 12px;
+  color: var(--t2);
 }
 .savelook-form {
   display: flex;

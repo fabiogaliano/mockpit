@@ -1,7 +1,8 @@
 // What Focus has on screen: the state and the alternative chosen on each, what a pointer
 // previews, the question, the part picked, pointed at, tapped or flashed, the canvas tool,
-// the panel, and the part open in Tune. One store, so what is on screen is one thing to
-// read and to move, rather than signals that each part of the screen keeps in step by hand.
+// the panel, the part open in Tune, and the sheet in place of the frame. One store, so what
+// is on screen is one thing to read and to move, rather than signals that each part of the
+// screen keeps in step by hand.
 //
 // Each field reads and writes like the signal it replaced. Objects come back unwrapped: a
 // preview's knob values are posted to frames, and a store proxy can't be cloned.
@@ -32,6 +33,14 @@ export interface Preview {
   part?: string;
 }
 
+// The sheet (Sheet.tsx): frames down, a choice knob's values or the looks across.
+export interface SheetView {
+  // The knob laid out across; null: the looks.
+  knob: string | null;
+  // One frame's row, by alternative; null: every frame of the state.
+  one: string | null;
+}
+
 interface OnScreen {
   state: string | null;
   // The alternative chosen by hand on each state, by String(state).
@@ -55,6 +64,7 @@ interface OnScreen {
   flashLabel: string | null;
   tool: Tool | null;
   panel: PanelTab | null;
+  sheet: SheetView | null;
 }
 
 type Field<K extends keyof OnScreen> = readonly [() => OnScreen[K], (v: OnScreen[K]) => void];
@@ -74,6 +84,7 @@ export function createOnScreen() {
     flashLabel: null,
     tool: null,
     panel: null,
+    sheet: null,
   });
   // Written as a top-level merge, which replaces the field: a nested object set by path
   // would be merged into the old one instead.
@@ -95,5 +106,6 @@ export function createOnScreen() {
     flashLabel: field("flashLabel"),
     tool: field("tool"),
     panel: field("panel"),
+    sheet: field("sheet"),
   };
 }
