@@ -80,8 +80,8 @@ import {
   SHEET_LOOKS,
 } from "./route.ts";
 import { usePopover } from "./popover.ts";
-import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
-import { PreviewTool } from "./PreviewTool.tsx";
+import { PaletteDotNow, PalettePanel, PaletteTool, paletteChoices } from "./PaletteTool.tsx";
+import { PreviewPanel, PreviewTool, previewNow } from "./PreviewTool.tsx";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
 import { carryToast, Toast } from "./toast.tsx";
@@ -649,6 +649,7 @@ export function DesignScreen(props: {
           tabs={m.statesShown()}
           shortlists={shortlists}
           m={m}
+          view={m.active() && !reading() && !undrawn() && !sideRow() && !s.sheet.view()}
           bar={
             <Show when={m.active()}>
               <FocusBar
@@ -853,8 +854,9 @@ function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
   );
 }
 
-// The bar's tools, version and Send. The tools change what a tap on the design does or how
-// it's shown; the version holds everything about versions behind its menu.
+// The bar's tools, version and Send. The tools change what a tap on the design does; how
+// it's shown (width, mode, palette) waits in ⋯. The version holds everything about
+// versions behind its menu.
 function FocusBar(props: {
   s: DesignScreenState;
   m: Margins;
@@ -884,12 +886,6 @@ function FocusBar(props: {
       </Show>
       <Show when={page()}>
         <CanvasTools s={s} page={m.page()} />
-        <Show when={m.previewHas()}>
-          <PreviewTool s={s} qr={m.page()} />
-        </Show>
-        <Show when={paletteChoices(s).length}>
-          <PaletteTool s={s} />
-        </Show>
       </Show>
       <Show when={props.drawn}>
         <VersionMenu
@@ -924,6 +920,8 @@ function TopRow(props: {
   tabs: boolean;
   shortlists: Shortlists;
   m: Margins;
+  // A page on stage, which the preview and the palette act on.
+  view: boolean;
   // The tools, the version and Send: in this row they cost the design no room.
   bar: JSX.Element;
   // The right panel's toggle.
@@ -964,13 +962,23 @@ function TopRow(props: {
     copying.then(() => s.setToast({ text: `Copied: ${name}` }), failed);
   };
   const [more, setMore] = createSignal(false);
+  // ⋯ turns into the preview's or the palette's own panel, in its place.
+  const [sub, setSub] = createSignal<"preview" | "palette" | null>(null);
+  const closeMore = () => {
+    setMore(false);
+    setSub(null);
+  };
+  const preview = previewNow(s);
+  const previewIn = () =>
+    props.view && props.m.previewHas() && (preview.choosing() || props.m.page());
+  const paletteIn = () => props.view && paletteChoices(s).length > 0;
   let moreMenu: HTMLDivElement | undefined;
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
   let pop: HTMLElement | undefined;
   usePopover(
     more,
-    () => setMore(false),
+    closeMore,
     () => btn,
     () => moreMenu,
   );
@@ -1089,11 +1097,22 @@ function TopRow(props: {
                 aria-expanded={more()}
                 aria-haspopup="menu"
                 ref={(el) => (btn = el)}
-                onClick={() => (open() ? setOpen(false) : setMore(!more()))}
+                onClick={() => (open() ? setOpen(false) : more() ? closeMore() : setMore(true))}
               >
                 <Icon name="more" />
               </button>
-              <Show when={more()}>
+              <Show when={more() && sub() === "preview"}>
+                <PreviewPanel
+                  s={s}
+                  qr={props.m.page()}
+                  onDone={closeMore}
+                  ref={(el) => (moreMenu = el)}
+                />
+              </Show>
+              <Show when={more() && sub() === "palette"}>
+                <PalettePanel s={s} onDone={closeMore} ref={(el) => (moreMenu = el)} />
+              </Show>
+              <Show when={more() && !sub()}>
                 <div
                   class="wmenu"
                   role="menu"
@@ -1149,6 +1168,29 @@ function TopRow(props: {
                     <Icon name="thread" />
                     Activity
                   </button>
+                  <Show when={previewIn()}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="dialog"
+                      title={preview.current().label}
+                      onClick={() => setSub("preview")}
+                    >
+                      <Icon name={preview.current().icon} />
+                      Preview
+                    </button>
+                  </Show>
+                  <Show when={paletteIn()}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-haspopup="menu"
+                      onClick={() => setSub("palette")}
+                    >
+                      <PaletteDotNow s={s} />
+                      Palette
+                    </button>
+                  </Show>
                   <button
                     type="button"
                     role="menuitem"

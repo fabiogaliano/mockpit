@@ -4173,7 +4173,8 @@ html:has(.design-screen) {
   position: relative;
   flex: none;
 }
-.mmore .wmenu {
+.mmore .wmenu,
+.mmore > .wpop {
   right: auto;
   left: 0;
 }

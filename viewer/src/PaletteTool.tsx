@@ -1,5 +1,5 @@
-// What the frames are viewed in: a tiny swatch of the palette on screen that opens
-// light or dark and the project's visible palettes. View settings kept per project;
+// What the frames are viewed in: light or dark and the project's visible palettes, from
+// Focus's ⋯, or on a phone a tiny swatch of the palette on screen. View settings kept per project;
 // they settle nothing and send nothing. Shown once the project has a palette.
 
 import { createSignal, For, Show } from "solid-js";
@@ -33,7 +33,97 @@ export const paletteChoices = (s: DesignScreenState): PaletteChoice[] =>
     .filter((p) => p.status !== "hidden")
     .sort((a, b) => ORDER[a.status] - ORDER[b.status]);
 
+// The palette on screen and the mode it's seen in, as the button or the ⋯ item shows it.
+export function paletteNow(s: DesignScreenState) {
+  const project = () => s.design()?.project;
+  const visible = () => paletteChoices(s);
+  const def = () => visible().find((p) => p.status === "default");
+  // A pick the system no longer offers reads as the default, as the server renders it.
+  const current = () => visible().find((p) => p.id === palettePick(project())) ?? def();
+  const mode = () => modePick(project()) ?? theme();
+  const label = () => {
+    const c = current();
+    if (!c) return "";
+    return `View in: ${c.label}${c.status === "default" ? ", the default" : ""}, ${mode()}`;
+  };
+  return { project, visible, current, mode, label };
+}
+
+export function PaletteDotNow(props: { s: DesignScreenState }) {
+  const { current, mode } = paletteNow(props.s);
+  return <Show when={current()}>{(c) => <PaletteDot p={c()} small mode={mode()} />}</Show>;
+}
+
+export function PalettePanel(props: {
+  s: DesignScreenState;
+  onDone: () => void;
+  ref?: (el: HTMLDivElement) => void;
+}) {
+  const { project, visible, current, mode } = paletteNow(props.s);
+  const pickMode = (m: Theme) => {
+    const proj = project();
+    if (proj) setModePick(proj, m);
+  };
+  const choose = (p: PaletteChoice) => {
+    const proj = project();
+    if (proj) setPalettePick(proj, p.status === "default" ? null : p.id);
+    props.onDone();
+  };
+  return (
+    <Show when={current()}>
+      {(c) => (
+        <div class="wpop" ref={props.ref}>
+          <div class="wmenu pmenu" role="menu" aria-label="View in">
+            <div class="pmenu-hd">View in</div>
+            <div class="vswitch pmode" role="group" aria-label="Mode">
+              <For each={MODES}>
+                {(m) => (
+                  <button
+                    type="button"
+                    aria-pressed={mode() === m.id}
+                    disabled={!!c().oneMode}
+                    onClick={() => pickMode(m.id)}
+                  >
+                    {m.label}
+                  </button>
+                )}
+              </For>
+            </div>
+            <Show when={visible().length > 1}>
+              <span class="wpop-sep" />
+            </Show>
+            <For each={visible().length > 1 ? visible() : []}>
+              {(p, i) => (
+                <>
+                  <Show
+                    when={i() > 0 && p.status === "open" && visible()[i() - 1].status !== "open"}
+                  >
+                    <span class="wpop-sep" />
+                  </Show>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={c().id === p.id}
+                    onClick={() => choose(p)}
+                  >
+                    <PaletteDot p={p} small mode={mode()} />
+                    {p.label}
+                    <small>{STATUS_WORD[p.status]}</small>
+                  </button>
+                </>
+              )}
+            </For>
+            <span class="wpop-sep" />
+            <div class="pmenu-note">Preview only</div>
+          </div>
+        </div>
+      )}
+    </Show>
+  );
+}
+
 export function PaletteTool(props: { s: DesignScreenState }) {
+  const { current, mode, label } = paletteNow(props.s);
   const [open, setOpen] = createSignal(false);
   let btn: HTMLButtonElement | undefined;
   let pop: HTMLDivElement | undefined;
@@ -43,28 +133,8 @@ export function PaletteTool(props: { s: DesignScreenState }) {
     () => btn,
     () => pop,
   );
-  const project = () => props.s.design()?.project;
-  const visible = () => paletteChoices(props.s);
-  const def = () => visible().find((p) => p.status === "default");
-  // A pick the system no longer offers reads as the default, as the server renders it.
-  const current = () => visible().find((p) => p.id === palettePick(project())) ?? def();
-  const mode = () => modePick(project()) ?? theme();
   // Away from what the app shows unasked: a palette not the default, or the other mode.
   const away = () => current()?.status !== "default" || mode() !== theme();
-  const label = () => {
-    const c = current();
-    if (!c) return "";
-    return `View in: ${c.label}${c.status === "default" ? ", the default" : ""}, ${mode()}`;
-  };
-  const pickMode = (m: Theme) => {
-    const proj = project();
-    if (proj) setModePick(proj, m);
-  };
-  const choose = (p: PaletteChoice) => {
-    const proj = project();
-    if (proj) setPalettePick(proj, p.status === "default" ? null : p.id);
-    setOpen(false);
-  };
   return (
     <Show when={current()}>
       {(c) => (
@@ -83,53 +153,7 @@ export function PaletteTool(props: { s: DesignScreenState }) {
             <PaletteDot p={c()} mode={mode()} />
           </button>
           <Show when={open()}>
-            <div class="wpop" ref={(el) => (pop = el)}>
-              <div class="wmenu pmenu" role="menu" aria-label="View in">
-                <div class="pmenu-hd">View in</div>
-                <div class="vswitch pmode" role="group" aria-label="Mode">
-                  <For each={MODES}>
-                    {(m) => (
-                      <button
-                        type="button"
-                        aria-pressed={mode() === m.id}
-                        disabled={!!c().oneMode}
-                        onClick={() => pickMode(m.id)}
-                      >
-                        {m.label}
-                      </button>
-                    )}
-                  </For>
-                </div>
-                <Show when={visible().length > 1}>
-                  <span class="wpop-sep" />
-                </Show>
-                <For each={visible().length > 1 ? visible() : []}>
-                  {(p, i) => (
-                    <>
-                      <Show
-                        when={
-                          i() > 0 && p.status === "open" && visible()[i() - 1].status !== "open"
-                        }
-                      >
-                        <span class="wpop-sep" />
-                      </Show>
-                      <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={c().id === p.id}
-                        onClick={() => choose(p)}
-                      >
-                        <PaletteDot p={p} small mode={mode()} />
-                        {p.label}
-                        <small>{STATUS_WORD[p.status]}</small>
-                      </button>
-                    </>
-                  )}
-                </For>
-                <span class="wpop-sep" />
-                <div class="pmenu-note">Preview only</div>
-              </div>
-            </div>
+            <PalettePanel s={props.s} onDone={() => setOpen(false)} ref={(el) => (pop = el)} />
           </Show>
         </div>
       )}
