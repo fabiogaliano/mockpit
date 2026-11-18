@@ -511,7 +511,7 @@ export const HIT_TEST_JS = `
 //   switch-session   {key}                       Cmd+Opt+ArrowUp/Down (BRIDGE_JS)
 //   hit-test-result  {ref, path, text, rect}     reply to hit-test (HIT_TEST_JS)
 //   parts            {version, parts, height, scroll:{x,y}, viewport:{w,h,scrollW}}  (PARTS_JS)
-//       parts[i] = {name, label, key, box:{x,y,w,h}, visible, fixed, depth, parent, order}
+//       parts[i] = {name, label, key, box:{x,y,w,h}, visible, covered, fixed, depth, parent, order}
 //       box is in DOCUMENT px (viewport rect + scroll), so the host draws
 //       (box − scroll) × scale, which is also right for fixed and sticky parts.
 //       label falls back to name; key is null unless data-part-key is set;
@@ -655,12 +655,16 @@ export const PARTS_JS = `
       var depth = 0;
       for (var p = el.parentElement; p; p = p.parentElement) if (p.hasAttribute('data-part')) depth++;
       var outer = el.parentElement && el.parentElement.closest('[data-part]');
+      var shown = (r.width > 0 || r.height > 0) && getComputedStyle(el).visibility !== 'hidden';
+      // Something else of the page is drawn over its middle: a sheet, a dialog, a menu.
+      var over = shown ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
       parts.push({
         name: name,
         label: text(el.getAttribute('data-part-label')) || name,
         key: text(el.getAttribute('data-part-key')),
         box: { x: r.left + sx, y: r.top + sy, w: r.width, h: r.height },
-        visible: (r.width > 0 || r.height > 0) && getComputedStyle(el).visibility !== 'hidden',
+        visible: shown,
+        covered: !!over && !el.contains(over) && !over.contains(el),
         fixed: isFixed(el),
         depth: depth,
         parent: outer ? text(outer.getAttribute('data-part')) : null,

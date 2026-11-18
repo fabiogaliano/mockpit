@@ -25,6 +25,7 @@ import {
 import { readonly } from "./host.ts";
 import { answerIds } from "./logic.ts";
 import type { Preview } from "./onScreen.ts";
+import type { GhostLine } from "./ArchivedGhost.tsx";
 import type { ToastLine } from "./toast.tsx";
 
 interface MarkDeps {
@@ -37,6 +38,7 @@ interface MarkDeps {
   setPreview: (p: Preview | null) => void;
   optionKey: (ask: Ask, optionId: string) => string;
   setToast: (line: ToastLine | null) => void;
+  leaveGhost: (line: GhostLine) => void;
   fail: (e: unknown) => void;
   asks: () => Ask[];
   activeState: () => string | null;
@@ -249,15 +251,9 @@ export function createMarks(d: MarkDeps) {
       d.fail(e);
     }
   }
-  // The answers a question shows, in the order it shows them: picked ones first, hidden
-  // ones left out (they fold away below), the rest as the agent asked.
-  const shownOptions = (ask: Ask): AskOption[] => {
-    const live = ask.options.filter((o) => !hiddenOf(ask, o.id));
-    return [
-      ...live.filter((o) => answerPicked(ask, o)),
-      ...live.filter((o) => !answerPicked(ask, o)),
-    ];
-  };
+  // The answers a question shows, in the order the agent asked them: a pick never moves a
+  // card. Hidden ones are left out (they fold away below).
+  const shownOptions = (ask: Ask): AskOption[] => ask.options.filter((o) => !hiddenOf(ask, o.id));
   const hiddenOptions = (ask: Ask): AskOption[] => [
     ...ask.options.filter((o) => hiddenOf(ask, o.id)),
     ...hiddenAlternativeAnswers(ask, standingFor(ask)),
@@ -267,16 +263,12 @@ export function createMarks(d: MarkDeps) {
   function hideAnswer(ask: Ask, o: AskOption) {
     if (d.preview()?.key === d.optionKey(ask, o.id)) d.setPreview(null);
     void setStanding(ask, o, "hidden");
-    d.setToast({
-      text: `Archived ${o.label}`,
-      undo: () => {
-        d.setToast(null);
-        void setStanding(ask, o, "open");
-      },
-      reason: {
-        value: null,
-        save: (why) => void setStanding(ask, o, "hidden", why ?? undefined),
-      },
+    d.leaveGhost({
+      label: o.label,
+      frames: o.alternative ? [{ state: d.activeState(), alternative: o.alternative }] : [],
+      answer: { ask: ask.id, option: o.id },
+      undo: () => void setStanding(ask, o, "open"),
+      saveReason: (why) => void setStanding(ask, o, "hidden", why ?? undefined),
     });
   }
   const unhideAnswer = (ask: Ask, o: AskOption) => void setStanding(ask, o, "open");

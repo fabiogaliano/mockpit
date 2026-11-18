@@ -3,6 +3,7 @@
 // canvas tool, selection, preview, drawers; what is on screen is one store, onScreen.ts). Components
 // read signals from here and call its actions; nothing else talks to the API for this screen.
 
+import { GHOST_MS, type GhostLine } from "./ArchivedGhost.tsx";
 import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
@@ -241,6 +242,40 @@ export function createDesignScreen(
   // Actions may finish after the screen is gone, and still have a line to leave.
   let toastGoesTo: ((line: ToastLine | null) => void) | null = null;
   const setToast = (line: ToastLine | null) => (toastGoesTo ?? showToast)(line);
+  // What was just archived, said where it was (ArchivedGhost.tsx) for GHOST_MS, held while
+  // the pointer or focus is on it. With no place for it on screen (the list folded, no
+  // question open, a phone), the toast says it as before.
+  const [ghost, setGhost] = createSignal<GhostLine | null>(null);
+  const [ghostHeld, holdGhost] = createSignal(false);
+  let ghostPlaces = 0;
+  const ghostPlace = (by: 1 | -1) => void (ghostPlaces += by);
+  function leaveGhost(line: Omit<GhostLine, "undo"> & { undo: () => void }) {
+    const g: GhostLine = {
+      ...line,
+      undo: () => {
+        setGhost(null);
+        line.undo();
+      },
+    };
+    holdGhost(false);
+    setGhost(g);
+    host().window.setTimeout(() => {
+      if (ghost() !== g || ghostPlaces > 0) return;
+      setGhost(null);
+      setToast({
+        text: `Archived ${g.label}`,
+        undo: g.undo,
+        reason: { value: null, save: g.saveReason },
+      });
+    });
+  }
+  createEffect(() => {
+    if (!ghost() || ghostHeld()) return;
+    const timer = host().window.setTimeout(() => setGhost(null), GHOST_MS);
+    onCleanup(() => host().window.clearTimeout(timer));
+  });
+  const ghostOn = (state: string | null, alternative: string) =>
+    !!ghost()?.frames.some((f) => f.state === state && f.alternative === alternative);
   const handToast = (to: (line: ToastLine | null) => void) => {
     to(toast());
     toastGoesTo = to;
@@ -1055,19 +1090,46 @@ export function createDesignScreen(
   }
   // What the question's card offers about where the stage is: go to the state
   // the question is about, or back to where the user was.
-  function stageOffer(ask: Ask): { show: string } | { back: string } | null {
+  function stageOffer(ask: Ask): { show: string; unseen?: string } | { back: string } | null {
     const m = design();
     const about = m ? askAbout(ask, m) : [];
-    if (!about.length) return null;
     const on = activeState();
-    if (on === null || !about.includes(on)) return { show: about[0] };
+    if (about.length) {
+      if (on === null || !about.includes(on)) return { show: about[0] };
+    } else {
+      const elsewhere = unseenHere(ask);
+      if (elsewhere) return elsewhere;
+    }
     const b = stageBack();
-    return b && b.to === on ? { back: b.from as string } : null;
+    return b && b.to === on && b.from !== null ? { back: b.from } : null;
+  }
+  // A question about a part that names no states lists on every state holding the part,
+  // and a page may hold it under a sheet: where the frame on stage reports it hidden or
+  // covered, the way to a state whose frame shows it, else to one not yet reported.
+  function unseenHere(ask: Ask): { show: string; unseen: string } | null {
+    const m = design();
+    const part = askSlot(ask)?.part ?? (ask.scope === "part" ? ask.part : undefined);
+    if (!m || !part) return null;
+    const seenIn = (state: string | null) => {
+      const v = alternativeFor(state);
+      const report = v && reports[frameKey(v.state, v.alternative)];
+      return report
+        ? report.parts.some((p) => p.name === part && p.visible && !p.covered)
+        : undefined;
+    };
+    const on = activeState();
+    if (seenIn(on) !== false) return null;
+    const others = askStates(ask, m, alternatives()).filter(
+      (st): st is string => st !== null && st !== on,
+    );
+    const to =
+      others.find((st) => seenIn(st) === true) ?? others.find((st) => seenIn(st) === undefined);
+    return to ? { show: to, unseen: partLabel(m, part) } : null;
   }
   function showAskState(ask: Ask) {
-    const m = design();
     const from = activeState();
-    const to = m ? askAbout(ask, m)[0] : undefined;
+    const offer = stageOffer(ask);
+    const to = offer && "show" in offer ? offer.show : undefined;
     if (to === undefined) return;
     goQuestion(
       entriesIn(to).findIndex((e) => e.ask.id === ask.id),
@@ -2137,6 +2199,8 @@ export function createDesignScreen(
   // More answers asked for here and not sent yet.
   const moreDrafted = (ask: Ask) =>
     !!draft()?.requests.some((r) => r.kind === "more" && r.ask === ask.id);
+  // Taken back before Send: More like this on one of its answers goes with it.
+  const dropMore = (ask: Ask) => outbox.unask((r) => r.kind === "more" && r.ask === ask.id);
   // What the agent will keep to: what's been answered on the design, this question aside.
   const answeredAround = (ask: Ask) =>
     (design()?.asks ?? [])
@@ -2154,6 +2218,7 @@ export function createDesignScreen(
     setPreview,
     optionKey,
     setToast,
+    leaveGhost,
     fail,
     asks,
     activeState,
@@ -2366,17 +2431,15 @@ export function createDesignScreen(
       });
     };
     if (!quiet) {
-      setToast({
-        text: `Archived ${label}`,
+      leaveGhost({
+        label,
+        frames,
         undo,
-        reason: {
-          value: null,
-          // After the archive lands: the server only keeps a reason for what has gone.
-          save: (reason) =>
-            void done.then(() => {
-              for (const f of frames) saveArchiveReason(f.alternative, reason, f.state);
-            }),
-        },
+        // After the archive lands: the server only keeps a reason for what has gone.
+        saveReason: (reason) =>
+          void done.then(() => {
+            for (const f of frames) saveArchiveReason(f.alternative, reason, f.state);
+          }),
       });
     }
     await done;
@@ -2580,6 +2643,7 @@ export function createDesignScreen(
     setHeldPreview,
     askMore,
     moreDrafted,
+    dropMore,
     standingFor,
     shownOptions,
     hiddenOptions,
@@ -2673,6 +2737,10 @@ export function createDesignScreen(
     viewNewVersion,
     toast,
     setToast,
+    ghost,
+    ghostOn,
+    ghostPlace,
+    holdGhost,
     drawer,
     setDrawer,
     panel,

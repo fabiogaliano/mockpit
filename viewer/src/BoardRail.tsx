@@ -101,6 +101,18 @@ export function BoardRail(props: {
   ref?: (el: HTMLElement) => void;
 }) {
   const [inbox, setInbox] = createSignal(false);
+  // Answered in the draft and not sent: nothing to answer, a Send to press.
+  const toAnswer = () => props.questions.filter((q) => !q.drafted);
+  const toSend = () => props.questions.filter((q) => q.drafted);
+  const questionRow = (q: BoardPage["questions"][number]) =>
+    link(
+      () => questionPath(props.project, q.slug, q.id),
+      () => props.openQuestion?.slug === q.slug && props.openQuestion.id === q.id,
+      <span class="rail-q">{q.text}</span>,
+      "rail-qi",
+      true,
+      q.kind === "idea" ? `${q.title} · idea` : q.title,
+    );
   const link = (
     href: () => string,
     current: () => boolean,
@@ -208,22 +220,33 @@ export function BoardRail(props: {
             onClick={() => setInbox(!inbox())}
           >
             <span class="side-nm">Needs you</span>
-            <span class="side-n">{props.questions.length}</span>
+            <Show when={toAnswer().length}>
+              <span class="side-n">{toAnswer().length}</span>
+            </Show>
           </button>
           <Show when={inbox()}>
             <div class="rail-inbox">
-              <For each={props.questions}>
-                {(q) =>
-                  link(
-                    () => questionPath(props.project, q.slug, q.id),
-                    () => props.openQuestion?.slug === q.slug && props.openQuestion.id === q.id,
-                    <span class="rail-q">{q.text}</span>,
-                    "rail-qi",
-                    true,
-                    q.kind === "idea" ? `${q.title} · idea` : q.title,
-                  )
-                }
-              </For>
+              <For each={toAnswer()}>{questionRow}</For>
+              <Show when={toSend()[0]}>
+                {(first) => (
+                  <>
+                    <div class="rail-tosend">
+                      <span>{`To send · ${toSend().length}`}</span>
+                      {/* Send is Focus's, where what goes is on screen before it goes. */}
+                      {link(
+                        () => questionPath(props.project, first().slug, first().id),
+                        () => false,
+                        "Send ›",
+                        "rail-send",
+                        true,
+                      )}
+                    </div>
+                    <div class="rail-sent">
+                      <For each={toSend()}>{questionRow}</For>
+                    </div>
+                  </>
+                )}
+              </Show>
             </div>
           </Show>
         </Show>

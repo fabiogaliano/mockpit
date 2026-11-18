@@ -4689,8 +4689,8 @@ export function createApp({
     const states: string[] = [];
     if (raw.states !== undefined) {
       if (!Array.isArray(raw.states)) return `ask "${text}": states must be a list of state names`;
-      if (scope !== "design") {
-        return `ask "${text}": states is for a design-wide question; a "${scope}" question already says where it is`;
+      if (scope === "state") {
+        return `ask "${text}": states is for a design-wide or a part question; a "state" question already says where it is`;
       }
       for (const name of raw.states) {
         const label = str(name, MAX_LABEL);
@@ -5066,6 +5066,32 @@ export function createApp({
     return out;
   }
 
+  // A part question that names no states is asked on every state holding its part, and a
+  // page may hold a part under a sheet or a dialog, where no answer can be seen. Only a
+  // frame can tell, so the agent, who drew the page, is asked to say.
+  function partStatesNudges(asks: Ask[], design: Design, posts: Post[]): string[] {
+    const out: string[] = [];
+    for (const ask of asks) {
+      const part = ask.part;
+      if (ask.scope !== "part" || !part || ask.states?.length) continue;
+      const holding = design.states.filter((state) =>
+        posts.some(
+          (p) =>
+            p.state === state &&
+            isLive(p.status) &&
+            partsInSurfaces((postAtVersion(p, shownVersion(design, p)) ?? p).surfaces).some(
+              (x) => x.name === part,
+            ),
+        ),
+      );
+      if (holding.length < 2) continue;
+      out.push(
+        `"${part}" is in ${holding.length} states (${holding.map((s) => `"${s}"`).join(", ")}) and "${ask.text}" is asked on each. If something covers the part in any of them, ask again with states: the ones its answers can be seen on`,
+      );
+    }
+    return out;
+  }
+
   async function askFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!body || typeof body !== "object") return fail(400, "invalid JSON body");
     const resolved = await resolveDesign(ref, body.project, body.session);
@@ -5189,6 +5215,7 @@ export function createApp({
     const nudges = [
       ...askNudges(added, design.asks),
       ...unprovenValueNudges(added, design, posts),
+      ...partStatesNudges(added, design, posts),
       ...(stillHidden.length
         ? [`The user hid ${stillHidden.join(", ")}: they stay folded away. Offer something else.`]
         : []),

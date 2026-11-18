@@ -1,13 +1,14 @@
 // The alternatives of the state on stage, in Focus. On the left, beside the states: each
 // live one to put on stage (a variants design's are its variants, which all ship), with
-// its pick or Main, and the archived ones folded under "N archived" to bring back. In the
-// panel, on an idea: what to do with the one on stage, the frame's actions.
+// its pick or Main, and the archived ones folded under "N archived" to bring back. Over the
+// frame's corner, on an idea: what to do with the one on stage, the frame's actions.
 
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { isLive } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
+import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { readonly } from "./host.ts";
-import { canFrame, frameActions, hasActs } from "./frameActions.ts";
+import { canFrame, frameActions, type FrameRef, hasActs } from "./frameActions.ts";
 import { Icon } from "./icons.tsx";
 import { alternativeName, sameVersion, type VersionStep } from "./logic.ts";
 import { MarkPill } from "./MarkPill.tsx";
@@ -27,7 +28,6 @@ function newestOf(s: DesignScreenState, alternative: string): VersionStep | unde
 export function AlternativeList(props: { s: DesignScreenState }) {
   const s = props.s;
   const here = createMemo(() => s.alternatives().filter((v) => v.state === s.activeState()));
-  const live = () => here().filter((v) => isLive(v.status));
   const archived = () => here().filter((v) => !isLive(v.status));
   const [unfold, setUnfold] = createSignal(false);
   const used = () => s.inUse()?.alternative;
@@ -35,46 +35,52 @@ export function AlternativeList(props: { s: DesignScreenState }) {
     <Show when={here().length > 1}>
       <section class="lm-sec lm-alts">
         <h3>{s.design()?.variants ? "Variants" : "Alternatives"}</h3>
-        <For each={live()}>
+        {/* One just archived keeps its place a moment, as its ghost. */}
+        <For each={here().filter((v) => isLive(v.status) || s.ghostOn(v.state, v.alternative))}>
           {(v) => {
             const step = () => newestOf(s, v.alternative);
             const on = () => s.activeAlternative()?.alternative === v.alternative;
             return (
-              <button
-                type="button"
-                class="lm-row lm-alt"
-                classList={{ on: on() }}
-                aria-current={on() ? "true" : undefined}
-                title={v.description}
-                onClick={() => {
-                  const st = step();
-                  if (st) s.showVersion(st);
-                }}
+              <Show
+                when={!s.ghostOn(v.state, v.alternative)}
+                fallback={<ArchivedGhost s={s} line={s.ghost()!} />}
               >
-                <span class="lm-pic" classList={{ flat: s.frameW() > 600 }}>
-                  <Show when={posterShown(step()?.poster)}>
-                    {(id) => <img src={assetUrl(id())} alt="" loading="lazy" decoding="async" />}
+                <button
+                  type="button"
+                  class="lm-row lm-alt"
+                  classList={{ on: on() }}
+                  aria-current={on() ? "true" : undefined}
+                  title={v.description}
+                  onClick={() => {
+                    const st = step();
+                    if (st) s.showVersion(st);
+                  }}
+                >
+                  <span class="lm-pic" classList={{ flat: s.frameW() > 600 }}>
+                    <Show when={posterShown(step()?.poster)}>
+                      {(id) => <img src={assetUrl(id())} alt="" loading="lazy" decoding="async" />}
+                    </Show>
+                  </span>
+                  <span class="lm-text">
+                    <b>{alternativeName(v.alternative)}</b>
+                    <Show when={used() === v.alternative}>
+                      <small>In use</small>
+                    </Show>
+                  </span>
+                  <Show when={s.frameMark(v.state, v.alternative)}>
+                    {(k) => (
+                      <span
+                        class="lm-mark"
+                        classList={{ main: k() === "main" }}
+                        title={k() === "main" ? "Main" : "Picked"}
+                      >
+                        <Icon name={k() === "main" ? "star" : "check"} />
+                        <span class="sr-only">{k() === "main" ? ", Main" : ", picked"}</span>
+                      </span>
+                    )}
                   </Show>
-                </span>
-                <span class="lm-text">
-                  <b>{alternativeName(v.alternative)}</b>
-                  <Show when={used() === v.alternative}>
-                    <small>In use</small>
-                  </Show>
-                </span>
-                <Show when={s.frameMark(v.state, v.alternative)}>
-                  {(k) => (
-                    <span
-                      class="lm-mark"
-                      classList={{ main: k() === "main" }}
-                      title={k() === "main" ? "Main" : "Picked"}
-                    >
-                      <Icon name={k() === "main" ? "star" : "check"} />
-                      <span class="sr-only">{k() === "main" ? ", Main" : ", picked"}</span>
-                    </span>
-                  )}
-                </Show>
-              </button>
+                </button>
+              </Show>
             );
           }}
         </For>
@@ -115,14 +121,18 @@ export function AlternativeList(props: { s: DesignScreenState }) {
   );
 }
 
-// What can be done with the frame on stage, in the panel: the pill's actions, and behind ⋯
-// those that open something here (frameActions.ts says which the frame has).
+// What can be done with the frame on stage, over its corner and never on it, since Try
+// hands the frame's clicks to the page: the pill's actions, and behind ⋯ those that open
+// something here (frameActions.ts says which the frame has). A cell open from the sheet is
+// marked as the cell, worn in its values.
 export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists }) {
   const s = props.s;
   const step = () => s.stageStep();
-  const frame = () => {
+  const frame = (): FrameRef | null => {
     const v = s.activeAlternative();
-    return v && isLive(v.status) ? { v } : null;
+    if (!v || !isLive(v.status)) return null;
+    const held = s.sheet.held();
+    return held?.v === v ? { v, col: held.col } : { v };
   };
   const inUse = () => sameVersion(s.inUse(), step() ?? null);
   const [saving, setSaving] = createSignal<{ from: HTMLElement; move: boolean } | null>(null);
@@ -146,9 +156,8 @@ export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists })
   return (
     <Show when={frame() && hasActs(s, frame()!) && step()} keyed>
       {(st) => (
-        <Show when={!answeredInRow(s, st.alternative)}>
-          <section class="altacts" aria-label={`What to do with ${name()}`}>
-            <h3>{name()}</h3>
+        <>
+          <div class="altacts" role="group" aria-label={`What to do with ${name()}`}>
             <div class="altacts-row">
               <MarkPill s={s} f={frame()!} inline />
               <Show when={inMenu().length}>
@@ -192,7 +201,9 @@ export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists })
               </Show>
             </div>
             <Show when={borrowing()}>
-              <BorrowBox s={s} to={st} onDone={() => setBorrowing(false)} />
+              <div class="altacts-pop">
+                <BorrowBox s={s} to={st} onDone={() => setBorrowing(false)} />
+              </div>
             </Show>
             <Show when={saving()} keyed>
               {(at) => (
@@ -210,8 +221,8 @@ export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists })
                 </Show>
               )}
             </Show>
-          </section>
-        </Show>
+          </div>
+        </>
       )}
     </Show>
   );
@@ -237,13 +248,6 @@ function saveForStep(s: DesignScreenState, st: VersionStep, inUse: boolean): Sav
     archives: leaves ? [st.alternative] : [],
     leave: () => s.archiveAlternatives([st.alternative], st.alternative, true),
   };
-}
-
-// The question on the card answers with this alternative, so its row carries what to do
-// with it, and the panel says it once.
-function answeredInRow(s: DesignScreenState, alternative: string): boolean {
-  const ask = s.curAsk();
-  return !!ask && s.shownOptions(ask).some((o) => o.alternative === alternative);
 }
 
 // The live frame of the state on stage an answer names: its row's Borrow and Move are that

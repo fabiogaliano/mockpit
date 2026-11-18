@@ -15,6 +15,7 @@ import {
   type FlowStep,
   isLive,
   isPlanned,
+  draftSpeaksFor,
   openAsks,
   type PostHead,
   recommendedAlternative,
@@ -61,6 +62,7 @@ export interface BoardDesign {
   kind: Design["kind"];
   area: string | null;
   status?: string;
+  // The questions still to answer: one the unsent draft speaks for isn't counted.
   open: number;
   ideas: number;
   states: string[];
@@ -73,6 +75,8 @@ export interface BoardQuestion {
   id: string;
   text: string;
   state: string | null;
+  // Answered in the unsent draft: nothing left to answer, a Send left to press.
+  drafted?: true;
 }
 
 export interface BoardInput {
@@ -286,7 +290,7 @@ export function boardView(input: BoardInput) {
       kind: d.kind,
       area: d.area ?? null,
       ...(isProduct(d) ? { status: readyWord(d, isChanged(d, ps)) } : {}),
-      open: openAsks(d).length,
+      open: openAsks(d).filter((a) => !draftSpeaksFor(d, a.id)).length,
       ideas: live.filter((x) => x.kind === "idea" && x.for === d.id).length,
       states: d.states,
     };
@@ -304,6 +308,7 @@ export function boardView(input: BoardInput) {
         id: a.id,
         text: a.text,
         state: a.state ?? null,
+        ...(draftSpeaksFor(d, a.id) ? { drafted: true as const } : {}),
       })),
     );
 

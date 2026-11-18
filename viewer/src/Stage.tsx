@@ -30,7 +30,6 @@ import { frameMode, framePalette, palettePick } from "./systemRev.ts";
 import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
-import { MarkPill } from "./MarkPill.tsx";
 import {
   BOARD_GAP,
   BOARD_PAD,
@@ -124,6 +123,7 @@ function readReport(d: Record<string, unknown>, frameW: number): PartsReport | n
           label: label && label !== name ? label : spokenName(name),
           box: { x: num(b.x), y: num(b.y), w: num(b.w), h: num(b.h) },
           visible: p.visible === true,
+          covered: p.covered === true,
           depth: num(p.depth),
           order: num(p.order),
         },
@@ -994,7 +994,6 @@ function AlternativeFrame(props: {
       style={{
         height: `${props.height * props.scale}px`,
         width: `${props.frameW * props.scale}px`,
-        "--frame-w": `${props.frameW * props.scale}px`,
       }}
       data-state={props.alternative.state ?? ""}
       data-alternative={props.alternative.alternative}
@@ -1086,17 +1085,6 @@ function AlternativeFrame(props: {
           post={props.post}
           pending={props.pending}
           setPending={props.setPending}
-        />
-      </Show>
-      <Show when={props.active && !phoneLayout()}>
-        {/* A cell open from the sheet is marked as the cell, worn in its values. */}
-        <MarkPill
-          s={s}
-          f={
-            s.sheet.held()?.v === props.alternative
-              ? { v: props.alternative, col: s.sheet.held()!.col }
-              : { v: props.alternative }
-          }
         />
       </Show>
     </div>

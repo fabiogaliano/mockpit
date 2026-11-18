@@ -113,7 +113,7 @@ const askSchema = z.object({
   states: z
     .array(z.string())
     .optional()
-    .describe("Design-wide question: the states its answers can be seen on, best first"),
+    .describe("Design-wide or part question: the states its answers can be seen on, best first"),
   part: z.string().optional().describe("data-part name, for scope part"),
   multi: z.boolean().optional(),
   allowMore: z

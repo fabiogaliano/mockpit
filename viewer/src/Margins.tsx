@@ -47,10 +47,9 @@ import { Spec, specShown } from "./Spec.tsx";
 import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
-import { Answered } from "./Questions.tsx";
-import { AlternativeActs, AlternativeList } from "./Alternatives.tsx";
-import { hasActs } from "./frameActions.ts";
-import { answeredRows } from "./SideBySide.tsx";
+import { Answered, listed } from "./Questions.tsx";
+import { AlternativeList } from "./Alternatives.tsx";
+import { AnswersAs, answeredRows, pictured } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
 import type { Shortlists } from "./shortlist.ts";
@@ -122,11 +121,7 @@ export function createMargins(
 
   const closed = () => !!s.design()?.archivedAt;
   // Only an open question opens the panel by itself. What else it holds (what this Send
-  // carries, answered questions, an idea's alternative's actions) is there when opened.
-  const ideaActs = () => {
-    const v = s.activeAlternative();
-    return !!v && isLive(v.status) && hasActs(s, { v });
-  };
+  // carries, answered questions) is there when opened.
   const talkWants = () => !closed() && !!s.curAsk();
   const talkHas = () =>
     !closed() &&
@@ -135,8 +130,7 @@ export function createMargins(
       s.sendable() ||
       keptGroups(s).length > 0 ||
       answeredRows(s).length > 0 ||
-      s.closedAsks("state").length > 0 ||
-      ideaActs());
+      s.closedAsks("state").length > 0);
   const boards = () => boardWidths(s.design()?.widths ?? [], s.frameW(), s.allWidths(), false);
   const fitWith = (left: boolean, right = side() !== null) => {
     const row = boards();
@@ -527,6 +521,13 @@ export function RightMargin(props: {
         >
           <div class="rm-head">
             <h2>{title(side())}</h2>
+            <Show when={side() === "talk" && !m.closed() ? s.curAsk() : null}>
+              {(ask) => (
+                <Show when={pictured(s, ask())}>
+                  <AnswersAs s={s} ask={ask()} listable={listed(s, ask())} />
+                </Show>
+              )}
+            </Show>
             <button
               type="button"
               class="ib"
@@ -576,12 +577,7 @@ export function RightMargin(props: {
 // goes is on screen before it goes.
 function Talk(props: { s: DesignScreenState; m: Margins; sl: Shortlists }) {
   const s = props.s;
-  const below = (): JSX.Element => (
-    <>
-      <AlternativeActs s={s} sl={props.sl} />
-      <WithThisSend s={s} m={props.m} />
-    </>
-  );
+  const below = (): JSX.Element => <WithThisSend s={s} m={props.m} />;
   return (
     <Show
       when={s.curAsk() && !props.m.closed()}

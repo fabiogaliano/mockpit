@@ -26,6 +26,7 @@ import type { AskField, DesignScreenState } from "./state.ts";
 import { Reason } from "./Reason.tsx";
 import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
+import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { Icon } from "./icons.tsx";
 import { AnswerAlternativeTools, answerAlternative, answerFrame } from "./Alternatives.tsx";
 import { answerActions, FACE } from "./frameActions.ts";
@@ -294,6 +295,26 @@ export function AskBody(props: {
       />
     ) : undefined;
   };
+  // The answer just archived, here or as the frame it names, keeps its place a moment as
+  // its ghost: in its card while that still shows, else before the answer that followed it
+  // (null: after the last).
+  const ghostOption = () => {
+    const g = s.ghost();
+    if (!g) return undefined;
+    return props.ask.options.find(
+      (o) =>
+        (g.answer?.ask === props.ask.id && g.answer.option === o.id) ||
+        (!!o.alternative && g.frames.some((f) => f.alternative === o.alternative)),
+    );
+  };
+  const ghostBefore = (): string | null | undefined => {
+    const gone = ghostOption();
+    const shown = s.shownOptions(props.ask);
+    if (!gone || shown.some((o) => o.id === gone.id)) return undefined;
+    const all = props.ask.options;
+    const at = all.indexOf(gone);
+    return shown.find((o) => all.indexOf(o) > at)?.id ?? null;
+  };
   const slot = () => s.askSlot(props.ask);
   const dormant = () => s.dormantOf(props.ask);
   // The region the pictures crop to: the slot the ask chooses, else its part.
@@ -346,9 +367,6 @@ export function AskBody(props: {
             </Show>
           </div>
         )}
-      </Show>
-      <Show when={!readonly() && moreAllowed(props.ask) && !dormant()}>
-        <MoreAnswers s={s} ask={props.ask} />
       </Show>
       <div
         class="opts"
@@ -421,43 +439,63 @@ export function AskBody(props: {
                 : [];
             };
             return (
-              <Show when={archivedIn().length} fallback={card()}>
-                <div class="opt-arch" data-archived={o.alternative}>
-                  {card()}
-                  <Show when={!readonly()}>
-                    <button
-                      type="button"
-                      class="vrestore"
-                      aria-label={`Restore ${o.label}`}
-                      onClick={() => void s.restoreAlternative(o.alternative!, archivedIn())}
-                    >
-                      Restore
-                    </button>
+              <>
+                <Show when={ghostBefore() === o.id}>
+                  <ArchivedGhost s={s} line={s.ghost()!} card />
+                </Show>
+                <Show
+                  when={ghostOption()?.id !== o.id}
+                  fallback={<ArchivedGhost s={s} line={s.ghost()!} card />}
+                >
+                  <Show when={archivedIn().length} fallback={card()}>
+                    <div class="opt-arch" data-archived={o.alternative}>
+                      {card()}
+                      <Show when={!readonly()}>
+                        <button
+                          type="button"
+                          class="vrestore"
+                          aria-label={`Restore ${o.label}`}
+                          onClick={() => void s.restoreAlternative(o.alternative!, archivedIn())}
+                        >
+                          Restore
+                        </button>
+                      </Show>
+                    </div>
                   </Show>
-                </div>
-              </Show>
+                </Show>
+              </>
             );
           }}
         </For>
-        <Show when={!readonly()}>
-          <OptionCard
-            picture={null}
-            label="Other…"
-            other
-            on={s.otherTicked(props.ask)}
-            data="other"
-            shortcut={
-              s.shownOptions(props.ask).length < 9
-                ? String(s.shownOptions(props.ask).length + 1)
-                : undefined
-            }
-            onEnter={() => s.setHoveredPreview(null)}
-            onLeave={() => {}}
-            onChoose={() => s.pick(props.ask, null)}
-          />
+        <Show when={ghostBefore() === null}>
+          <ArchivedGhost s={s} line={s.ghost()!} card />
         </Show>
+        {/* A row of their own, so neither stretches to a picture's height. */}
+        <div class="opts-tail">
+          <Show when={!readonly()}>
+            <OptionCard
+              picture={null}
+              label="Other…"
+              other
+              on={s.otherTicked(props.ask)}
+              data="other"
+              shortcut={
+                s.shownOptions(props.ask).length < 9
+                  ? String(s.shownOptions(props.ask).length + 1)
+                  : undefined
+              }
+              onEnter={() => s.setHoveredPreview(null)}
+              onLeave={() => {}}
+              onChoose={() => s.pick(props.ask, null)}
+            />
+          </Show>
+          <MoreAnswersCard s={s} ask={props.ask} />
+        </div>
         <HiddenAnswers s={s} ask={props.ask} move={moveCards} />
       </div>
+      <Show when={!readonly() && moreAllowed(props.ask) && !dormant()}>
+        <MoreAnswers s={s} ask={props.ask} />
+      </Show>
       <Show when={s.otherTicked(props.ask)}>
         <AskText
           s={s}
@@ -727,12 +765,13 @@ function XIcon() {
 export const listed = (s: DesignScreenState, ask: Ask) =>
   ask.options.length > LIST_ABOVE && ask.options.some((o) => optionPicture(s, ask, o));
 
-// The question whose More answers box is open: its button is in the card's head, the box
-// in its body.
+// The question whose More answers box is open: its card is the last of the answers, the
+// box under them.
 const [moreFor, setMoreFor] = createSignal<string | null>(null);
 
-// Asks for more answers to a question, from its head; shown only where the agent can.
-export function MoreAnswersButton(props: { s: DesignScreenState; ask: Ask }) {
+// Asks for more answers to a question, a card after its answers; shown only where the
+// agent can.
+function MoreAnswersCard(props: { s: DesignScreenState; ask: Ask }) {
   const s = props.s;
   const can = () =>
     !readonly() && moreAllowed(props.ask) && !s.dormantOf(props.ask) && !s.moreWaiting(props.ask);
@@ -740,13 +779,18 @@ export function MoreAnswersButton(props: { s: DesignScreenState; ask: Ask }) {
     <Show when={can()}>
       <button
         type="button"
-        class="ib qmore"
-        aria-label="More answers"
+        class="opt pill other more"
+        classList={{ on: s.moreDrafted(props.ask) }}
+        aria-pressed={s.moreDrafted(props.ask)}
         aria-expanded={moreFor() === props.ask.id}
-        title="More answers"
-        onClick={() => setMoreFor(moreFor() === props.ask.id ? null : props.ask.id)}
+        title={s.moreDrafted(props.ask) ? "In Send. Click to take it back" : undefined}
+        onClick={() => {
+          if (s.moreDrafted(props.ask)) return s.dropMore(props.ask);
+          setMoreFor(moreFor() === props.ask.id ? null : props.ask.id);
+        }}
       >
         <Icon name="plus" />
+        <span class="lbl">More answers</span>
       </button>
     </Show>
   );
@@ -773,14 +817,14 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
   }
   return (
     <Show
-      when={!s.moreWaiting(props.ask) && !s.moreDrafted(props.ask)}
+      when={!s.moreWaiting(props.ask)}
       fallback={
         <p class="morewait" role="status">
-          {s.moreDrafted(props.ask) ? "More answers, in Send" : "More answers on the way"}
+          More answers on the way
         </p>
       }
     >
-      <Show when={open()}>
+      <Show when={open() && !s.moreDrafted(props.ask)}>
         <div
           class="morebox"
           role="group"

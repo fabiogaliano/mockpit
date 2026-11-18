@@ -340,10 +340,10 @@ Stances reversed knowingly, so nobody restores them by accident:
   and ⋯ (Pick, and for an idea's live alternative Borrow and Move); the agent's suggestion is a
   mark on the picture. A comment belongs to one answer, picked or not (`Draft.answerComments`,
   askId → option id, delivered as an answered ask's `onAnswers`), so changing the pick never moves
-  it. More answers is an icon in the question's head; `MoreAnswers` adds a `more` request to the draft, which goes with the next Send;
+  it. More answers is the last card of the answers; `MoreAnswers` adds a `more` request to the draft, which goes with the next Send;
   `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
   the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice,
-  one segmented control with Side by side under the question's words (`AnswersAs` in
+  one segmented control with Side by side in the panel's head (`AnswersAs` in
   `SideBySide.tsx`), there only for a pictured question beside the design.
 - One choice, one question (`server/alternativeQuestion.ts`, shared with the viewer): a Send
   answering an alternative question settles every live alternative in the states it chooses in, so an
@@ -359,8 +359,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   changed ones (`Reply.standings`, `unsent`). A re-ask remaps them to the new option ids; a
   hidden answer stays folded and `existing` in `more` leaves it out. A Send or a Use archives
   nothing: an alternative it leaves out is only released from use (`release` in
-  `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
-  kept ones first and archived ones in `HiddenAnswers` ("Archived · N"); `Kept.tsx` holds what waits after a
+  `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) keep
+  the agent's order, a pick never moving a card, with archived ones in `HiddenAnswers` ("Archived · N"); `Kept.tsx` holds what waits after a
   Send: `AnsweredLines` in the panel, each answered question one line that opens in place
   (its answer, Change answer, a kept screen's missing updates counted from `since`, Update
   now, `carried`), `AnswerPills` on the design's top edge
@@ -530,10 +530,11 @@ Stances reversed knowingly, so nobody restores them by accident:
     archived ones folded); on the right one panel, there only while a question is open
     (or something answered waits) or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
-    when it would take the design below 80%). On an idea, a frame and a sheet cell carry a
-    pill on hover (`MarkPill.tsx`: Pick, Main, Archive, More like this, Comment; keys P, M, X),
-    and the panel offers the same, with Borrow, Copy to… and Move to… behind ⋯, unless the
-    question on the card answers with it, whose row carries them instead. Which action a
+    when it would take the design below 80%). On an idea, the frame on stage carries
+    a pill over its top corner, in the caption and always there, and a sheet cell one on hover
+    (`MarkPill.tsx`: Pick, Main, Archive, More like this, Comment; keys P, M, X),
+    with Borrow, Copy to… and Move to… behind the ⋯ at the stage pill's end
+    (`AlternativeActs`); the panel repeats none of it. Which action a
     frame has is `frameActions.ts`'s, never a kind check in a component. `Compare.tsx` is two versions in one frame
     with a divider, and Compare with last seen opens it on the version `seen.ts` last had
     on screen. `SideBySide.tsx` lays the

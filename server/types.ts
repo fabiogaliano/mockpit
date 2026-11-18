@@ -516,8 +516,8 @@ export interface Ask {
   text: string;
   scope: "design" | "state" | "part";
   state?: string;
-  // Design-wide only: the states where this question's answers can be seen,
-  // best first. It still shows on every state; these are where it takes the user.
+  // A design-wide or a part question: the states where its answers can be seen, best
+  // first. It still shows on every state it would; these are where it takes the user.
   states?: string[];
   part?: string;
   options: AskOption[];
@@ -1777,14 +1777,17 @@ export const openCount = (design: Pick<Design, "asks">): number => openAsks(desi
 // pick, a write-in or a comment), so a design's view can say a started one is "draft 2/4";
 // null when there is no draft. A count only: the draft's content stays private.
 export function draftedCount(design: Pick<Design, "asks" | "draft">): number | null {
+  if (!design.draft) return null;
+  return openAsks(design).filter((a) => draftSpeaksFor(design, a.id)).length;
+}
+
+// Whether the unsent draft speaks for one ask: answered by the user, heard by no agent.
+export function draftSpeaksFor(design: Pick<Design, "draft">, id: string): boolean {
   const d = design.draft;
-  if (!d) return null;
-  const said = (id: string) => {
-    const a = d.answers[id];
-    const picked = Array.isArray(a) ? a.length > 0 : a !== undefined;
-    return picked || d.others?.[id] !== undefined || d.askComments?.[id] !== undefined;
-  };
-  return openAsks(design).filter((a) => said(a.id)).length;
+  if (!d) return false;
+  const a = d.answers[id];
+  const picked = Array.isArray(a) ? a.length > 0 : a !== undefined;
+  return picked || d.others?.[id] !== undefined || d.askComments?.[id] !== undefined;
 }
 
 // The viewer's built-in "Which alternative?" for alternatives no agent ask binds: `alternative`

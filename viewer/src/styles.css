@@ -3483,16 +3483,11 @@ html.theming *:not(iframe) {
   }
 }
 
-/* Parts with swaps: the chip on a question that chooses a part's swap, a question that
-   doesn't apply to the swap chosen, and the review's state groups. */
-.slotchip {
-  margin-inline-start: 8px;
-  font: 600 12px/1 var(--sans);
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  padding: 3px 7px;
-  border-radius: 999px;
-  vertical-align: 2px;
+/* Parts with swaps: the part a question chooses a swap for, named over its words; a
+   question that doesn't apply to the swap chosen; and the review's state groups. */
+.qpart {
+  color: var(--t5);
+  font-size: 12px;
 }
 .dormant {
   margin: 4px 0 10px;
@@ -4883,7 +4878,9 @@ html:has(.design-screen) {
   color: var(--on-keep);
   opacity: 1;
 }
-.tool.on {
+/* Named past .ib's hover colour, which is this fill's own. */
+.ib.tool.on,
+.ib.tool.on:not(:disabled):hover {
   background: var(--t1);
   color: var(--page);
 }
@@ -5616,27 +5613,6 @@ html:has(.design-screen) {
   color: var(--t3);
   font-size: 12.5px;
 }
-/* More answers and Side by side: icons in the question's head, each there only when it
-   applies. */
-.qtools {
-  display: flex;
-  flex: none;
-  gap: 2px;
-}
-.qtools .ib {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-}
-.qtools .ib svg {
-  width: 17px;
-  height: 17px;
-}
-.qtools .ib[aria-pressed="true"],
-.qtools .ib[aria-expanded="true"] {
-  background: var(--row);
-  color: var(--t1);
-}
 /* High on the edge: mid-height it sits on the next screen's picture. */
 /* A phone's foot: the question's sheet over the design's lower part, and under it the bar
    of Question and Spec, which the history's panel sits on. */
@@ -6237,6 +6213,37 @@ html:has(.design-screen) {
   color: var(--keep-ink);
   font-weight: 600;
 }
+/* What was just archived, where it was: a dashed row in the list, a dashed card among the
+   answers. */
+.ghost {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px dashed var(--fill);
+  border-radius: 9px;
+  color: var(--t3);
+  font-size: 12.5px;
+  animation: fadein 150ms ease-out both;
+}
+.ghost.card {
+  justify-content: center;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+.ghost-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ghost-acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 10px;
+}
 .toast-x {
   width: 32px;
   height: 32px;
@@ -6379,7 +6386,7 @@ html:has(.design-screen) {
      design runs up to it or pans past it. */
   --strip-at: max(
     var(--canvas-l, 0px) + max(8px, env(safe-area-inset-left)),
-    var(--design-l, 0px) - 66px
+    var(--design-l, 0px) - 54px
   );
 }
 .toolstrip {
@@ -6391,16 +6398,30 @@ html:has(.design-screen) {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
+  gap: 1px;
+  padding: 2px;
   border: 1px solid var(--edge);
-  border-radius: 14px;
+  border-radius: 9px;
   background: var(--panel);
   box-shadow: var(--dd-shadow);
 }
+/* The mark pill's size, in the caption beside it. */
+.toolstrip .ib {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+}
+.toolstrip .ib svg {
+  width: 18px;
+  height: 18px;
+}
+.toolstrip .tdot {
+  top: 4px;
+  right: 4px;
+}
 .toolstrip-sep {
   flex: none;
-  width: 24px;
+  width: 18px;
   height: 1px;
   margin: 2px 0;
   background: var(--line);
@@ -6719,17 +6740,6 @@ html:has(.design-screen) {
   font-size: 13px;
 }
 /* What to do with an idea's alternative on stage. */
-.altacts {
-  margin: 0 0 16px;
-  padding: 0 0 14px;
-  border-bottom: 1px solid var(--line);
-}
-.altacts h3 {
-  margin: 0 0 8px;
-  color: var(--t2);
-  font-size: 13px;
-  font-weight: 500;
-}
 .altacts-row {
   display: flex;
   flex-wrap: wrap;
@@ -6780,6 +6790,8 @@ html:has(.design-screen) {
 }
 .rm-head h2 {
   margin: 0;
+  /* What else the head holds sits at its end, beside the close. */
+  margin-inline-end: auto;
   color: var(--t4);
   font-size: 13px;
   font-weight: 500;
@@ -6836,20 +6848,12 @@ html:has(.design-screen) {
   background: none;
   box-shadow: none;
 }
-/* Beside the design: the panel's head, then the question a step below it (16px from the
-   head's text), its layout 8px under its words, then the answers. */
+/* Beside the design: the panel's head, which holds the answers' layout, then the question
+   a step below it (16px from the head's text), then the answers. */
 .qcard.beside .qhd {
   align-items: flex-start;
   margin: 0;
   padding: 8px 16px 8px;
-}
-.qcard.beside .qtools {
-  margin-block: -6px;
-  margin-inline-end: -8px;
-}
-.qlayout {
-  display: flex;
-  padding: 0 16px 12px;
 }
 .qcard.beside .qtext {
   padding-top: 0;
@@ -6887,6 +6891,28 @@ html:has(.design-screen) {
 }
 .qcard.beside .opts > .opt.other {
   grid-column: 1 / -1;
+}
+/* Other… and More answers share the row after the answers, each half of it. */
+.opts-tail {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 8px;
+  min-width: 0;
+}
+.opts-tail:empty {
+  display: none;
+}
+.opts-tail > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.opt.more {
+  gap: 8px;
+}
+.opt.more svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
 }
 .qcard.beside .opt {
   flex-direction: column;
@@ -7011,8 +7037,7 @@ html:has(.design-screen) {
   .lm-close,
   .lm-hide,
   .cmt-x,
-  .rm-head .ib,
-  .qcard.beside .qtools .ib {
+  .rm-head .ib {
     width: 40px;
     height: 40px;
   }
@@ -10537,9 +10562,28 @@ button.bmc {
   color: var(--t1);
   font-weight: 500;
 }
+.rail-tosend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 2px 22px;
+  color: var(--t5);
+  font-size: 11.5px;
+}
+.rail-send {
+  color: var(--t1);
+  font-weight: 500;
+  text-decoration: none;
+}
+.rail-sent .rail-qi:not([aria-current]) {
+  color: var(--t5);
+}
 @media (hover: hover) {
   .rail-qi:hover {
     background: var(--row);
+  }
+  .rail-send:hover {
+    text-decoration: underline;
   }
 }
 .bplay {
@@ -10562,8 +10606,8 @@ button.bmc {
   color: var(--t4);
 }
 
-/* The mark pill: pick, Main and archive, then more like this and comment, at the corner of
-   the frame or sheet cell the pointer is on. Nothing at rest. */
+/* The mark pill: pick, Main and archive, then more like this and comment, in the caption
+   over the corner of the frame on stage, and on the sheet cell the pointer is on. */
 .markpill {
   display: inline-flex;
   align-items: center;
@@ -10612,12 +10656,53 @@ button.bmc {
 .markpill.inline {
   box-shadow: 0 0 0 1px var(--line);
 }
-/* On a frame or a cell the pill is sized by what it sits on, up to a little over the top
-   bar's size, where it has to read against a whole design. A cell gives a button about an
-   eighth of its width: a sheet's usual cell is near 200px, and a share fit for the stage
-   left the pill at its least there. A cell is a size container for it; a frame says its
-   width (--frame-w) instead, since containment would make it a stacking context for the
-   part overlay. Under 200px a cell keeps the marks alone, sized so three still fit. */
+/* Over the frame's corner the pill and its ⋯ are one shape, 36px as the caption's other
+   controls are; what ⋯ opens drops under it, over the design. */
+.mact .altacts {
+  position: relative;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 4px 14px #0008;
+}
+.mact .altacts-row {
+  flex-wrap: nowrap;
+  gap: 1px;
+}
+.mact .markpill {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.mact .markpill button,
+.mact .altacts-more .ib {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+}
+.mact .markpill button .icon,
+.mact .altacts-more .ib svg {
+  width: 18px;
+  height: 18px;
+}
+.altacts-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 2;
+  width: 280px;
+  padding: 0 12px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+}
+/* On a cell the pill is sized by what it sits on. A cell gives a button about an eighth of
+   its width: a sheet's usual cell is near 200px, and a share fit for the stage left the
+   pill at its least there. Under 200px a cell keeps the marks alone, sized so three still
+   fit. */
 .sheet-cellw {
   container-type: inline-size;
 }
@@ -10629,10 +10714,6 @@ button.bmc {
     --mp: clamp(18px, 26cqi, 24px);
   }
 }
-.frame > .markpill {
-  --mp: clamp(20px, var(--frame-w, 0px) * 0.085, 42px);
-}
-.frame > .markpill,
 .sheet-cellw > .markpill {
   position: absolute;
   top: calc(var(--mp) / 4);
@@ -10645,18 +10726,15 @@ button.bmc {
   pointer-events: none;
   transition: opacity var(--ease);
 }
-.frame > .markpill button,
 .sheet-cellw > .markpill button {
   width: var(--mp);
   height: var(--mp);
   border-radius: calc(var(--mp) / 3.6);
 }
-.frame > .markpill button .icon,
 .sheet-cellw > .markpill button .icon {
   width: calc(var(--mp) * 0.58);
   height: calc(var(--mp) * 0.58);
 }
-.frame > .markpill i,
 .sheet-cellw > .markpill i {
   height: calc(var(--mp) * 0.56);
 }
@@ -10666,8 +10744,6 @@ button.bmc {
     display: none;
   }
 }
-.frame:hover > .markpill,
-.frame > .markpill:focus-within,
 .sheet-cellw:hover > .markpill,
 .sheet-cellw:focus-within > .markpill {
   opacity: 1;
@@ -10735,10 +10811,6 @@ button.bmc {
 }
 .altacts-more {
   position: relative;
-}
-.altacts-more .ib {
-  width: 30px;
-  height: 30px;
 }
 .altacts-more .optmenu {
   top: 34px;

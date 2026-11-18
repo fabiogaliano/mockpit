@@ -110,8 +110,8 @@ verbs:
       --recommend <l>   the option you would pick, by label; a quiet mark on it
       --scope <s>       design|state|part (default design)
       --state <label>   the state a state-scoped question is about
-      --states <label>  a design-wide question: a state its answers can be seen
-                        on (repeatable, best first)
+      --states <label>  a design-wide or part question: a state its answers can
+                        be seen on (repeatable, best first)
       --part <name>     the part a part-scoped question is about
       --multi           allow several answers
       --no-more         these answers are all there are (Yes or No): no asking for more

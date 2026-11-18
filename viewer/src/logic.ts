@@ -669,6 +669,8 @@ export interface PartBox {
   label: string;
   box: { x: number; y: number; w: number; h: number };
   visible: boolean;
+  // Drawn, with something else of the page over its middle.
+  covered?: boolean;
   depth: number;
   order: number;
 }
@@ -1721,9 +1723,9 @@ export const LEFT_MARGIN_W = 184;
 // On a tablet the states are pictures alone, so the margin gives the design more room.
 export const LEFT_THUMBS_W = 120;
 export const RIGHT_MARGIN_W = 320;
-// The tool strip: 50 wide, 8 off the canvas's edge at its furthest. The canvas's own
+// The tool strip: 38 wide, 8 off the canvas's edge at its furthest. The canvas's own
 // pad is the gap between it and the design.
-export const TOOL_BAND_W = 58;
+export const TOOL_BAND_W = 46;
 // The neighbouring steps beside the canvas, and the room they take.
 export const GHOST_W = 112;
 // Below this the design is shrunk too far to judge, so a margin gives up its

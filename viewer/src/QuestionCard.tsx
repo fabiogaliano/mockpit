@@ -11,10 +11,10 @@ import type { Ask } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { isBuiltinAsk, partLabel } from "./logic.ts";
-import { AskBody, listed, MoreAnswersButton } from "./Questions.tsx";
+import { AskBody } from "./Questions.tsx";
 import { SendTo } from "./SendTo.tsx";
 import type { Shortlists } from "./shortlist.ts";
-import { AnswersAs, pictured, sideAsk } from "./SideBySide.tsx";
+import { sideAsk } from "./SideBySide.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { questionDotted } from "./QuestionDot.tsx";
 
@@ -135,15 +135,20 @@ export function QuestionCard(props: {
                           <Show when={s.stageOffer(ask())} keyed>
                             {(o) =>
                               "show" in o ? (
-                                <button
-                                  type="button"
-                                  class="qgo"
-                                  title={`Go to ${o.show}`}
-                                  onClick={() => s.showAskState(ask())}
-                                >
-                                  <span class="qcut">{`Go to ${o.show}`}</span>
-                                  <Icon name="arrow" />
-                                </button>
+                                <>
+                                  <Show when={o.unseen}>
+                                    <span class="qcut">{`${o.unseen} can't be seen here`}</span>
+                                  </Show>
+                                  <button
+                                    type="button"
+                                    class="qgo"
+                                    title={`Go to ${o.show}`}
+                                    onClick={() => s.showAskState(ask())}
+                                  >
+                                    <span class="qcut">{`Go to ${o.show}`}</span>
+                                    <Icon name="arrow" />
+                                  </button>
+                                </>
                               ) : (
                                 <button
                                   type="button"
@@ -159,7 +164,9 @@ export function QuestionCard(props: {
                         </span>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (
-                            <span class="slotchip">{`Part · ${sl().label ?? partLabel(s.design() ?? { parts: [] }, sl().part)}`}</span>
+                            <span class="qpart">
+                              {sl().label ?? partLabel(s.design() ?? { parts: [] }, sl().part)}
+                            </span>
                           )}
                         </Show>
                         <Show when={s.dormantOf(ask())}>
@@ -172,16 +179,7 @@ export function QuestionCard(props: {
                     </Show>
                     <span class="qt">{ask().text}</span>
                   </div>
-                  <span class="qtools">
-                    <MoreAnswersButton s={s} ask={ask()} />
-                  </span>
                 </div>
-                {/* Under the question it lays out, on its leading edge. */}
-                <Show when={props.beside && pictured(s, ask())}>
-                  <div class="qlayout">
-                    <AnswersAs s={s} ask={ask()} listable={listed(s, ask())} />
-                  </div>
-                </Show>
                 <div class="qscroll">
                   <AskBody
                     s={s}

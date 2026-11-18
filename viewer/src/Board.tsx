@@ -455,7 +455,8 @@ export function Board(props: {
             : framesOf(x).map((f) => f.slug),
       ),
     );
-    return d.questions.filter((q) => here.has(q.slug));
+    // One answered in the draft waits for Send, in the rail: nothing here asks for it.
+    return d.questions.filter((q) => here.has(q.slug) && !q.drafted);
   });
   // The questions open on each frame: one asked on a state sits on that state's frame,
   // one asked of the whole design on its first frame on the page, and one on a folded idea
@@ -1668,7 +1669,12 @@ export function Board(props: {
               onClick={() => setRailOpen(true)}
             >
               <Icon name="menu" />
-              <Show when={data()?.project === project() && data()?.questions.length}>
+              <Show
+                when={
+                  data()?.project === project() &&
+                  data()?.questions.filter((q) => !q.drafted).length
+                }
+              >
                 {(n) => (
                   <span class="board-menu-n" aria-label={`${n()} waiting for you`}>
                     {n()}

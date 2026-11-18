@@ -244,6 +244,14 @@ export function createDraft(deps: DraftDeps) {
     });
   }
 
+  // Taken back before it was sent.
+  function unask(match: (r: DraftRequest) => boolean) {
+    writeDraft((d) => {
+      d.requests = d.requests.filter((r) => !match(r));
+      return d;
+    });
+  }
+
   return {
     draft,
     boundVersion,
@@ -266,5 +274,6 @@ export function createDraft(deps: DraftDeps) {
     landed,
     submit,
     ask,
+    unask,
   };
 }

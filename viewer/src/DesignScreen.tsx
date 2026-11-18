@@ -69,6 +69,7 @@ import { QuestionDot, questionDotted } from "./QuestionDot.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
 import { canDesign, canFrame, runFrameAction } from "./frameActions.ts";
+import { AlternativeActs } from "./Alternatives.tsx";
 import { LooksStrip } from "./Looks.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { Present } from "./Present.tsx";
@@ -747,7 +748,7 @@ export function DesignScreen(props: {
                   s={s}
                   head={
                     <Show when={m.active()}>
-                      <VersionCaption s={s} reading />
+                      <VersionCaption s={s} reading sl={shortlists} />
                     </Show>
                   }
                 />
@@ -818,7 +819,7 @@ export function DesignScreen(props: {
               <>
                 <ToolStrip s={s} m={m} />
                 <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
-                  <VersionCaption s={s} reading={false} />
+                  <VersionCaption s={s} reading={false} sl={shortlists} />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
                 <RightMargin s={s} t={t} m={m} sl={shortlists} />
@@ -856,7 +857,7 @@ export function DesignScreen(props: {
 // What the stage is showing besides the design as it stands, on its top edge: the
 // answers kept for later to look at, and the one being previewed. Nothing when neither.
 // Each piece is opaque, since panning brings the design under them.
-function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
+function VersionCaption(props: { s: DesignScreenState; reading: boolean; sl: Shortlists }) {
   const s = props.s;
   const holding = () => s.heldPreview()?.key === s.preview()?.key;
   // A product design's entry used from an idea links back to it.
@@ -901,6 +902,9 @@ function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
           )}
         </Show>
         <Show when={s.sheet.held()}>{(h) => <CellNav s={s} h={h()} />}</Show>
+        <Show when={!s.sheet.view() && !props.reading}>
+          <AlternativeActs s={s} sl={props.sl} />
+        </Show>
       </div>
     </div>
   );
