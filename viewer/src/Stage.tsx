@@ -1297,14 +1297,17 @@ function Overlay(props: {
           )}
         </Show>
         <Show when={s.hoverPart() !== s.stagePart() && box(s.hoverPart())}>
-          {(b) => <PartBoxView b={b()} cls="hov" />}
+          {(b) => <PartBoxView b={b()} cls="hov" room={props.height} />}
         </Show>
-        <Show when={box(s.stagePart())}>{(b) => <PartBoxView b={b()} cls="sel" />}</Show>
+        <Show when={box(s.stagePart())}>
+          {(b) => <PartBoxView b={b()} cls="sel" room={props.height} />}
+        </Show>
         <Show when={s.flash() !== s.stagePart() && box(s.flash())}>
           {(b) => (
             <PartBoxView
               b={b()}
               cls="flash"
+              room={props.height}
               label={s.flashLabel() ?? undefined}
               ref={(el) => {
                 // Out of sight means the answer looked like it did nothing.
@@ -1470,18 +1473,25 @@ export function MarkField(props: {
   );
 }
 
+// The name tag sits above the part, or below it when the part starts at the frame's top,
+// or inside its top corner when it runs from top to bottom: the overlay clips at the
+// frame's edges, and a tag cut off there names nothing.
+const TAG_H = 22;
 function PartBoxView(props: {
   b: { p: PartBox; r: { x: number; y: number; w: number; h: number } };
   cls: string;
+  // The overlay's height, past which the tag would be clipped.
+  room: number;
   ref?: (el: HTMLDivElement) => void;
   label?: string;
 }) {
-  const edge = () => props.b.r.y < 22;
+  const above = () => props.b.r.y >= TAG_H;
+  const below = () => !above() && props.b.r.y + props.b.r.h + TAG_H <= props.room;
   return (
     <div
       ref={props.ref}
       class={`box ${props.cls}`}
-      classList={{ edge: edge() }}
+      classList={{ edge: below(), inside: !above() && !below() }}
       data-part={props.b.p.name}
       style={{
         left: `${props.b.r.x - 2}px`,
@@ -1490,7 +1500,10 @@ function PartBoxView(props: {
         height: `${props.b.r.h + 4}px`,
       }}
     >
-      <span class="lbl">{props.label ?? props.b.p.label}</span>
+      {/* A part at the frame's left edge: its border is clipped there, its tag shouldn't be. */}
+      <span class="lbl" style={props.b.r.x < 2 ? { left: `${0.5 - props.b.r.x}px` } : undefined}>
+        {props.label ?? props.b.p.label}
+      </span>
     </div>
   );
 }
