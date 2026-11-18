@@ -40,6 +40,7 @@ const field = {
   knobs:
     'Global knobs (tunekit usePane shape) keyed by path: [default,min,max,step], boolean, {type:"select",options}, "#hex"',
   alternativeKnobs: "Knobs this alternative alone has",
+  sheet: "A choice knob the link lays out: frames down, its values across",
   looks:
     'Named knob values the user can apply: {"name": {path: value}}. Alone, adds them; a user\'s look of that name stands',
   from: "Branch from this version",
@@ -277,6 +278,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       knobs: { t: "object", d: field.knobs },
       alternativeKnobs: { t: "object", d: field.alternativeKnobs },
       looks: { t: "object", d: field.looks },
+      sheet: { t: "string", d: field.sheet },
       from: { t: "integer", d: field.from },
       fork: { t: "string", d: field.fork },
       amend: { t: "boolean", d: field.amend },

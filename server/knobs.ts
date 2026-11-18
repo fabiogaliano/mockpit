@@ -346,8 +346,14 @@ export function checkKnobValues(
 // with only a handful is usually a decision dressed as a control (plan D12). A
 // toggle is null: on/off reads fine on one render.
 export function discreteChoices(config: KnobConfig): number | null {
+  return choices(config)?.length ?? null;
+}
+
+// A choice knob's values with the words the user reads, or null for a continuous one:
+// what a sheet lays out across. Sliders are left out until they spread as steps.
+export function choices(config: KnobConfig): { value: string; label: string }[] | null {
   const knob = explicitKnob(config);
-  if (knob.type === "select") return knob.options.length;
-  if (knob.type === "image" && knob.options) return knob.options.length;
-  return null;
+  const options = knob.type === "select" || knob.type === "image" ? knob.options : undefined;
+  if (!options) return null;
+  return options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
 }

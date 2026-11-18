@@ -84,6 +84,7 @@ verbs:
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --alternative-knobs <json|file>  knobs this alternative alone has
       --looks <json|file>  named knob values: {"<name>": {"<path>": value}}
+      --sheet <knob>    the link lays out this choice knob: frames down, values across
       --from <N>        branch from version N
       --amend           replace the latest version in place: a fix before the
                         user has acted on it (one request, one version)
@@ -267,6 +268,8 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --looks <json|file>  looks, named sets of knob values the user can apply to any
                      frame with those knobs: {"Big dots, blue": {"marks": "dots"}}.
                      Alone, adds them with no new version; a look the user made stands
+  --sheet <knob>     the link opens on a grid: every alternative of the state down, this
+                     choice knob's values across. Never needed; ideas only
   --from <N>         branch from version N
   --fork <v[@N]>     start this new alternative from sibling v (its version N, else
                      its latest); alone it copies v, with --parts/--swaps it
@@ -1235,6 +1238,7 @@ function parsePublishFlags() {
       knobs: { type: "string" },
       "alternative-knobs": { type: "string" },
       looks: { type: "string" },
+      sheet: { type: "string" },
       from: { type: "string" },
       fork: { type: "string" },
       prompt: { type: "string" },
@@ -1380,6 +1384,7 @@ async function publishDesign() {
       alternativeKnobs: readJsonFlag("alternative-knobs", flags["alternative-knobs"]),
     }),
     ...(flags.looks !== undefined && { looks: readJsonFlag("looks", flags.looks) }),
+    ...(flags.sheet !== undefined && { sheet: flags.sheet }),
     ...(from !== undefined && { from }),
     ...(flags.fork !== undefined && { fork: flags.fork }),
     prompt: flags.prompt,

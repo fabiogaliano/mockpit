@@ -5,8 +5,8 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir, networkInterfaces } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { createApp } from "./app.ts";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createApp, type StillJob } from "./app.ts";
 import { createNodeExecutor } from "./codeRunner.ts";
 import { GUIDE_TOPICS } from "./designGuide.ts";
 import { GUIDE_PACKS } from "./guidance.ts";
@@ -103,6 +103,25 @@ const networkHosts = () => {
   return { localOnly: false, hosts: hosts.slice(0, 3) };
 };
 
+// Sheet stills are taken by the CLI's poster worker, which drives a local Chrome or Chromium
+// and sends each back over HTTP, so it reaches this server as any client does.
+const poster = (await import(pathToFileURL(join(root, "bin", "poster.js")).href)) as {
+  queueStills(job: { base: string; token?: string; client: string; stills: StillJob[] }): void;
+};
+const selfHost =
+  !hostname || hostname === "0.0.0.0" || hostname === "::"
+    ? "127.0.0.1"
+    : hostname.includes(":")
+      ? `[${hostname}]`
+      : hostname;
+const takeStills = (stills: StillJob[]) =>
+  poster.queueStills({
+    base: `http://${selfHost}:${port}`,
+    token: process.env.MOCKPIT_TOKEN,
+    client: "mockpit-stills",
+    stills,
+  });
+
 const app = createApp({
   store,
   viewerHtml,
@@ -121,6 +140,7 @@ const app = createApp({
   executor: createNodeExecutor(),
   networkHosts,
   log: logPath ? createFileLog(logPath) : undefined,
+  takeStills,
 });
 
 // Cloudflare compresses at its edge; a Node server reached over a network

@@ -35,6 +35,8 @@ export type FeedEvent =
   // A project's system changed: every frame of the project renders anew.
   // `by` says whose: the viewer tells the user only of what an agent changed.
   | { type: "system-changed"; project: string; rev: number; summary: string; by: "user" | "agent" }
+  // A sheet still of the design landed (server/stills.ts): an open sheet shows it.
+  | { type: "stills-updated"; designId: string }
   // Workspace light/dark mode changed. Other open tabs re-theme.
   | { type: "theme-changed"; mode: Mode };
 
