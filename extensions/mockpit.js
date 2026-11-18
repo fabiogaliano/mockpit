@@ -29,7 +29,7 @@ const feedbackGuideline =
 // the user, so the agent ends its turn and reads feedback when told.
 const loopGuidelines = [
   "Publish each alternative with mockpit_publish (name states in the user's words; declare parts with data-part); publish again to revise.",
-  "A choice is several alternatives plus one question that binds them: mockpit_ask with options bound to the alternatives. One render plus a control: declare a knob.",
+  "Publish what varies as alternatives or a choice knob: the user compares, picks and presses Use without a question. mockpit_ask only when a choice blocks your next step.",
   "Tell the user in one line where to look, then end your turn. The question lives in the design, never in chat. Never poll.",
   "A reply sent from the viewer arrives on its own as a mockpit message; act on it. If the user says they answered and none came, call mockpit_feedback. Every write also returns feedback; read it.",
 ];
@@ -274,19 +274,30 @@ function feedbackLines(feedback) {
           `- ${prefix}${c.part ? `[${c.part}${c.state ? ` · ${c.state}` : ""}] ` : ""}${c.text}`,
         );
       }
-      if (reply.more) {
-        const m = reply.more;
+      for (const m of [reply.more, ...(reply.moreAlso ?? [])].filter(Boolean)) {
         lines.push(
           `- ${prefix}more answers to "${m.text}" (ask ${m.ask} again with them)${m.like ? `, like ${m.like}` : ""}${m.note ? `: ${m.note}` : ""}${m.existing?.length ? `; it has ${m.existing.join(", ")}` : ""}${m.kept?.length ? `; kept ${m.kept.join(", ")}` : ""}${m.hidden?.length ? `; avoid ${m.hidden.map((h) => `${h.label}${h.why ? ` (${h.why})` : ""}`).join(", ")}` : ""}`,
         );
       }
-      if (reply.update) {
+      for (const u of [reply.update, ...(reply.updateAlso ?? [])].filter(Boolean)) {
         lines.push(
-          `- ${prefix}bring the kept ${reply.update.kept.label} up to date with ${reply.update.inUse.map((o) => o.label).join(", ")} ("${reply.update.text}")`,
+          `- ${prefix}bring the kept ${u.kept.label} up to date with ${u.inUse.map((o) => o.label).join(", ")} ("${u.text}")`,
         );
       }
+      // A new state, a planned one drawn, or a new version past the first (which `verdict`
+      // repeats) has no field of its own but `requests`.
+      const revises = (reply.requests ?? []).filter((q) => q.kind === "revise").slice(1);
+      for (const q of revises) lines.push(`- ${prefix}revise ${q.alternative}`);
+      for (const q of reply.requests ?? []) {
+        if (q.kind === "state")
+          lines.push(`- ${prefix}new state: ${q.name}${q.detail ? `. ${q.detail}` : ""}`);
+        if (q.kind === "draw") lines.push(`- ${prefix}draw ${q.state ?? "it"}`);
+      }
       for (const r of reply.reactions ?? []) lines.push(`- ${prefix}${r}`);
-      if (reply.verdict)
+      // A Use is an instruction to change the code: its line names every pick, Main first.
+      if (reply.verdict?.kind === "use" && reply.lines?.[0]?.startsWith("Use"))
+        lines.push(`- ${prefix}${reply.lines[0]}`);
+      else if (reply.verdict)
         lines.push(
           `- ${prefix}${reply.verdict.kind} ${reply.verdict.alternative ?? reply.verdict.variant}`,
         );
@@ -670,7 +681,12 @@ export default function mockpitExtension(pi) {
         looks: {
           type: "object",
           description:
-            'Named knob values the user can apply: {"name": {path: value}}. Alone, adds them',
+            '{"name": {path: value}}: named knob values the user can apply. Alone, no new version; the user\'s look of a name stands',
+        },
+        sheet: {
+          type: "string",
+          description:
+            "An idea's link opens on this choice knob's Sheet: frames down, values across",
         },
         from: { type: "number", description: "Branch from this version" },
         prompt: { type: "string", description: "What prompted this version" },
@@ -766,10 +782,10 @@ export default function mockpitExtension(pi) {
     name: "mockpit_ask",
     label: "Mockpit Ask",
     description:
-      "Ask structured questions on a design. A choice is several alternatives plus one question that binds them ({label, alternative}); options may also set knob values ({label, set}). Reusing a question id replaces it.",
-    promptSnippet: "Ask the user to choose between mockpit alternatives.",
+      "Ask structured questions on a design, only when a choice blocks your next step: the user picks alternatives and knob values without one. Options bind an alternative ({label, alternative}) or knob values ({label, set}). Reusing a question id replaces it.",
+    promptSnippet: "Ask the user a question that blocks your next step.",
     promptGuidelines: [
-      "Use mockpit_ask once the alternatives are published, tell the user where to look, then end your turn.",
+      "Use mockpit_ask only for a choice you can't continue without; tell the user where to look, then end your turn.",
     ],
     parameters: {
       type: "object",
@@ -813,7 +829,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_read",
     label: "Mockpit Read",
     description:
-      "Without design: every design (slug, states, alternatives, open asks) plus pending; with area, one product area, all settled in it (read it before drawing there). With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, asks with answers, parts, knobs and last tuned values, plus pending. Never consumes feedback.",
+      "Without design: every design (slug, states, alternatives, open questions) plus pending; with area, one product area, all settled in it (read it before drawing there). With design: its spec (the user's edits stand), states, alternatives, questions, parts, knobs, looks, marks (the user's picks and Main, saved without a Send), settled values, a product's usedFrom, plus pending. Never consumes feedback.",
     promptSnippet: "Read mockpit designs.",
     promptGuidelines: [
       "Use mockpit_read to recover design slugs or a design's state when you lost track.",
@@ -891,7 +907,7 @@ export default function mockpitExtension(pi) {
     name: "mockpit_feedback",
     label: "Mockpit Feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per design: answers, borrowed parts, tuned knobs, part comments, verdict; thread messages; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard, delivered once, one batch per design (the Send's lines as they read it; answers, tuned knobs per frame, comments, requests, verdict: a Use puts its picks in the code; thread messages), plus pending (viewer open, draft progress).",
     promptSnippet: "Read the user's mockpit reply when they say they answered.",
     promptGuidelines: [
       "Call mockpit_feedback when the user says they answered; it returns at once, so do not call it in a loop.",

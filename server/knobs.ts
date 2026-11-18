@@ -363,13 +363,6 @@ export function checkKnobValues(
   return { ok: true, value: out };
 }
 
-// How many discrete choices a knob offers, or null when it is continuous. A knob
-// with only a handful is usually a decision dressed as a control (plan D12). A
-// toggle is null: on/off reads fine on one render.
-export function discreteChoices(config: KnobConfig): number | null {
-  return choices(config)?.length ?? null;
-}
-
 // A choice knob's values with the words the user reads, or null for a continuous one:
 // what a sheet lays out across. Sliders are left out until they spread as steps.
 export function choices(config: KnobConfig): { value: string; label: string }[] | null {

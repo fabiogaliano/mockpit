@@ -150,7 +150,6 @@ import {
   checkKnobs,
   checkKnobValues,
   choices,
-  discreteChoices,
   explicitKnob,
   knobFor,
   withDefault,
@@ -2294,25 +2293,10 @@ export function createApp({
     return out;
   }
 
-  // Knobs with a handful of discrete choices are usually decisions dressed as
-  // controls: the user can't compare options they only see one at a time.
-  function knobNudges(knobs: Knobs): string[] {
-    const out: string[] = [];
-    for (const [path, config] of Object.entries(knobs)) {
-      const n = discreteChoices(config);
-      if (n !== null && n >= 2 && n <= 3) {
-        out.push(
-          `knob "${path}": a 2–3 option knob is a choice. Ask with options that \`set\` it.`,
-        );
-      }
-    }
-    return out;
-  }
-
-  // Ask discipline: two live alternatives of a state with no ask binding them all
-  // leave the user nothing to answer in one Send, and the agent tends to ask in
-  // chat instead. The nudge carries a ready ask: design-wide when every state has
-  // the same alternative names, else for this state.
+  // An open question of the agent's that names some of a state's alternatives is that
+  // state's question, so the rest show in it as answers mockpit added, by name only. The
+  // nudge carries the question with them, to describe them. With no question at all there
+  // is nothing to say: the user picks frames without one.
   function unboundAlternatives(
     design: Design,
     posts: Post[],
@@ -2340,43 +2324,28 @@ export function createApp({
     const existing = design.asks.find(
       (a) => applies(a) && a.options.some((o) => o.alternative) && (a.scope === "state" || wide),
     );
-    if (existing) {
-      const have = new Set(existing.options.map((o) => o.alternative));
-      const missing = names.filter((n) => !have.has(n));
-      const ask = {
-        id: existing.id,
-        text: existing.text,
-        scope: existing.scope,
-        ...(existing.state ? { state: existing.state } : {}),
-        ...(existing.multi ? { multi: true } : {}),
-        ...(existing.allowMore === false ? { allowMore: false } : {}),
-        options: [
-          ...existing.options.map((o) => ({
-            id: o.id,
-            label: o.label,
-            ...(o.alternative ? { alternative: o.alternative } : {}),
-            ...(o.set ? { set: o.set } : {}),
-          })),
-          ...missing.map((v) => ({ label: v, alternative: v })),
-        ],
-      };
-      return {
-        nudge: `${where}: "${existing.id}" shows ${missing.map((m) => `"${m}"`).join(", ")} as answers mockpit added, by name only: call ask with suggestedAsk to describe them, or archive what you don't mean to offer. Never ask in chat.`,
-        ask,
-      };
-    }
-    const options = names.map((v) => ({ label: v, alternative: v }));
-    // Not the built-in's reserved id: a stored ask under it would collide with the
-    // built-in the viewer synthesizes once a new alternative goes unbound. Nor any id
-    // already taken, which sending this would silently replace.
-    const base = wide ? "choice" : `choice-${slugify(state ?? "")}`;
-    let id = base;
-    for (let n = 2; design.asks.some((a) => a.id === id); n++) id = `${base}-${n}`;
-    const ask = wide
-      ? { id, text: "Which alternative?", scope: "design", options }
-      : { id, text: "Which alternative?", scope: "state", state, options };
+    if (!existing) return null;
+    const have = new Set(existing.options.map((o) => o.alternative));
+    const missing = names.filter((n) => !have.has(n));
+    const ask = {
+      id: existing.id,
+      text: existing.text,
+      scope: existing.scope,
+      ...(existing.state ? { state: existing.state } : {}),
+      ...(existing.multi ? { multi: true } : {}),
+      ...(existing.allowMore === false ? { allowMore: false } : {}),
+      options: [
+        ...existing.options.map((o) => ({
+          id: o.id,
+          label: o.label,
+          ...(o.alternative ? { alternative: o.alternative } : {}),
+          ...(o.set ? { set: o.set } : {}),
+        })),
+        ...missing.map((v) => ({ label: v, alternative: v })),
+      ],
+    };
     return {
-      nudge: `${where} has ${names.length} alternatives and no question binds them: call ask with suggestedAsk. Never ask in chat.`,
+      nudge: `${where}: "${existing.id}" shows ${missing.map((m) => `"${m}"`).join(", ")} as answers mockpit added, by name only: call ask with suggestedAsk to describe them, or archive what you don't mean to offer. Never ask in chat.`,
       ask,
     };
   }
@@ -3032,7 +3001,6 @@ export function createApp({
     const bad = checkSurfaces(surfaces);
     if (bad) return bad;
     const nudges = [
-      ...knobNudges({ ...knobs.value, ...alternativeKnobs.value }),
       ...titleNudges(title),
       ...lookNudges,
       ...oldWordNudges(surfaces),

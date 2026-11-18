@@ -32,24 +32,26 @@ type Written = {
 };
 type Feedback = {
   design: string | null;
-  reply: null | { lines: string[]; asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; comment?: string }[]; borrowed: Record<string, string>; tuned: Knobs; tunedOn?: Record<string, Knobs>; comments: { part: string | null; text: string }[]; verdict?: { kind: "use" | "revise"; state: string | null; alternative: string; version?: number; picks?: { state: string | null; alternative: string; version: number; main?: true; look?: string; values?: Record<string, unknown>; as?: string }[] } };
+  // lines: the Send as the user read it. verdict use: put its picks in the code.
+  reply: null | { lines: string[]; asks: { ask: string; chosen: { id: string; label: string; other?: true }[]; comment?: string }[]; borrowed: Record<string, string>; tunedOn?: Record<string, Knobs>; tuned: Knobs; comments: { part: string | null; text: string }[]; requests?: { kind: "more" | "update" | "revise" | "state" | "draw" }[]; verdict?: { kind: "use" | "revise"; state: string | null; alternative: string; version?: number; picks?: { state: string | null; alternative: string; version: number; main?: true; look?: string; values?: Knobs; tuned?: Knobs }[] } };
   messages: { text: string; state: string | null; alternative: string | null }[];
   inUse: { state: string | null; alternative: string; version: number }[]; archived: { state: string | null; alternative: string }[];
   system?: { rev: number; changes: string[] };
   followUps?: Record<string, unknown>;
 };
-type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; touchedAt: string }; followUps?: Record<string, unknown> };
+type Pending = { design: string; archived?: true; viewerOpen: boolean; draft: null | { answered: number; of: number; comments: number; requests?: number; touchedAt: string }; followUps?: Record<string, unknown> };
 declare const mockpit: {
   guide(topic?: "system" | "knobs" | "asks" | "surfaces" | "html" | "feedback" | "http" | "scripts"): Promise<string>;
   /** Read first: decisionLog is what the user already settled; it stands unless they say otherwise.
-   * No design: every design, the flows, plus pending; opts.area: one area. With one: its spec, states, alternatives, asks, parts, knobs.
+   * No design: every design, the flows, plus pending; opts.area: one area. With one: its spec, states, alternatives, asks, parts, knobs, looks, marks (the user's picks).
    * opts.decisions: only the whole list, when a read cut it. */
   read(design?: string, opts?: { body?: boolean; history?: boolean; decisions?: boolean; area?: string }): Promise<unknown>;
   /** Creates or versions (design, state, alternative). One of: html; surfaces, the full ordered list
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * swaps {"part#swap": outer html}, replacing or adding one swap of a part.
-   * None of them, with kind screen or component: plans it, for a later publish to draw. */
-  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; variants?: boolean; for?: string; becomes?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; swaps?: Record<string, string>; knobs?: Knobs; alternativeKnobs?: Knobs; looks?: Record<string, Record<string, unknown>>; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
+   * None of them, with kind screen or component: plans it, for a later publish to draw.
+   * looks alone: named knob values, no new version. sheet: an idea's link opens on that knob's Sheet. */
+  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; variants?: boolean; for?: string; becomes?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; swaps?: Record<string, string>; knobs?: Knobs; alternativeKnobs?: Knobs; looks?: Record<string, Knobs>; sheet?: string; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(design: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;
@@ -88,15 +90,14 @@ export type RunFunction = (typeof RUN_FUNCTIONS)[number];
 
 export const RUN_EXAMPLE = `const html = (tone) => \`<section data-part="hero" class="\${tone}"><h1>Writer</h1></section>\`;
 await mockpit.publish({ design: "writer", alternative: "calm", html: html("calm") });
-await mockpit.publish({ design: "writer", alternative: "bold", html: html("bold") });
-const { url } = await mockpit.ask("writer", [{ id: "tone", text: "Calm or bold?",
-  options: [{ label: "Calm", alternative: "calm" }, { label: "Bold", alternative: "bold" }] }]);
-// Tell the user where to look and end the turn; a later run reads mockpit.feedback().
+const { url } = await mockpit.publish({ design: "writer", alternative: "bold", html: html("bold") });
+// The user compares and picks without a question. Say where to look and end the turn;
+// a later run reads mockpit.feedback().
 return url;`;
 
 export const RUN_DESCRIPTION =
   "Run a script against mockpit, which shows design work to the user (project > design > state > " +
-  "alternative > version). Publish alternatives and ask in one call; nothing waits for the user. Returns " +
+  "alternative > version). Publish every alternative in one call; nothing waits for the user. Returns " +
   "value, prints, calls (every host call in order: which writes landed), error {kind, message, " +
   "line} and feedback (every batch received, even if the script failed). Read mockpit.guide() " +
   "before the first html.\n\n" +
@@ -104,6 +105,6 @@ export const RUN_DESCRIPTION =
 
 export const RUN_INSTRUCTIONS =
   "Mockpit shows design work to the user. Call run with a JavaScript body that uses the " +
-  "mockpit API in its description: publish alternatives, ask, then end your turn. When the user " +
-  "says they answered, run mockpit.feedback(). Feedback is delivered once; read the run's " +
-  "feedback field.";
+  "mockpit API in its description: publish what varies as alternatives or a choice knob, then end " +
+  "your turn; ask only when a choice blocks your next step. When the user says they sent, run " +
+  "mockpit.feedback(). Feedback is delivered once; read the run's feedback field.";

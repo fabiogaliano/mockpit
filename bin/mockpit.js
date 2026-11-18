@@ -40,18 +40,17 @@ Declare the parts you want feedback on with data-part="name" in the html.
 
 the loop (never blocks on the user):
   1. mockpit init once per repo; read the brief (mockpit guide).
-  2. mockpit publish once per alternative; declare parts with data-part.
-  3. A choice is several alternatives plus one question that binds them: mockpit ask
-     with options bound to alternatives. An alternative decides everything it differs
-     on; don't re-ask it. Visual options carry an alternative or knob set. One
-     render plus a control: --knobs.
-  4. Tell the user in one line where to look, then end your turn. The question
-     itself lives in the design, never in chat. The user answers in the
-     browser at their own pace. Never poll.
-  5. When the user says they answered (or a mockpit watch line wakes you), run
-     mockpit feedback. Every write also returns feedback; read it.
-  6. mockpit publish the revision; mockpit export once an alternative is in use.
-  In Claude Code, arm mockpit watch under Monitor after asking, then end the
+  2. mockpit publish once per alternative; declare parts with data-part. Publish
+     what varies as alternatives or a choice knob (--knobs): the user compares,
+     picks and presses Use without a question. mockpit ask only when a choice
+     blocks your next step, never in chat.
+  3. Tell the user in one line where to look, then end your turn. The user works
+     in the browser at their own pace. Never poll.
+  4. When the user says they sent (or a mockpit watch line wakes you), run
+     mockpit feedback. Every write also returns feedback; read it. A Use is an
+     instruction: put its picks in the code.
+  5. mockpit publish the revision; mockpit export once an alternative is in use.
+  In Claude Code, arm mockpit watch under Monitor after publishing, then end the
   turn, unless you have the mockpit plugin, which wakes you itself; elsewhere
   the user's next message is the wake-up.
 
@@ -83,8 +82,9 @@ verbs:
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --alternative-knobs <json|file>  knobs this alternative alone has
-      --looks <json|file>  named knob values: {"<name>": {"<path>": value}}
-      --sheet <knob>    the link lays out this choice knob: frames down, values across
+      --looks <json|file>  named knob values: {"<name>": {"<path>": value}}; alone,
+                        no new version
+      --sheet <knob>    an idea's link opens on this choice knob's Sheet
       --from <N>        branch from version N
       --amend           replace the latest version in place: a fix before the
                         user has acted on it (one request, one version)
@@ -267,9 +267,9 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --alternative-knobs <json|file>  knobs this alternative alone has, same shape
   --looks <json|file>  looks, named sets of knob values the user can apply to any
                      frame with those knobs: {"Big dots, blue": {"marks": "dots"}}.
-                     Alone, adds them with no new version; a look the user made stands
-  --sheet <knob>     the link opens on a grid: every alternative of the state down, this
-                     choice knob's values across. Never needed; ideas only
+                     Alone, adds them with no new version; a look the user named stands
+  --sheet <knob>     an idea's link opens on its Sheet: every alternative of the state
+                     down, this choice knob's values across. Never needed
   --from <N>         branch from version N
   --fork <v[@N]>     start this new alternative from sibling v (its version N, else
                      its latest); alone it copies v, with --parts/--swaps it
@@ -293,12 +293,12 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --md/--mermaid/--diff/--terminal/--data/--code/--image <file>  more surfaces
   --json / --quiet
   Prints the parts found per state, parts that vanished or were renamed,
-  nudges, a ready-to-run "mockpit ask" when alternatives have no question, and feedback.`,
+  nudges (with a ready-to-run "mockpit ask" when one names a question), and feedback.`,
   ask: `mockpit ask --design <slug> "<question>" --option <label[=alternative]> ... [--scope design|state|part]
   [--state s] [--states s]... [--part p] [--multi] [--no-more] [--id id] [--after <ask id>] [--recommend <label>]
   mockpit ask --design <slug> --asks <json|file>
-  Ask the user. A choice is several alternatives plus one question that binds them.
-  Then tell the user where to look and end your turn.`,
+  Ask the user, only when a choice blocks your next step: they pick alternatives and
+  knob values without a question. Then tell the user where to look and end your turn.`,
   read: `mockpit read [slug] [--project <name>] [--body] [--history] [--tree] [--decisions]
 mockpit read --area <name> [--project <name>]
   Read this first. Every form carries the project's decision log, what the user
@@ -308,8 +308,9 @@ mockpit read --area <name> [--project <name>]
   design's spec (purpose: what it is for; behaviour: how it works; decisions: what was
   settled on it), states, alternatives, questions with answers, parts, knobs, looks
   (named knob values, its own and those offered from designs with the same knobs), marks
-  (the user's picks and Main, saved without a question or a Send) and settled values,
-  plus its pending and decisionLog (its own lines marked here), as JSON.
+  (the user's picks and Main, saved without a question or a Send), settled values and,
+  on a screen or component, usedFrom (the ideas Use brought its entries from), plus its
+  pending and decisionLog (its own lines marked here), as JSON.
   --area: one product area, read before drawing in it: what the project and the area
   are for, what's left in it (coverage: each design's states as Ready, In design,
   Planned or Missing, the map the Board's page card draws, and each flow's steps ready),
@@ -321,12 +322,13 @@ mockpit read --area <name> [--project <name>]
   a read says lines were left out. Never consumes feedback.`,
   feedback: `mockpit feedback [--project <name>] [--session <id>]
   Returns at once with {feedback, pending} as JSON: one batch per design the user
-  sent since you last heard ({design, reply: {asks, borrowed, tuned, tunedOn,
-  comments, verdict}, messages, inUse, archived}; tunedOn is each frame's tune),
-  delivered once across feedback, watch and
-  every write; and pending ({design, viewerOpen, draft}) so you can tell the
-  user "take your time" or "2 of 3 answered". Run it when the user says they
-  answered.`,
+  sent since you last heard ({design, reply: {lines, asks, tunedOn, borrowed,
+  comments, requests, verdict}, messages, inUse, archived}), delivered once across
+  feedback, watch and every write. lines is the Send as the user read it; tunedOn is
+  each frame's tune; requests is what they asked, in order (more, update, revise,
+  state, draw); verdict use is an instruction to put its picks in the code. pending
+  ({design, viewerOpen, draft}) lets you tell the user "take your time" or "2 of 3
+  answered". Run it when the user says they sent.`,
   say: `mockpit say "<text>" --design <slug> [--state s] [--alternative v | --variant v]
   A plain-text message in the design's thread, as your session's agent. --variant names
   an entry of a variants design.`,
@@ -357,7 +359,8 @@ mockpit edit --project <name> [--area <name>] --description <one line>|""
   --group files it in the library by what it does (Actions, Inputs, Navigation,
   Feedback, Containers, or the project's own word). --variants says a screen's or
   component's entries all ship, so they are named with --variant and nothing on it is
-  chosen; --no-variants makes them alternatives again. --for says which screen or
+  chosen; --no-variants makes them alternatives again, and with --kind idea --for <slug>
+  in the same edit, options to choose between become an idea for that design. --for says which screen or
   component an idea is for, --becomes what an idea for nothing yet would become. A new
   slug rewrites every instance, data-goto and flow step that names the old one, in
   every version. A design still included somewhere stays a component, not an idea.
@@ -400,7 +403,7 @@ mockpit system --restore <rev>
   script failed.`,
   watch: `mockpit watch [--session <id>] [--after <seq>] [--once] [--exit-code <n>]
   Print one line per Send, for a background monitor (in Claude Code, arm it
-  under Monitor after asking, then end the turn; with the mockpit plugin, don't,
+  under Monitor after publishing, then end the turn; with the mockpit plugin, don't,
   since it wakes you itself). A line says a reply landed;
   feedback or the next write delivers it, once.
   --once stops after the first Send, for a harness whose wake is a process
@@ -1573,44 +1576,48 @@ function watchLines(batch) {
   }
   if (batch.reply) {
     const r = batch.reply;
-    const bits = [
-      r.asks?.length
-        ? r.asks
+    const usedIn = r.usedIn
+      ? `${r.usedIn.created ? "made" : "used in"} ${r.usedIn.target} (${r.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`).join(", ")})`
+      : "";
+    // The Send as the user read it in its list; a server from before `lines` gets a summary.
+    const bits = r.lines?.length
+      ? [...r.lines, usedIn].filter(Boolean)
+      : [
+          r.asks?.length
+            ? r.asks
+                .map(
+                  (a) =>
+                    `${a.text || a.ask}: ${a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join("+")}${a.comment ? ` (“${a.comment}”)` : ""}`,
+                )
+                .join("; ")
+            : "",
+          r.tunedOn
+            ? Object.entries(r.tunedOn)
+                .map(([alt, v]) => `${Object.keys(v).length} tuned on ${alt}`)
+                .join(", ")
+            : Object.keys(r.tuned ?? {}).length
+              ? `${Object.keys(r.tuned).length} tuned`
+              : "",
+          Object.keys(r.borrowed ?? {}).length
+            ? `borrowed ${Object.entries(r.borrowed)
+                .map(([p, v]) => `${p}←${v}`)
+                .join(", ")}`
+            : "",
+          ...(r.comments ?? [])
+            .filter((c) => c.borrow)
             .map(
-              (a) =>
-                `${a.text || a.ask}: ${a.chosen.map((o) => (o.other ? `“${o.label}”` : o.label)).join("+")}${a.comment ? ` (“${a.comment}”)` : ""}`,
-            )
-            .join("; ")
-        : "",
-      r.tunedOn
-        ? Object.entries(r.tunedOn)
-            .map(([alt, v]) => `${Object.keys(v).length} tuned on ${alt}`)
-            .join(", ")
-        : Object.keys(r.tuned ?? {}).length
-          ? `${Object.keys(r.tuned).length} tuned`
-          : "",
-      Object.keys(r.borrowed ?? {}).length
-        ? `borrowed ${Object.entries(r.borrowed)
-            .map(([p, v]) => `${p}←${v}`)
-            .join(", ")}`
-        : "",
-      ...(r.comments ?? [])
-        .filter((c) => c.borrow)
-        .map(
-          (c) =>
-            `borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.alternative}@${c.version}${c.text ? ` (“${c.text}”)` : ""}`,
-        ),
-      (() => {
-        const n = (r.comments ?? []).filter((c) => !c.borrow).length;
-        return n ? `${n} comment${n === 1 ? "" : "s"}` : "";
-      })(),
-      r.reactions?.length ? r.reactions.join(", ") : "",
-      r.verdict ? `${r.verdict.kind} ${r.verdict.alternative ?? r.verdict.variant}` : "",
-      r.usedIn
-        ? `${r.usedIn.created ? "made" : "used in"} ${r.usedIn.target} (${r.usedIn.copies.map((c) => `${c.state ?? c.alternative} v${c.version}`).join(", ")})`
-        : "",
-      r.text ?? "",
-    ].filter(Boolean);
+              (c) =>
+                `borrow ${c.borrow.part ? `${c.borrow.part} ` : ""}from ${c.borrow.from} into ${c.alternative}@${c.version}${c.text ? ` (“${c.text}”)` : ""}`,
+            ),
+          (() => {
+            const n = (r.comments ?? []).filter((c) => !c.borrow).length;
+            return n ? `${n} comment${n === 1 ? "" : "s"}` : "";
+          })(),
+          r.reactions?.length ? r.reactions.join(", ") : "",
+          r.verdict ? `${r.verdict.kind} ${r.verdict.alternative ?? r.verdict.variant}` : "",
+          usedIn,
+          r.text ?? "",
+        ].filter(Boolean);
     lines.push(`mockpit reply on ${name}: ${bits.join(" · ").replace(/\s+/g, " ")}`);
   }
   // The user's hand on the System page arrives as a batch with no design: a decision too.

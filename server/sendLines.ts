@@ -182,12 +182,13 @@ export function sendLines(input: SendInput, names: SendNames): SendLine[] {
   return out;
 }
 
-// A Use as the agent reads it, and as the screen that made it says: what goes in, Main
-// first, each in its look or values, and where.
+// A Use as the agent reads it: what goes in, Main first, each in its look or values, and
+// where. Each pick is named as the idea names it; the entry it became is `usedIn`'s, which
+// on a design with one unnamed entry would read "it".
 export function useLine(picks: UsedPick[], into: string | null): string {
   const list = picks
     .map((p) => {
-      const name = frameName(p.as ?? p.alternative);
+      const name = frameName(p.alternative);
       const main = p.main ? " (Main)" : "";
       const wears = p.look ? ` in ${p.look}` : p.values ? ` with ${valuesWords(p.values)}` : "";
       const tuned = p.tuned ? `, tuned ${valuesWords(p.tuned)}` : "";

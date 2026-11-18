@@ -20,10 +20,10 @@ const SURFACE_KIND_ENUM = [...SURFACE_KINDS] as [SurfaceKind, ...SurfaceKind[]];
 export const MCP_INSTRUCTIONS =
   "Mockpit shows design work to the user: project > design > state > alternative > version. publish " +
   "each alternative (name states in the user's words; declare parts with data-part); publish again to " +
-  "revise. A choice is several alternatives plus one question that binds them (ask). One render plus a " +
-  "control: declare a knob. Say where to look, then end your turn; nothing waits. When the " +
-  "user says they answered, call feedback. Writes return feedback too; it is delivered once. " +
-  "Fetch guide before html.";
+  "revise. Publish what varies as alternatives or a choice knob: the user compares and picks without " +
+  "a question. ask only when a choice blocks your next step. Say where to look, then end your turn; " +
+  "nothing waits. When the user says they sent, call feedback. Writes return feedback too; it is " +
+  "delivered once. Fetch guide before html.";
 
 const field = {
   design: "Design slug, title or id",
@@ -40,17 +40,18 @@ const field = {
   knobs:
     'Global knobs (tunekit usePane shape) keyed by path: [default,min,max,step], boolean, {type:"select",options}, "#hex"',
   alternativeKnobs: "Knobs this alternative alone has",
-  sheet: "A choice knob the link lays out: frames down, its values across",
+  sheet:
+    "An idea's link opens on this choice knob's Sheet: frames down, values across. Never needed",
   looks:
-    'Named knob values the user can apply: {"name": {path: value}}. Alone, adds them; a user\'s look of that name stands',
+    '{"name": {path: value}}: named knob values the user can apply. Alone, no new version; the user\'s look of a name stands',
   from: "Branch from this version",
   amend: "Replace the latest version in place: a fix before the user acts on it",
   withdraw: "Take the latest version back, before the user acts on it",
-  fork: 'Start this new alternative from a sibling: "alternative" or "alternative@N"; alone it copies it, with parts/swaps it edits the copy',
+  fork: 'Start this new alternative from a sibling, "alternative" or "alternative@N": alone a copy, with parts/swaps an edited one',
   prompt: "What prompted this version; usually omit",
   description: "What this alternative is; shown beside it, never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
-  kind: "Only when building the product's screens: screen, component (a reusable design screens include). With no html it plans one, drawn by a later publish. Omit for ideas, diagrams and reviews",
+  kind: "Only for the product's screens: screen, or component (a reusable design screens include). With no body it plans one. Omit for ideas, diagrams, reviews",
   area: 'Product area in the project\'s words, a page of the Board. "" clears',
   group:
     'A component\'s library group: Actions, Inputs, Navigation, Feedback, Containers or your word. "" clears',
@@ -60,7 +61,7 @@ const field = {
   flow: "Flow this state is a step of; alone, only places it",
   step: "1-based place; 0 removes",
   kits: `Opt-in bundles: ${KIT_IDS.join("|")}`,
-  poster: "Still of the page (asset id) shown instead of running it; resend when the page changes",
+  poster: "Still of the page (asset id) the Board shows; resend when the page changes",
 } as const;
 
 const diffFileSchema = z.object({
@@ -253,7 +254,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "publish",
     description:
-      "Create or version one alternative of one state of a design. One of html, surfaces (the full ordered list), parts or swaps (splice the latest version); or kind screen or component and none of them, to plan it. Returns parts per state, nudges, feedback.",
+      "Create or version one alternative of one state of a design. One of html, surfaces (the full ordered list), parts or swaps (splice the latest version); kind screen or component and none, to plan it; or looks alone. Returns parts per state, nudges, feedback.",
     params: {
       ...ALTERNATIVE_REF,
       title: { t: "string", d: field.title },
@@ -297,7 +298,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "ask",
     description:
-      "Ask structured questions on a design. A choice is several alternatives plus one question that binds them; options may also set knob values. Reusing a question id replaces it.",
+      "Ask structured questions on a design, only when a choice blocks your next step: the user picks alternatives and knob values without one. Options bind an alternative, knob values or a palette. Reusing a question id replaces it.",
     params: {
       design: P.design,
       project: P.project,
@@ -309,7 +310,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it and what's left (coverage); read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs, looks, marks (the user's picks and Main, made without a question too) and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Every form carries decisionLog: what the user settled; it stands unless they say otherwise. No design: every design, flows, pending. area: one area, all settled and what's left (coverage); read it before drawing there. design: its spec (the user's edits stand), states, alternatives, questions, parts, knobs, looks, marks (the user's picks and Main, saved without a Send), settled values, a product's usedFrom. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -317,7 +318,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       history: { t: "boolean", d: "Include version rows" },
       tree: {
         t: "boolean",
-        d: "Without design: the project as a tree (each design's alternatives with status and forkedFrom, the designs it includes and is included in)",
+        d: "No design: the project as a tree (alternatives with status and forkedFrom, what each includes and is included in)",
       },
       area: { t: "string", d: "Without design: one product area" },
       decisions: {
@@ -331,7 +332,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "feedback",
     description:
-      "Returns at once: what the user sent since you last heard (one batch per design: reply answers, borrowed parts, tuned knobs, part comments, verdict; messages from its Activity; inUse/archived), delivered once, plus pending (viewer open, draft progress).",
+      "Returns at once: what the user sent since you last heard, delivered once, one batch per design (reply.lines: the Send as they read it; answers, tunedOn, comments, requests, verdict: a use puts its picks in the code; Activity messages), plus pending (viewer open, draft progress).",
     params: {
       project: P.project,
       session: { t: "string", d: "Session id returned by publish", req: true },
@@ -351,13 +352,13 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "move",
     description:
-      "Tidy up alternatives: to or toState moves them there and out of here; archive takes them out of view; restore brings them back; one in use stays. archive or restore with no alternatives does it to the whole design. Only when the user asks: hideOlder hides each alternative's older versions (alternatives optional: all of them), and deleteOlder deletes them for good, skipping any that a reply, comment, question, instance, copy or fork still points at, or that is in use. Confirm a delete first: it can't be undone. Returns feedback.",
+      "Tidy up alternatives: to or toState moves them there; archive takes them out of view, restore brings them back; one in use stays. No alternatives: the whole design. Only when the user asks: hideOlder hides older versions, deleteOlder deletes them for good, skipping any still referenced or in use; confirm a delete first. Returns feedback.",
     params: {
       design: P.design,
       state: P.state,
       alternatives: {
         t: "strings",
-        d: "Alternative names; required except with hideOlder, deleteOlder, or archive/restore of the whole design",
+        d: "Required except with hideOlder, deleteOlder, or the whole design",
       },
       variants: { t: "strings", d: "A variants design's names instead" },
       to: { t: "string", d: "Target design; default this one" },
@@ -374,14 +375,14 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "export",
     description:
-      "The html in use (else current; a screen or component's every entry marked Ready) per state, version history, screenshot URL, knobs, the settled values and the last reply; a screen or component adds ready, its spec and builtFrom. Without design: the project's system for code (sheet, tokens as CSS and JSON, settled project knobs, components' sources).",
+      "The html in use (else current; a screen's or component's Ready entries) per state, with history, knobs, settled values and the last reply; a screen or component adds ready, spec, builtFrom. No design: the project's system for code (sheet, tokens as CSS and JSON, project knobs, components' sources).",
     params: { ...ALTERNATIVE_REF, design: { t: "string", d: field.design }, session: P.session },
     httpOnly: ["session"],
   },
   {
     name: "edit",
     description:
-      "Change a design without a new version; a new slug rewrites every reference to the old one. purpose and behaviour write its spec; what the picture can't show goes there, not in side files. Without design: rename, areas (their order), description (the project's, or with area that area's). Returns feedback.",
+      "Change a design without a new version; a new slug rewrites every reference. purpose and behaviour write its spec: what the picture can't show, never side files. No design: rename, areas (their order), description (the project's, or an area's). Returns feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -451,9 +452,8 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "guide",
     description:
-      "Fetch the brief: the loop, parts, asks and knobs, feedback, the html contract, and this " +
-      "project's system, kit and icons. Read it before the first publish. Pass topic for one " +
-      `reference section (${GUIDE_TOPICS.join(", ")}).`,
+      "Fetch the brief: the loop, choices, feedback, the html contract, and this project's system, " +
+      `kit and icons. Read it before the first publish. topic: one reference section (${GUIDE_TOPICS.join(", ")}).`,
     params: {
       project: P.project,
       topic: { t: "enum", values: GUIDE_TOPICS, d: "One reference section instead of the brief" },
@@ -542,7 +542,7 @@ const feedbackSchema = o({
       }),
     ),
     borrowed: bag.describe("Part → the alternative to take it from"),
-    tuned: bag.describe("The frame in use's tuned knobs (else the one on screen)"),
+    tuned: bag.describe("The Main frame's tuned knobs (else in use, else on screen); one release"),
     tunedOn: bag.optional().describe("Alternative → its tuned knobs: a tune belongs to one frame"),
     comments: z.array(o({ part: nullStr, text: str })),
     reactions: strs.optional().describe('One-tap reactions, e.g. 👍 part "hero" (alternative B)'),
@@ -552,11 +552,14 @@ const feedbackSchema = o({
       picks: z
         .array(bag)
         .optional()
-        .describe("A Use of the user's picks, Main first, each with its look or values"),
+        .describe("What a Use puts in the code, Main first, each with its look or values and tune"),
     })
       .optional()
-      .describe("Use (put it in the code) or New version (a variants design's variant)"),
-    requests: z.array(bag).optional().describe("What the user asked for, in order"),
+      .describe("use: put it in the code; revise: New version (a variants design says variant)"),
+    requests: z
+      .array(bag)
+      .optional()
+      .describe("What the user asked, in order: {kind: more|update|revise|state|draw, ...}"),
     more: o({
       ask: str,
       text: str,
