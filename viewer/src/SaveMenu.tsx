@@ -197,7 +197,7 @@ export function SaveMenu(props: {
   const action = () => {
     const a = adds();
     const where = a.length === 1 ? a[0].label : `${a.length} places`;
-    if (a.length) return leaving() ? `Move ${counted}to ${where}` : `Keep ${counted}in ${where}`;
+    if (a.length) return leaving() ? `Move ${counted}to ${where}` : `Copy ${counted}to ${where}`;
     if (removes()) return `${leaveVerb()}${many ? ` ${it.out}` : ""}`;
     return drops().length ? "Remove" : "Done";
   };
@@ -262,12 +262,12 @@ export function SaveMenu(props: {
       class="savemenu"
       classList={{ phone: phoneLayout() }}
       role="dialog"
-      aria-label={`${leaving() ? "Move" : "Keep"} ${many ? `${items.length} alternatives` : items[0].name}`}
+      aria-label={`${leaving() ? "Move" : "Copy"} ${many ? `${items.length} alternatives` : items[0].name}`}
       ref={(el) => (menu = el)}
       style={phoneLayout() ? undefined : place()}
     >
       <div class="save-h">
-        {`${leaving() ? "Move" : "Keep"} ${many ? `${items.length} alternatives` : items[0].name} ${leaving() ? "to" : "in"}`}
+        {`${leaving() ? "Move" : "Copy"} ${many ? `${items.length} alternatives` : items[0].name} to`}
       </div>
       <input
         class="save-find"

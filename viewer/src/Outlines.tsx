@@ -133,7 +133,7 @@ export function StateAsk(props: { s: DesignScreenState }) {
                 void s.dismissOutline(was);
               }}
             >
-              Doesn't apply
+              Archive
             </button>
           </Show>
         </div>
@@ -172,7 +172,7 @@ export function PlannedStage(props: { s: DesignScreenState }) {
               class="btn"
               onClick={() => void (whole() ? s.archiveDesign() : s.dropPlannedState(state() ?? ""))}
             >
-              Not needed
+              Archive
             </button>
           </Show>
         </div>

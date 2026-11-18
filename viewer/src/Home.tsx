@@ -353,7 +353,7 @@ export function Home(props: { project: string; sec: HomePlace; show: RecentShow 
       {...(readonly()
         ? {}
         : n.planned
-          ? { onEnd: () => void end(n), endLabel: "Not needed" }
+          ? { onEnd: () => void end(n), endLabel: "Archive" }
           : sectionOf(n) === "ideas"
             ? { onEnd: () => void end(n) }
             : {})}

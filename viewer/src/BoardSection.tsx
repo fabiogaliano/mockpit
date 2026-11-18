@@ -117,8 +117,8 @@ function SectionHead(props: { c: SectionCtx; s: () => Section }) {
                   <button
                     type="button"
                     class="bsugg-x"
-                    aria-label="None of these apply"
-                    title="None of these apply"
+                    aria-label="Archive these"
+                    title="Archive"
                     onClick={() => void c.dropSuggested(sc().slug)}
                   >
                     <Icon name="close" />
