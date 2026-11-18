@@ -7,12 +7,10 @@ import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
-  type AnswerStanding,
   type Ask,
   type AskAnswer,
   type AskOption,
   askAnswered,
-  type HiddenAnswer,
   isLive,
   recommendedAlternative,
   type KnobValue,
@@ -25,12 +23,6 @@ import {
   type StateOutline,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/swaps.ts";
-import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
-import {
-  archivedAnswer,
-  hiddenAlternativeAnswers,
-  optionStates,
-} from "../../server/alternativeQuestion.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
@@ -100,6 +92,7 @@ import {
   splitLabel,
 } from "./logic.ts";
 import { createDesignData } from "./designData.ts";
+import { createMarks } from "./marks.ts";
 import { createOnScreen, type PanelTab, type Preview, type Tool } from "./onScreen.ts";
 import { createSheet } from "./sheet.ts";
 import { createStills } from "./stills.ts";
@@ -2198,109 +2191,28 @@ export function createDesignScreen(
       .flatMap((a) =>
         answerIds(a.answer).map((id) => a.options.find((o) => o.id === id)?.label ?? id),
       );
-  // Kept and hidden answers save on the click: the screen moves at once, and moves
-  // back if the server refuses (server/standings.ts holds the rules).
-  const standingFor = (ask: Ask): AnswerStanding =>
-    design()?.standings?.[ask.id] ?? { kept: [], hidden: [] };
-  const isKept = (ask: Ask, id: string) => standingFor(ask).kept.includes(id);
-  // Hidden by the user, or an alternative answer whose alternative is archived, which is what
-  // hiding one does (server/alternativeQuestion.ts): its reason is the why.
-  const hiddenOf = (ask: Ask, id: string): HiddenAnswer | undefined => {
-    const said = hiddenAnswer(standingFor(ask), id);
-    if (said) return said;
-    const m = design();
-    const o = ask.options.find((x) => x.id === id);
-    if (!m || !o || !archivedAnswer(ask, o, m, m.alternatives)) return undefined;
-    const states = optionStates(ask, o, m);
-    const why = m.alternatives.find(
-      (v) => v.alternative === o.alternative && states.includes(v.state) && v.archiveReason,
-    )?.archiveReason;
-    return { id, label: o.label, ...(why ? { why } : {}), alternative: o.alternative };
-  };
-  const isCarried = (ask: Ask, id: string) => !!standingFor(ask).carried?.includes(id);
-  function putStanding(ask: Ask, next: AnswerStanding) {
-    const m = design();
-    if (m) setDesign({ ...m, standings: { ...m.standings, [ask.id]: next } });
-  }
-  async function setStanding(ask: Ask, o: AskOption, to: StandingKind, why?: string) {
-    const m = design();
-    if (!m || readonly()) return;
-    const was = standingFor(ask);
-    // An alternative answer's alternative follows it at once: hidden archives it, anything else
-    // brings it back. The server refuses to hide the one in use.
-    const wasAlternatives = m.alternatives;
-    if (o.alternative && ask.scope !== "part") {
-      const states = optionStates(ask, o, m);
-      const mine = (v: AlternativeView) =>
-        v.alternative === o.alternative && states.includes(v.state);
-      if (to === "hidden" && m.alternatives.some((v) => mine(v) && v.status === "inUse")) {
-        fail(new Error(`${o.alternative} is in use: choose another before hiding it`));
-        return;
-      }
-      setDesign({
-        ...m,
-        alternatives: m.alternatives.map((v) =>
-          !mine(v)
-            ? v
-            : to === "hidden" && v.status === "open"
-              ? { ...v, status: "archived" as const }
-              : to !== "hidden" && v.status === "archived"
-                ? { ...v, status: "open" as const }
-                : v,
-        ),
-      });
-    }
-    putStanding(ask, withStanding(was, o, to, why));
-    // A hidden answer is out of the running, so it can't stay the pick.
-    if (to === "hidden" && drafted(ask) && answerIds(answerOf(ask)).includes(o.id)) {
-      writeDraft((d) => {
-        const left = answerIds(d.answers[ask.id]).filter((x) => x !== o.id);
-        if (ask.multi && left.length) d.answers[ask.id] = left;
-        else delete d.answers[ask.id];
-        return d;
-      });
-    }
-    try {
-      await api.standing(m.id, { ask: ask.id, option: o.id, to, ...(why ? { why } : {}) });
-    } catch (e) {
-      const now = design();
-      if (now) setDesign({ ...now, alternatives: wasAlternatives });
-      putStanding(ask, was);
-      fail(e);
-    }
-  }
-  // The answers a question shows, in the order it shows them: kept ones first, hidden
-  // ones left out (they fold away below), the rest as the agent asked.
-  const shownOptions = (ask: Ask): AskOption[] => {
-    const st = standingFor(ask);
-    const live = ask.options.filter((o) => !hiddenOf(ask, o.id));
-    return [
-      ...live.filter((o) => st.kept.includes(o.id)),
-      ...live.filter((o) => !st.kept.includes(o.id)),
-    ];
-  };
-  const hiddenOptions = (ask: Ask): AskOption[] => [
-    ...ask.options.filter((o) => hiddenOf(ask, o.id)),
-    ...hiddenAlternativeAnswers(ask, standingFor(ask)),
-  ];
-  const toggleKept = (ask: Ask, o: AskOption) =>
-    void setStanding(ask, o, isKept(ask, o.id) ? "open" : "kept");
-  function hideAnswer(ask: Ask, o: AskOption) {
-    if (preview()?.key === optionKey(ask, o.id)) setPreview(null);
-    void setStanding(ask, o, "hidden");
-    setToast({
-      text: `Archived ${o.label}`,
-      undo: () => {
-        setToast(null);
-        void setStanding(ask, o, "open");
-      },
-      reason: {
-        value: null,
-        save: (why) => void setStanding(ask, o, "hidden", why ?? undefined),
-      },
-    });
-  }
-  const unhideAnswer = (ask: Ask, o: AskOption) => void setStanding(ask, o, "open");
+  const {
+    standingFor,
+    isKept,
+    hiddenOf,
+    isCarried,
+    shownOptions,
+    hiddenOptions,
+    toggleKept,
+    hideAnswer,
+    unhideAnswer,
+  } = createMarks({
+    design,
+    setDesign,
+    drafted,
+    answerOf,
+    writeDraft,
+    preview,
+    setPreview,
+    optionKey,
+    setToast,
+    fail,
+  });
   // Answered, a kept answer can take over: the one in use waits in its place, and the
   // agent hears the change as a reply of its own, so nothing is drafted for it.
   async function useInstead(ask: Ask, o: AskOption): Promise<boolean> {
