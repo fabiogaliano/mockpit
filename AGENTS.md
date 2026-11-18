@@ -152,7 +152,7 @@ Stances reversed knowingly, so nobody restores them by accident:
   did. Frame URLs carry `y` (the system's rev), `sys` (peek at an older revision) and `p` (a
   palette other than the default); a poster taken under another rev is dropped.
   `viewer/src/systemRev.ts` holds all three for the viewer. `y` comes from each view and
-  the `system-changed` event, `p` is the Focus bar's `PaletteTool` (localStorage per
+  the `system-changed` event, `p` is `PaletteTool`'s, from Focus's ⋯ (localStorage per
   project, settles nothing), and `sys` is the System changed note's See before. While
   `p` or `sys` is set, Focus's frames draw live and no poster is shown (`posterShown`); the
   Board ignores both, since it shows posters only. The
@@ -382,7 +382,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   batch delivers them as `reply.lines`. A reply's `more`, `update` and a revise `verdict`
   repeat the first of each kind for older readers; `moreAlso` and `updateAlso` hold the
   rest. A Use is its own reply, `verdict: {kind: "use", picks}` (`useLine` its line), and
-  archives nothing.
+  archives nothing; its toast offers to archive the other live frames of the states it took
+  picks from (`unpickedBeside` in `state.ts`, through `archiveAlternatives`, with its Undo).
 - **The Sheet** (`viewer/src/sheet.ts`, `Sheet.tsx`): frames down, one choice knob's values
   (`choices` in `server/knobs.ts`) or the design's looks across, there only with two or more
   frames and something to vary. Spread, beside a choice knob in Tune, opens it on the frame
@@ -506,9 +507,10 @@ Stances reversed knowingly, so nobody restores them by accident:
   - **Focus** (`DesignScreen.tsx`, its state and actions in `state.ts`; what is on screen in
     `onScreen.ts`, one store; the design as the server sent it in `designData.ts`; its marks
     in `marks.ts`; the draft and the send path in `draft.ts`). `TopRow`: the
-    path, project / page / design and its ⋯ (Spec, Activity, New state), then one bar
-    (`FocusBar`): Try, Comment (C), Tune, the preview with the QR, the palette pick beside
-    Light | Dark (`PaletteTool`), the version menu (`VersionMenu` in `VersionBar.tsx`: the
+    path, project / page / design and its ⋯ (Spec, Activity, New state, and the preview with
+    the QR, `PreviewPanel`, and the palette pick beside Light | Dark, `PalettePanel`, each
+    opening in the menu's place), then one bar (`FocusBar`): Try, Comment (C), Tune, the
+    version menu (`VersionMenu` in `VersionBar.tsx`: the
     versions with hide and restore, what's new as a dot and its item, Compare with last
     seen, Compare…, New version), Use, and Send (its count opens the list, `SendList.tsx`). Esc and the page in the path go back
     to the Board, fit to the frame, selected. `Margins.tsx`: the states on the left (not
@@ -561,7 +563,7 @@ Stances reversed knowingly, so nobody restores them by accident:
   replaced, by any session (`setPosterOnce`); an agent's own poster never is. Built-ins only.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
-- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewTool`, with the widths, on the Focus bar: a local encoder, and
+- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewPanel`, with the widths, from Focus's ⋯: a local encoder, and
   `GET /api/reach` for what a phone would meet (`networkHosts` from `server/index.ts`).
   The code never holds the workspace key.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.
