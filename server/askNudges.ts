@@ -1,6 +1,7 @@
-// Ask discipline on `ask`: the two habits that make the user type or re-answer
-// what they could have seen. Pure, so the rules are tested on their own.
+// Ask discipline on `ask`: the habits that make the user type, re-answer what
+// they could have seen, or read a sentence where a label would do. Pure, so the rules are tested on their own.
 
+import { openingOf, wordCount } from "./spec.ts";
 import type { Ask, AskOption } from "./types.ts";
 
 // Words that name how something looks, matched on option labels only: a
@@ -19,8 +20,23 @@ const bindsAlternatives = (a: Ask) => a.options.some((o) => o.alternative);
 
 const quoted = (opts: AskOption[]) => opts.map((o) => `"${o.label}"`).join(", ");
 
+const LABEL_WORDS = 6;
+
+// An answer is a pill the user reads at a glance; a sentence there is a question in
+// disguise. Nudged, never refused: the first long label, and a count of the rest.
+function labelCapNudge(added: Ask[]): string[] {
+  const over = added.flatMap((a) =>
+    a.options.flatMap((o) => (wordCount(o.label) > LABEL_WORDS ? [{ a, o }] : [])),
+  );
+  if (!over.length) return [];
+  const [{ a, o }] = over;
+  return [
+    `ask "${a.id}": answer "${openingOf(o.label)}" has ${wordCount(o.label)} words; keep labels to ${LABEL_WORDS}${over.length > 1 ? ` (+${over.length - 1} more over)` : ""}`,
+  ];
+}
+
 export function askNudges(added: Ask[], all: Ask[]): string[] {
-  const out: string[] = [];
+  const out: string[] = labelCapNudge(added);
   for (const ask of added) {
     const pills = ask.options.filter(plain);
     if (!pills.length) continue;

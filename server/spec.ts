@@ -144,6 +144,37 @@ export function specEdit(
   return Object.keys(out).length ? out : undefined;
 }
 
+export const BEHAVIOUR_WORDS = 14;
+
+export const wordCount = (text: string) => text.split(/\s+/).filter(Boolean).length;
+
+// The opening words, enough to find the line again without paying for all of it.
+export const openingOf = (text: string) => {
+  const words = text.split(/\s+/).filter(Boolean);
+  return words.length > 3 ? `${words.slice(0, 3).join(" ")}…` : words.join(" ");
+};
+
+// The viewer draws a spec as one-sentence purpose and one line per behaviour, so longer
+// text reads as clutter there. Caps nudge, never refuse: one line per kind per write.
+export function specCapNudges(slug: string, input: SpecInput): string[] {
+  const out: string[] = [];
+  const sentences = (input.purpose ?? "").split(/(?<=[.!?])\s+(?=\S)|\n+(?=\S)/).length;
+  if (input.purpose && sentences > 1) {
+    out.push(`${slug}: purpose has ${sentences} sentences; keep it to one`);
+  }
+  const over = (input.behaviour ?? []).flatMap((l, i) => {
+    const n = wordCount(l.text);
+    return n > BEHAVIOUR_WORDS ? [{ i, n, text: l.text }] : [];
+  });
+  if (over.length) {
+    const [first] = over;
+    out.push(
+      `${slug}: behaviour line ${first.i + 1} ("${openingOf(first.text)}") has ${first.n} words; keep each to ${BEHAVIOUR_WORDS}${over.length > 1 ? ` (+${over.length - 1} more over)` : ""}`,
+    );
+  }
+  return out;
+}
+
 // The first line of what it is for: what a list of designs prints beside its name.
 export const purposeLine = (spec: DesignSpec | null): string =>
   (spec?.purpose ?? "").split("\n")[0].trim();

@@ -92,6 +92,7 @@ import {
   isProduct,
   lineTimes,
   purposeLine,
+  specCapNudges,
   specEdit,
   specInput,
   specBehind,
@@ -7928,6 +7929,13 @@ export function createApp({
     const purpose =
       next.kind === "component" && next.spec ? purposeNudge(next.slug, next.spec.purpose) : null;
     if (purpose) nudges.push(purpose);
+    if (specGiven && !ctx.viewer) {
+      const applied = {
+        ...(specKept.includes("purpose") ? {} : { purpose: specIn.purpose }),
+        ...(specKept.includes("behaviour") ? {} : { behaviour: specIn.behaviour }),
+      };
+      nudges.push(...specCapNudges(next.slug, applied));
+    }
     for (const section of specKept) {
       nudges.push(
         `The user wrote ${section === "purpose" ? "what it is for" : "how it works"} by hand, so your ${section} was not applied: work from theirs, in spec.${section}. It stands until the user clears it`,
