@@ -7,7 +7,11 @@ import { BoardRail, libraryOf } from "./BoardRail.tsx";
 import { root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 
-export function SideOver(props: { project: string; area: string | null }) {
+export function SideOver(props: {
+  project: string;
+  area: string | null;
+  openQuestion: { slug: string; id: string } | null;
+}) {
   const [open, setOpen] = createSignal(false);
   const [projects] = createResource(() => api.projects().catch(() => []));
   // Read on the way to the button, since an open design's frames can hold up a request for
@@ -76,6 +80,7 @@ export function SideOver(props: { project: string; area: string | null }) {
           onUnsorted={false}
           sec={null}
           questions={page()?.questions ?? []}
+          openQuestion={props.openQuestion}
           library={libraryOf(tree())}
           layers={[]}
           selected={null}

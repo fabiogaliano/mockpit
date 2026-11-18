@@ -1103,10 +1103,20 @@ function TopRow(props: {
       {(list) => <ShortlistPill list={list()} project={props.project} />}
     </Show>
   );
+  const openQuestion = () => {
+    if (s.questionHidden()) return null;
+    const qs = s.questions();
+    const q = qs[Math.min(s.cur(), qs.length - 1)];
+    return q?.kind === "ask" ? { slug: props.slug, id: q.ask.id } : null;
+  };
   return (
     <div class="mtop">
       <div class="mzone">
-        <SideOver project={props.project} area={s.design()?.area ?? null} />
+        <SideOver
+          project={props.project}
+          area={s.design()?.area ?? null}
+          openQuestion={openQuestion()}
+        />
         <a
           class="ib mup"
           href={up().href}

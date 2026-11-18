@@ -86,6 +86,8 @@ export function BoardRail(props: {
   onUnsorted: boolean;
   sec: HomePlace | null;
   questions: BoardPage["questions"];
+  // The question on Focus's card, when the rail is over a design.
+  openQuestion?: { slug: string; id: string } | null;
   library: RailLibrary;
   layers: RailLayer[];
   selected: string | null;
@@ -105,10 +107,12 @@ export function BoardRail(props: {
     body: JSX.Element,
     cls = "side-row",
     focus = false,
+    title?: string,
   ) => (
     <a
       class={cls}
       href={href()}
+      title={title}
       aria-current={current() ? "page" : undefined}
       onClick={(e) => {
         linkClick(e, href(), focus);
@@ -212,13 +216,11 @@ export function BoardRail(props: {
                 {(q) =>
                   link(
                     () => questionPath(props.project, q.slug, q.id),
-                    () => false,
-                    <>
-                      <span class="rail-q">{q.text}</span>
-                      <small>{q.kind === "idea" ? `${q.title} · idea` : q.title}</small>
-                    </>,
+                    () => props.openQuestion?.slug === q.slug && props.openQuestion.id === q.id,
+                    <span class="rail-q">{q.text}</span>,
                     "rail-qi",
                     true,
+                    q.kind === "idea" ? `${q.title} · idea` : q.title,
                   )
                 }
               </For>
