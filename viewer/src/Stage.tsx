@@ -1089,7 +1089,15 @@ function AlternativeFrame(props: {
         />
       </Show>
       <Show when={props.active && !phoneLayout()}>
-        <MarkPill s={s} f={{ v: props.alternative }} />
+        {/* A cell open from the sheet is marked as the cell, worn in its values. */}
+        <MarkPill
+          s={s}
+          f={
+            s.sheet.held()?.v === props.alternative
+              ? { v: props.alternative, col: s.sheet.held()!.col }
+              : { v: props.alternative }
+          }
+        />
       </Show>
     </div>
   );

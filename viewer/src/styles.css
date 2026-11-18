@@ -5562,6 +5562,48 @@ html:has(.design-screen) {
     color: var(--t1);
   }
 }
+/* A cell open from the sheet: back to it, then frame and value, each with its steppers. */
+.cellnav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 6px 0 4px;
+  border-radius: 11px;
+  background: var(--row);
+  color: var(--t2);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.cellnav .ib {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.cellnav .ib svg {
+  width: 15px;
+  height: 15px;
+}
+.cellnav-at {
+  max-width: 260px;
+  margin: 0 4px;
+  overflow: hidden;
+  color: var(--t3);
+  text-overflow: ellipsis;
+}
+.cellnav-at b {
+  color: var(--t1);
+  font-weight: 500;
+}
+.cellnav-at span {
+  color: var(--t2);
+}
+.cellnav-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 4px;
+  background: var(--line);
+}
 .qfoot {
   display: flex;
   flex: none;

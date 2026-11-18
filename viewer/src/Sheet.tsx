@@ -1,6 +1,7 @@
 // The sheet in place of the frame (sheet.ts): frames down, values or looks across. A cell is
 // its still once made, else the frame drawn live and frozen, cropped to the part the column
-// changes; the pointer resting on one shows the whole frame, a double-click opens it.
+// changes; the pointer resting on one shows the whole frame, a double-click opens it, and
+// the sheet opens again on the cell last open (`landing`).
 
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { AlternativeView } from "./api.ts";
@@ -199,6 +200,15 @@ function SheetCellView(props: {
   createEffect(() => {
     const c = cell()?.still;
     if (seen() && c && !still()) sh.stills.want(c);
+  });
+  // The cell last open from here: the sheet comes back to it, in view and pointed at.
+  createEffect(() => {
+    const l = sh.landing();
+    if (!l || l.alternative !== props.v.alternative || l.col !== props.col.key) return;
+    sh.setLanding(null);
+    el.scrollIntoView({ block: "nearest" });
+    el.focus({ preventScroll: true });
+    sh.setPointed({ v: props.v, col: props.col });
   });
   let hold = 0;
   onCleanup(() => host().window.clearTimeout(hold));

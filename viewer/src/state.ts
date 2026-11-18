@@ -96,7 +96,7 @@ import { createDraft } from "./draft.ts";
 import { changedSinceUse, framePicks } from "../../server/marks.ts";
 import { createMarks } from "./marks.ts";
 import { createOnScreen, type PanelTab, type Preview, type Tool } from "./onScreen.ts";
-import { createSheet } from "./sheet.ts";
+import { createSheet, isSheetHold } from "./sheet.ts";
 import { createStills } from "./stills.ts";
 import { cameFrom, designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
@@ -1907,7 +1907,12 @@ export function createDesignScreen(
     batch(() => {
       setShown({ ...shown(), [String(activeState())]: ref });
       setChosenAlternative({ ...chosenAlternative(), [String(activeState())]: ref.alternative });
-      setPreview(null);
+      // A cell open from the sheet stays open across its frame's versions: the values
+      // are the cell's, the version is the frame's.
+      const held = heldPreview();
+      if (held && isSheetHold(held.key) && held.alternative === ref.alternative)
+        setHoveredPreview(null);
+      else setPreview(null);
     });
     rememberPlace();
   }
@@ -2485,6 +2490,7 @@ export function createDesignScreen(
     product,
     view: view.sheet,
     chooseAlternative,
+    heldPreview,
     setHeldPreview,
     tool,
     toggleTool,

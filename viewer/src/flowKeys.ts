@@ -1,6 +1,7 @@
 // The design screen's keyboard: flowKey (logic.ts) says what a key means, this
 // applies it: number keys pick on the question card, ←/→ step through the
-// versions, Enter sends on. The Mark tool owns its keys while on.
+// versions, Enter sends on, Esc lets a preview go (an open sheet cell back to its
+// sheet). The Mark tool owns its keys while on.
 
 import { onCleanup, onMount } from "solid-js";
 import { root } from "./host.ts";
@@ -23,6 +24,7 @@ export function useFlowKeys(s: DesignScreenState) {
         metaKey: e.metaKey,
         ctrlKey: e.ctrlKey,
         altKey: e.altKey,
+        shiftKey: e.shiftKey,
         typing: !!at?.closest(FIELD),
         onControl: !!at?.closest(CONTROL),
       });
@@ -39,8 +41,10 @@ export function useFlowKeys(s: DesignScreenState) {
           else return;
           break;
         case "clear":
-          if (!s.preview()) return;
-          s.setPreview(null);
+          // An open sheet cell goes back to its sheet; any other preview is let go.
+          if (s.sheet.held()) s.sheet.back();
+          else if (s.preview()) s.setPreview(null);
+          else return;
           break;
       }
       e.preventDefault();

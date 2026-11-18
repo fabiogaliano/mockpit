@@ -1607,17 +1607,20 @@ export type FlowKey =
 
 // What a key does on the design screen, or null when it isn't ours. Keys typed
 // into a field stay the field's; Enter on a focused button stays the button's
-// (its own click); a chord with ⌘/Ctrl/Alt belongs to the browser.
+// (its own click); a chord with ⌘/Ctrl/Alt belongs to the browser. Shift with an arrow is
+// a sheet cell's way to its neighbours, not a version step.
 export function flowKey(e: {
   key: string;
   metaKey: boolean;
   ctrlKey: boolean;
   altKey: boolean;
+  shiftKey: boolean;
   typing: boolean;
   onControl: boolean;
 }): FlowKey | null {
   if (e.metaKey || e.ctrlKey || e.altKey || e.typing) return null;
   if (/^[1-9]$/.test(e.key)) return { kind: "pick", n: Number(e.key) - 1 };
+  if (e.shiftKey && e.key.startsWith("Arrow")) return null;
   switch (e.key) {
     case "ArrowRight":
       return { kind: "step", by: 1 };

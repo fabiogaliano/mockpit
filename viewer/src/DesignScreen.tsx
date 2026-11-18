@@ -42,6 +42,7 @@ import { createFlowNav, type FlowNav } from "./flowNav.ts";
 import { host, readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
+  alternativeName,
   GHOST_W,
   historyRow,
   type VersionStep,
@@ -190,6 +191,14 @@ const MARK_KEYS: Record<string, "pick" | "main" | "archive" | undefined> = {
   p: "pick",
   m: "main",
   x: "archive",
+};
+
+// Shift and an arrow from a cell open from the sheet: [down, across].
+const CELL_STEPS: Record<string, [number, number] | undefined> = {
+  ArrowUp: [-1, 0],
+  ArrowDown: [1, 0],
+  ArrowLeft: [0, -1],
+  ArrowRight: [0, 1],
 };
 
 export function DesignScreen(props: {
@@ -502,14 +511,27 @@ export function DesignScreen(props: {
       const mark = MARK_KEYS[e.key.toLowerCase()];
       if (mark) {
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || reading()) return;
-        // On the sheet, the cell the pointer is on; else the frame on stage.
+        // On the sheet, the cell the pointer is on; else the cell open from it, else the
+        // frame on stage.
+        const held = s.sheet.held();
         const at = s.sheet.view()
           ? s.sheet.pointed()
-          : !sideRow() && !comparing() && s.activeAlternative()
-            ? { v: s.activeAlternative()! }
-            : null;
+          : sideRow() || comparing()
+            ? null
+            : held
+              ? { v: held.v, col: held.col }
+              : s.activeAlternative()
+                ? { v: s.activeAlternative()! }
+                : null;
         if (!at || !canFrame(s, mark, at)) return;
         runFrameAction(s, mark, at);
+        e.preventDefault();
+        return;
+      }
+      // An open sheet cell's neighbours: Shift, since the arrows alone step versions.
+      const by = CELL_STEPS[e.key];
+      if (by && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && s.sheet.held()) {
+        s.sheet.step(by[0], by[1]);
         e.preventDefault();
         return;
       }
@@ -845,7 +867,7 @@ function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
         )}
       </Show>
       <div class="mact">
-        <Show when={s.preview()?.label}>
+        <Show when={!s.sheet.held() && s.preview()?.label}>
           {(label) => (
             <div class="previewcap" role="status" title={label()}>
               <b>{holding() ? "Holding" : "Previewing"}</b>
@@ -862,7 +884,61 @@ function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
             </div>
           )}
         </Show>
+        <Show when={s.sheet.held()}>{(h) => <CellNav s={s} h={h()} />}</Show>
       </div>
+    </div>
+  );
+}
+
+// A cell open from the sheet: back to the sheet, landing on it; where it is (frame · value)
+// between the frame's steppers (up, down) and the value's (back, on), which Shift and the
+// arrows take too.
+function CellNav(props: {
+  s: DesignScreenState;
+  h: NonNullable<ReturnType<DesignScreenState["sheet"]["held"]>>;
+}) {
+  const sh = props.s.sheet;
+  const h = () => props.h;
+  const across = () => (h().at.knob === null ? "look" : "value");
+  const go = (
+    by: [number, number],
+    label: string,
+    icon: "up" | "down" | "prev" | "next",
+    key: string,
+    can: boolean,
+  ) => (
+    <button
+      type="button"
+      class="ib"
+      aria-label={label}
+      title={`${label} (${key})`}
+      disabled={!can}
+      onClick={() => sh.step(by[0], by[1])}
+    >
+      <Icon name={icon} />
+    </button>
+  );
+  return (
+    <div class="cellnav" role="group" aria-label="Open cell">
+      <button
+        type="button"
+        class="ib"
+        aria-label="Back to the Sheet"
+        title="Back to the Sheet (Esc)"
+        onClick={() => sh.back()}
+      >
+        <Icon name="grid" />
+      </button>
+      <span class="cellnav-sep" />
+      {go([-1, 0], "Previous frame", "up", "⇧↑", h().r > 0)}
+      {go([1, 0], "Next frame", "down", "⇧↓", h().r < h().rows.length - 1)}
+      <span class="cellnav-at" role="status">
+        <b title={h().v.alternative}>{alternativeName(h().v.alternative)}</b>
+        {" · "}
+        <span title={h().col.label}>{h().col.label}</span>
+      </span>
+      {go([0, -1], `Previous ${across()}`, "prev", "⇧←", h().c > 0)}
+      {go([0, 1], `Next ${across()}`, "next", "⇧→", h().c < h().cols.length - 1)}
     </div>
   );
 }
@@ -1262,7 +1338,9 @@ function SheetSwitch(props: { s: DesignScreenState }) {
             ? "Lay the frames out in an idea for this design"
             : undefined
         }
-        onClick={() => !on() && s.sheet.open(s.sheet.defaultView())}
+        onClick={() =>
+          !on() && (s.sheet.held() ? s.sheet.back() : s.sheet.open(s.sheet.defaultView()))
+        }
       >
         Sheet
       </button>

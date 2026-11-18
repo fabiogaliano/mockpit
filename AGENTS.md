@@ -391,7 +391,11 @@ Stances reversed knowingly, so nobody restores them by accident:
   of its frames. `?sheet=<knob>` (`@looks` for the looks) opens Focus on it, which
   `publish`'s `sheet` puts on the link. A cell is a still once made (`server/stills.ts`, the
   cache key; `viewer/src/stills.ts` asks for the cells in view; `bin/poster.js` takes them
-  through `/api/designs/:id/stills`), else the frame drawn live.
+  through `/api/designs/:id/stills`), else the frame drawn live. A double-click (or Enter)
+  opens a cell on stage, held in its values (`sheet.held()`), across its frame's versions:
+  `CellNav` in the caption says where it is ("Flowers · deep blue") and steps to the
+  neighbouring frame or value, as Shift and the arrows do (the arrows alone step versions);
+  P, M and X mark the cell, and Esc or Sheet goes back to the sheet, landing on it.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
   no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is

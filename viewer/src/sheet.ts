@@ -36,6 +36,10 @@ import { designPath, navigate, SHEET_LOOKS } from "./route.ts";
 import { framePalette, frameMode, peekRev, systemRev } from "./systemRev.ts";
 import type { Stills } from "./stills.ts";
 
+// What a held preview's key starts with when it is a cell opened from the sheet.
+const SHEET_HOLD = "sheet:";
+export const isSheetHold = (key: string) => key.startsWith(SHEET_HOLD);
+
 // Past this a cell is too small to tell anything by.
 export const MAX_COLUMNS = 12;
 
@@ -77,6 +81,7 @@ interface SheetDeps {
   product: () => boolean;
   view: readonly [() => SheetView | null, (v: SheetView | null) => void];
   chooseAlternative: (alternative: string) => void;
+  heldPreview: () => Preview | null;
   setHeldPreview: (p: Preview | null) => void;
   tool: () => Tool | null;
   toggleTool: (t: Tool) => void;
@@ -142,8 +147,7 @@ export function createSheet(d: SheetDeps) {
     mine: l.author === "user",
     look: l,
   });
-  const columnsAll = createMemo<SheetColumn[]>(() => {
-    const at = view();
+  const columnsOf = (at: SheetView | null): SheetColumn[] => {
     if (!at) return [];
     if (at.knob === null) return d.looksHere().map(lookColumn);
     const knob = choiceKnobs().find((k) => k.path === at.knob);
@@ -152,16 +156,17 @@ export function createSheet(d: SheetDeps) {
       label: o.label,
       values: { [knob!.path]: o.value },
     }));
-  });
-  const columns = createMemo(() => columnsAll().slice(0, MAX_COLUMNS));
-  const rows = createMemo(() => {
-    const at = view();
+  };
+  const rowsOf = (at: SheetView | null): AlternativeView[] => {
     if (!at) return [];
     const all = frames();
     if (at.one === null) return all;
     const one = all.find((v) => v.alternative === at.one);
     return one ? [one] : all.slice(0, 1);
-  });
+  };
+  const columnsAll = createMemo(() => columnsOf(view()));
+  const columns = createMemo(() => columnsAll().slice(0, MAX_COLUMNS));
+  const rows = createMemo(() => rowsOf(view()));
 
   // The part a column's values all belong to, where the frame's state declares it.
   const cropTo = (state: string | null, values: Record<string, KnobValue>): string | null => {
@@ -277,19 +282,63 @@ export function createSheet(d: SheetDeps) {
   // The cell under the pointer or the keyboard's focus, which P, M and X mark.
   const [pointed, setPointed] = createSignal<{ v: AlternativeView; col: SheetColumn } | null>(null);
 
-  // A double-click: the frame on stage, held in those values until let go.
-  function openCell(v: AlternativeView, col: SheetColumn) {
+  // The cell opened from the sheet, and the sheet as it was laid out, which its neighbours
+  // and the way back come from. It stands while the stage holds that cell.
+  const [opened, setOpened] = createSignal<{
+    at: SheetView;
+    alternative: string;
+    col: string;
+  } | null>(null);
+  const heldKey = (alternative: string, col: string) => `${SHEET_HOLD}${alternative}:${col}`;
+  const held = createMemo(() => {
+    const o = opened();
+    if (!o || d.heldPreview()?.key !== heldKey(o.alternative, o.col)) return null;
+    const rows = rowsOf(o.at);
+    const cols = columnsOf(o.at).slice(0, MAX_COLUMNS);
+    const r = rows.findIndex((v) => v.alternative === o.alternative);
+    const c = cols.findIndex((x) => x.key === o.col);
+    if (r < 0 || c < 0) return null;
+    return { at: o.at, rows, cols, r, c, v: rows[r], col: cols[c] };
+  });
+  // Where the sheet lands when it opens again: the cell last open, scrolled to and pointed.
+  const [landing, setLanding] = createSignal<{ alternative: string; col: string } | null>(null);
+
+  function hold(v: AlternativeView, col: SheetColumn, at: SheetView) {
     const c = cell(v, col);
     if (!c) return;
     d.chooseAlternative(v.alternative);
+    setOpened({ at, alternative: v.alternative, col: col.key });
     d.setHeldPreview({
-      key: `sheet:${v.alternative}:${col.key}`,
+      key: heldKey(v.alternative, col.key),
       label: `${v.alternative} · ${col.label}`,
       alternative: v.alternative,
       state: v.state,
       knobs: c.knobs,
     });
+  }
+  // A double-click: the frame on stage, held in those values until let go.
+  function openCell(v: AlternativeView, col: SheetColumn) {
+    const at = view();
+    if (!at) return;
+    hold(v, col, at);
     close();
+  }
+  // From the open cell to its neighbour in the sheet it came from: across the row to the
+  // next value or look, down the column to the next frame. Nothing past the edges.
+  function step(down: number, across: number) {
+    const h = held();
+    if (!h) return;
+    const v = h.rows[h.r + down];
+    const col = h.cols[h.c + across];
+    if (v && col) hold(v, col, h.at);
+  }
+  // Back to the sheet the open cell came from, landing on it.
+  function back() {
+    const h = held();
+    if (!h) return;
+    setLanding({ alternative: h.v.alternative, col: h.col.key });
+    d.setHeldPreview(null);
+    open(h.at);
   }
 
   return {
@@ -308,6 +357,11 @@ export function createSheet(d: SheetDeps) {
     spread,
     close,
     openCell,
+    held,
+    step,
+    back,
+    landing,
+    setLanding,
     pointed,
     setPointed,
     stills: d.stills,
