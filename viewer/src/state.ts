@@ -70,7 +70,6 @@ import {
   pruneMix,
   knobPart,
   resolveKnobs,
-  designVersion,
   overflowWidth,
   listedSteps,
   neighbourStep,
@@ -96,6 +95,7 @@ import {
   shortLabel,
   splitLabel,
 } from "./logic.ts";
+import { createDesignData } from "./designData.ts";
 import { cameFrom, designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
@@ -184,12 +184,19 @@ export function createDesignScreen(
   // One question by id, from Needs you: it opens on that one, wherever it is.
   question: string | null = null,
 ) {
-  const [design, putDesign] = createSignal<DesignDetail | null>(null);
-  const setDesign = (m: DesignDetail) =>
-    putDesign((was) =>
-      was ? { ...m, alternatives: keepSame(was.alternatives, m.alternatives, (v) => v.postId) } : m,
-    );
-  const [missing, setMissing] = createSignal(false);
+  const {
+    design,
+    setDesign,
+    missing,
+    setMissing,
+    archiving,
+    setArchiving,
+    archiveKey,
+    alternatives,
+    states,
+    latest,
+    inState,
+  } = createDesignData();
   const [comments, setComments] = createSignal<CommentRow[]>([]);
   const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
   const [activeState, setActiveState] = createSignal<string | null>(null);
@@ -336,25 +343,6 @@ export function createDesignScreen(
   // The stage frames' latest parts reports, keyed by frameKey(state, alternative).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
-  // Archives on their way: an alternative leaves the screen on the click rather than
-  // when the server has answered, and a read that crosses the write can't bring
-  // it back.
-  const [archiving, setArchiving] = createSignal<ReadonlySet<string>>(new Set());
-  const archiveKey = (state: string | null, alternative: string) =>
-    JSON.stringify([state, alternative]);
-  const alternatives = createMemo(() => {
-    const going = archiving();
-    const all = design()?.alternatives ?? [];
-    if (!going.size) return all;
-    return all.map((v) =>
-      going.has(archiveKey(v.state, v.alternative)) ? { ...v, status: "archived" as const } : v,
-    );
-  });
-  const states = createMemo<(string | null)[]>(() => {
-    const m = design();
-    return m && m.states.length ? m.states : [null];
-  });
-  const latest = createMemo(() => designVersion(alternatives()));
   // Q6: a draft made on an older version keeps the stage on that version until
   // the user chooses to view the new one.
   const boundVersion = createMemo(() => {
@@ -406,8 +394,6 @@ export function createDesignScreen(
     const id = answerIds(answerOf(ask))[0];
     return ask.options.find((o) => o.id === id)?.alternative ?? null;
   });
-
-  const inState = (state: string | null) => alternatives().filter((v) => v.state === state);
 
   // The exact version a drafted answer picked on a state, when its option
   // names one. Drafted only: once sent, it is the version in use.
