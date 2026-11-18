@@ -1,5 +1,5 @@
 // The one-tap reaction row: like, dislike, "more like this". Used on a part
-// picked on the stage and on the alternative in the stage head; each tap is a draft
+// picked on the stage; each tap is a draft
 // reaction that goes out with the next Send.
 
 import { createSignal, For, type JSX, onCleanup, onMount } from "solid-js";

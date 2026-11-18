@@ -501,7 +501,7 @@ Stances reversed knowingly, so nobody restores them by accident:
   - Also: `Thumb` (a shrunk sandboxed frame, frozen with `#small`), `flowNav.ts` (the
     declared flow around the design: the flow bar, neighbours across designs, Try's
     `data-goto`), `logic.ts` (pure rules), `tune.ts` (tunekit mounted via
-    `initPane({ host })`), `presets.ts` (Tune presets in localStorage), `theme.ts`,
+    `initPane({ host })`), `theme.ts`,
     `host.ts`.
 - `bin/poster.js` — automatic posters for the CLI and stdio MCP: a publish leaves a job, a
   detached worker renders it in one headless browser and attaches the still with

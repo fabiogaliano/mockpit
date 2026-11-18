@@ -202,7 +202,7 @@ export function createTune(s: DesignScreenState) {
     }),
   );
 
-  // The draft can change under the knobs (a preset, an answer, another tab).
+  // The draft can change under the knobs (a reset, an answer, another tab).
   createEffect(() => {
     s.knobContext();
     const cfg = config();

@@ -1668,7 +1668,7 @@ export function createDesignScreen(
     });
   }
 
-  // A preset restores a whole set of tuned values at once.
+  // Reset and its undo swap the whole set of tuned values at once.
   function replaceTuned(values: Record<string, KnobValue>) {
     writeDraft((d) => {
       d.tuned = { ...values };
