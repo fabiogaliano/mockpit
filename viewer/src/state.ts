@@ -1927,6 +1927,19 @@ export function createDesignScreen(
     if (to) showVersion(to);
   }
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
+  // What a Use of these picks leaves undecided where it chose: the live frames with no mark
+  // in the states it took picks from. A state with no pick wasn't decided, so isn't offered.
+  const unpickedBeside = (picked: { state: string | null; alternative: string }[]) => {
+    const chosen = new Set(picked.map((p) => p.state));
+    return alternatives()
+      .filter(
+        (v) =>
+          chosen.has(v.state) &&
+          isLive(v.status) &&
+          !picked.some((p) => p.state === v.state && p.alternative === v.alternative),
+      )
+      .map((v) => ({ state: v.state, alternative: v.alternative }));
+  };
   // Use: the picks go in use, Main first, and into the design the idea is for; with nothing
   // picked, or a version named (a newer one taking over), that one version. The agent hears
   // it once, as a reply of its own; the draft stays for the next Send.
@@ -1953,7 +1966,19 @@ export function createDesignScreen(
       const what = picked.length
         ? `${picked.length} pick${picked.length === 1 ? "" : "s"}`
         : nameOf(one!);
-      setToast({ text: target ? `Using ${what} in ${target}` : `Using ${what}` });
+      const others = unpickedBeside(picked);
+      const rest = others.length === 1 ? "the other one" : `the other ${others.length}`;
+      setToast({
+        text: target ? `Using ${what} in ${target}` : `Using ${what}`,
+        ...(others.length
+          ? {
+              action: {
+                label: `Archive ${rest}`,
+                run: () => void archiveAlternatives(others, rest),
+              },
+            }
+          : {}),
+      });
     } catch (e) {
       fail(e);
     }
@@ -2287,16 +2312,20 @@ export function createDesignScreen(
     const at = all.indexOf(activeState());
     return [...all.slice(at + 1), ...all.slice(0, at).reverse()].find(liveIn);
   }
-  // Resolves to its undo, or to nothing if they stayed; quiet as hideVersion is.
+  // Resolves to its undo, or to nothing if they stayed; quiet as hideVersion is. A name
+  // alone is an alternative of the state on stage.
   async function archiveAlternatives(
-    alternatives: string[],
-    label = alternatives.join(", "),
+    alternatives: (string | { state: string | null; alternative: string })[],
+    label = alternatives.map((a) => (typeof a === "string" ? a : a.alternative)).join(", "),
     quiet = false,
   ) {
     const m = design();
     if (!m || readonly() || !alternatives.length) return undefined;
-    const state = activeState();
-    const keys = alternatives.map((v) => archiveKey(state, v));
+    const here = activeState();
+    const frames = alternatives.map((a) =>
+      typeof a === "string" ? { state: here, alternative: a } : a,
+    );
+    const keys = frames.map((f) => archiveKey(f.state, f.alternative));
     const going = (on: boolean) =>
       setArchiving((was) => {
         const next = new Set(was);
@@ -2313,7 +2342,7 @@ export function createDesignScreen(
     let landed = true;
     const done = (async () => {
       try {
-        for (const v of alternatives) await api.archiveAlternative(m.id, state, v);
+        for (const f of frames) await api.archiveAlternative(m.id, f.state, f.alternative);
         await loadDesign();
       } catch (e) {
         landed = false;
@@ -2325,10 +2354,10 @@ export function createDesignScreen(
     })();
     const undo = () => {
       setToast(null);
-      if (movedOn !== undefined) showState(state);
+      if (movedOn !== undefined) showState(here);
       // After the archive lands, or the restore could be overtaken by it.
       void done.then(() => {
-        for (const v of alternatives) void restoreAlternative(v, [state]);
+        for (const f of frames) void restoreAlternative(f.alternative, [f.state]);
       });
     };
     if (!quiet) {
@@ -2340,7 +2369,7 @@ export function createDesignScreen(
           // After the archive lands: the server only keeps a reason for what has gone.
           save: (reason) =>
             void done.then(() => {
-              for (const v of alternatives) saveArchiveReason(v, reason, state);
+              for (const f of frames) saveArchiveReason(f.alternative, reason, f.state);
             }),
         },
       });

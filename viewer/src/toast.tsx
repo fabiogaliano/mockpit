@@ -9,9 +9,11 @@ import { Reason } from "./Reason.tsx";
 import { navigate, route } from "./route.ts";
 
 // `reason`: something just went, and this is the moment to say why, if at all.
+// `action`: the one next step the moment offers, which nothing takes by itself.
 export type ToastLine = {
   text: string;
   undo?: () => void;
+  action?: { label: string; run: () => void };
   reason?: { value: string | null; save: (reason: string | null) => void };
 };
 
@@ -25,7 +27,10 @@ export function Toast(props: { toast: ToastLine | null; onDismiss: () => void })
   createEffect(() => {
     const line = props.toast;
     if (!line || held()) return;
-    const timer = host().window.setTimeout(props.onDismiss, line.undo ? UNDO_MS : LINE_MS);
+    const timer = host().window.setTimeout(
+      props.onDismiss,
+      line.undo || line.action ? UNDO_MS : LINE_MS,
+    );
     onCleanup(() => host().window.clearTimeout(timer));
   });
   return (
@@ -46,22 +51,29 @@ export function Toast(props: { toast: ToastLine | null; onDismiss: () => void })
             <Show when={tst().reason}>
               {(why) => <Reason value={why().value} onSave={why().save} />}
             </Show>
+            <Show when={tst().action}>
+              {(act) => (
+                <button type="button" class="toast-undo" onClick={() => act().run()}>
+                  {act().label}
+                </button>
+              )}
+            </Show>
             <Show when={tst().undo}>
               {(undo) => (
-                <>
-                  <button type="button" class="toast-undo" onClick={() => undo()()}>
-                    Undo
-                  </button>
-                  <button
-                    type="button"
-                    class="ib toast-x"
-                    aria-label="Dismiss"
-                    onClick={props.onDismiss}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </>
+                <button type="button" class="toast-undo" onClick={() => undo()()}>
+                  Undo
+                </button>
               )}
+            </Show>
+            <Show when={tst().undo || tst().action}>
+              <button
+                type="button"
+                class="ib toast-x"
+                aria-label="Dismiss"
+                onClick={props.onDismiss}
+              >
+                <Icon name="close" />
+              </button>
             </Show>
           </>
         )}
