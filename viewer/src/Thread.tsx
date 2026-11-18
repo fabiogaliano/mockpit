@@ -13,14 +13,13 @@ import type { DesignScreenState } from "./state.ts";
 // for its session, not that the agent is stopped, so that's all this claims: a busy
 // agent reads the reply on its next call anyway.
 export function WakeLine(props: { slug: string }) {
-  const line = () =>
-    `Read my mockpit reply on ${props.slug}: run mockpit feedback, or call your feedback tool.`;
+  const line = () => `Read my mockpit reply on ${props.slug} (mockpit feedback).`;
   return (
     <div class="wake">
-      <p>No watcher is open, so your agent hears this on its next call. To wake it now, tell it:</p>
+      <p>Agent isn't listening. To wake it, paste:</p>
       <div class="wake-line">
         <code>{line()}</code>
-        <CopyButton text={line()} label="Copy the line for your agent" />
+        <CopyButton text={line()} label="Copy" />
       </div>
     </div>
   );
@@ -99,12 +98,18 @@ export function Thread(props: { s: DesignScreenState; scroller: () => HTMLElemen
                 <div class="tquote">{r.quote}</div>
               </Show>
               <Show when={r.who === "you"}>
-                <div class="tdelivered" classList={{ ok: r.delivered }}>
+                <div
+                  class="tdelivered"
+                  classList={{ ok: r.delivered }}
+                  title={
+                    !r.delivered && r.ownerGone ? "The agent that asked restarted." : undefined
+                  }
+                >
                   <span class="tick">{r.delivered ? "✓✓" : "✓"}</span>
                   {r.delivered
                     ? "Delivered"
                     : r.ownerGone
-                      ? "Waiting — the agent that asked restarted; the next agent in this project will get it"
+                      ? "Waiting for the next agent"
                       : "Not seen yet"}
                 </div>
               </Show>
@@ -114,11 +119,6 @@ export function Thread(props: { s: DesignScreenState; scroller: () => HTMLElemen
             </div>
           )}
         </For>
-      </Show>
-      <Show when={props.s.design()?.repliesGoTo}>
-        {(agent) => (
-          <p class="treach">{`Replies go to ${agent()}, the agent last working in this project.`}</p>
-        )}
       </Show>
       <Show when={!readonly()}>
         <MessageField s={props.s} />

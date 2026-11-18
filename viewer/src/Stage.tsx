@@ -818,7 +818,7 @@ export function NativeSurface(props: {
       </div>
     );
   }
-  return <div class="surface surface-gone">{`${String(props.kind)} (#${props.version})`}</div>;
+  return <div class="surface surface-gone">{`${String(props.kind)} (v${props.version})`}</div>;
 }
 
 function Pin(props: { s: DesignScreenState; index: number; style: JSX.CSSProperties }) {

@@ -158,7 +158,7 @@ function History(props: { s: DesignScreenState }) {
   const s = props.s;
   const layout = createMemo(() => historyLayout(s.steps()));
   const size = () => (widthKind(s.frameW()) === "phone" ? TALL : FLAT);
-  // Each alternative numbers its own versions, so with several, "#1" alone says nothing
+  // Each alternative numbers its own versions, so with several, "v1" alone says nothing
   // until its line is named.
   const lines = () => new Set(s.steps().map((st) => st.alternative)).size > 1;
   const nameH = () => (lines() ? LINE_NAME_H : 0);
@@ -249,7 +249,7 @@ function HistoryThumb(props: {
       <Show when={was()}>
         <span class="mk was" aria-hidden="true" />
       </Show>
-      <span class="n">{`#${props.step.version}`}</span>
+      <span class="n">{`v${props.step.version}`}</span>
     </button>
   );
 }

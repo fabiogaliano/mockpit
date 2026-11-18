@@ -141,12 +141,12 @@ Stances reversed knowingly, so nobody restores them by accident:
   did. Frame URLs carry `y` (the system's rev), `sys` (peek at an older revision) and `p` (a
   palette other than the default); a poster taken under another rev is dropped.
   `viewer/src/systemRev.ts` holds all three for the viewer. `y` comes from each view and
-  the `system-changed` event, `p` is the tool strip's `PaletteTool` (localStorage per
+  the `system-changed` event, `p` is the Focus bar's `PaletteTool` (localStorage per
   project, settles nothing), and `sys` is the System changed note's See before. While
   `p` or `sys` is set, Focus's frames draw live and no poster is shown (`posterShown`); the
   Board ignores both, since it shows posters only. The
-  event's `by` says whose change it was: only an agent's raises `SystemNote` (See
-  before, Restore, which is the user's own change through `/system/decide`).
+  event's `by` says whose change it was: only an agent's raises `SystemNote`, one line: "System updated",
+  which a click turns to see before, and Undo, the user's own change through `/system/decide`).
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
   `discreteChoices` drives the ask-not-knob nudge.
@@ -232,7 +232,7 @@ Stances reversed knowingly, so nobody restores them by accident:
   `edited.ready`. Viewer: `ReadyMark` beside the name in `TopRow`, the cover's dot
   (`Album.tsx`, its word in the status line where nothing hovers), each instance's word in
   `BuiltFrom`, and `ChangedNote`'s way back with no countdown, marked or not (a detail read's
-  `back: {version, from}`; unmarked, × keeps the newest, `keepNewest`, localStorage per post),
+  `back: {version, from}`; unmarked, the way back is Back to in the version menu),
   which follows the server's shown version (`followShown`) so a newer one takes the stage again.
 - `Design.spec` (`server/spec.ts`, `MAX_SPEC`) is a design's own record, under three
   headings: What it is for (`purpose`), How it works (`behaviour`, lines that may name a
@@ -342,8 +342,9 @@ Stances reversed knowingly, so nobody restores them by accident:
   keeps is never archived by a Send or Use this, only released from use (`release` in
   `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
   kept ones first and archived ones in `HiddenAnswers` ("Archived · N"); `Kept.tsx` holds what waits after a
-  Send: `KeptAnswers` beside the design (Use this instead, a kept screen's missing updates
-  counted from `since`, Update it now, `carried`), `AnswerPills` on the design's top edge
+  Send: `AnsweredLines` in the panel, each answered question one line that opens in place
+  (its answer, Change answer, a kept screen's missing updates counted from `since`, Update
+  now, `carried`), `AnswerPills` on the design's top edge
   for questions answered in words, and `AnswerCombos` (`Design.combos`,
   `POST /api/designs/:id/combos`, put in use as `Reply.combo`). A question whose answers have
   pictures keeps its answered card in the panel and its row in Side by side
@@ -427,16 +428,16 @@ Stances reversed knowingly, so nobody restores them by accident:
     dashed and dimmed, each headed "Idea". The Ideas page
     draws each idea as a dashed section, alternatives down and states across, its archived
     ones folded under "Show N archived" and a filter past `FILTER_FROM` live ones. Over the
-    canvas the page is one line: its name, "N of M ready", "Since you were here: N changed"
-    (which steps through the frames `seen.ts` counts as changed and dots) and Map, a
+    canvas the page is one line: its name and "N changed ›" (which steps through the
+    frames `seen.ts` counts as changed and dots); the name opens the map, a
     popover with the area's description and the coverage map (`server/coverage.ts`; a cell
     selects its frame). "N questions waiting · Answer ›" at the top opens the page's first
     question, its ideas' included. "agent…" sits on
     the frame an agent is publishing to until its still lands. Drag empty space, Space-drag
     or scroll to pan; ⌘-scroll, a pinch or +/- zooms; Shift 1 fits the page and Shift 2 the
     selection; Enter, a double-click or Open ↵ opens Focus; Esc lets go; ⌘/ hides the rail
-    and the cards. The shortcuts are a bar until its Got it, then a "?" in the corner (and
-    the ? key) opens them (`mockpit:board-keys`). A selected frame offers Copy link. P or ▶ Present plays a flow full
+    and the cards. The shortcuts are behind a "?" in the corner (and the ? key), labelled
+    "? shortcuts" until first opened (`mockpit:board-keys`). A selected frame offers Copy link. P or ▶ Present plays a flow full
     screen (`Present.tsx`): → and ← walk it, R starts over.
   - **The rail** (`BoardRail.tsx`; over Focus it opens from ☰, `SideOver.tsx`): Needs
     you, the one inbox, each question opening Focus on it (`?question=`); Pages, the
@@ -461,20 +462,22 @@ Stances reversed knowingly, so nobody restores them by accident:
     art (`turnWord`, `designStatus`); it says "New" from `seen.ts`. A cover's ⋯
     (`CardMenu`) moves a design to another kind or area, or archives it.
   - **Focus** (`DesignScreen.tsx`, its state and actions in `state.ts`). `TopRow`: the
-    path, project / page / design, then the panel's toggle. Esc and the page in the path go
-    back to the Board, fit to the frame, selected. `Margins.tsx`: the states on the left
-    (not drawn ones dashed), the versions, and the state's alternatives
-    (`Alternatives.tsx`; headed Variants on a variants design, archived ones folded); on
-    the right a panel with Question · N, Spec (with Instances, `BuiltFrom`) and Activity
-    (`Thread.tsx`), standing open where it fits and opening for a question whatever the
-    room (`marginLayout` in `logic.ts` floats a margin as a tab when it would take the
-    design below 80%). By the design, a strip of Try, Comment (C), Tune, the palette pick
-    beside Light | Dark (`PaletteTool`) and the preview with the QR. On an idea's
-    alternative the panel offers More like this, Borrow, Keep, Move and Archive, unless the
-    question on the card answers with it, whose row carries them instead.
-    `VersionCaption` holds the version and New version / Use this, and Compare with…:
-    `Compare.tsx` is two versions in one frame with a divider, and Compare with what you
-    saw opens it on the version `seen.ts` last had on screen. `SideBySide.tsx` lays the
+    path, project / page / design and its ⋯ (Spec, Activity, New state), then one bar
+    (`FocusBar`): Try, Comment (C), Tune, the preview with the QR, the palette pick beside
+    Light | Dark (`PaletteTool`), the version menu (`VersionMenu` in `VersionBar.tsx`: the
+    versions with hide and restore, what's new as a dot and its item, Compare with last
+    seen, Compare…, New version), Use this, and Send. Esc and the page in the path go back
+    to the Board, fit to the frame, selected. `Margins.tsx`: the states on the left (not
+    drawn ones dashed; the standard states a screen lacks wait behind New state) and the
+    state's alternatives (`Alternatives.tsx`; headed Variants on a variants design,
+    archived ones folded); on the right one panel, there only while a question is open
+    (or something answered waits) or the user opens Spec (with Instances, `BuiltFrom`) or
+    Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
+    when it would take the design below 80%). On an idea's alternative the panel offers
+    More like this, Borrow, Keep, Move and Archive, unless the question on the card answers
+    with it, whose row carries them instead. `Compare.tsx` is two versions in one frame
+    with a divider, and Compare with last seen opens it on the version `seen.ts` last had
+    on screen. `SideBySide.tsx` lays the
     design as it stands and every answer of a pictured question in a row at full height
     (an icon in the question's head, kept per design in `answersLayout.ts`): the pick is outlined
     "Chosen", the rest dim, and after Send the kept ones stay beside it and the archived
@@ -484,12 +487,13 @@ Stances reversed knowingly, so nobody restores them by accident:
     full height, pins and comments built from the blocks they report; `PlannedStage` where
     nothing is drawn; `Outlines` offers the missing states (`StateAsk`). Hide is per
     version and dims in place; archive is per alternative and per design, with Undo.
-    `ChangedNote` names what it is ("New version · #10", "Changed since Ready") before its
-    way back. On an idea, past Use this a newer version takes over by itself (`changedTo`):
+    `ChangedNote` is the way back from a newer version ("Changed since Ready" when
+    marked). New versions and new answers take the stage by themselves when nothing is
+    unsent; otherwise they wait as a dot on the version button. On an idea, past Use this a newer version takes over by itself (`changedTo`):
     the stage moves to it when the tab has focus and it goes in use ten seconds later,
     writing nothing before then. Back to the old one is a stay, which `stayedVersion`
     remembers until a newer one comes, as does Use this on an older version. Anything
-    underway (a draft, an open question, a tool, typing) holds it to a See pill, and
+    underway (a draft, an open question, a tool, typing) holds it to the dot, and
     touching the page stops the count.
   - **Phone and tablet** (`viewport.ts`). Under 700 px the Board is its sections as rows
     a finger swipes (scroll-snap), a flow's steps numbered 1, 2, 3, 3b, and a tap opens
@@ -511,7 +515,7 @@ Stances reversed knowingly, so nobody restores them by accident:
   replaced, by any session (`setPosterOnce`); an agent's own poster never is. Built-ins only.
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
-- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewTool`, with the widths, in the tool strip: a local encoder, and
+- `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewTool`, with the widths, on the Focus bar: a local encoder, and
   `GET /api/reach` for what a phone would meet (`networkHosts` from `server/index.ts`).
   The code never holds the workspace key.
 - `workers/index.ts` — Cloudflare entry; one Durable Object runs the whole app.

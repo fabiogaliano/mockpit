@@ -1,7 +1,7 @@
-// What a declared screen doesn't have yet. A missing standard state is an outline in the
-// list of states, with a way to say it doesn't apply and a way to ask for it, both
-// beside + New state. A whole screen or state that was planned and not drawn stands on
-// the canvas as an outline of its own, where the design will go.
+// What a declared screen doesn't have yet. The standard states it lacks fold behind
+// + New state: the card it opens offers them by name, each with a way to ask for it and a
+// way to say it doesn't apply. A whole screen or state that was planned and not drawn
+// stands on the canvas as an outline of its own, where the design will go.
 
 import { createSignal, For, Show } from "solid-js";
 import { readonly } from "./host.ts";
@@ -12,88 +12,49 @@ import type { DesignScreenState } from "./state.ts";
 const MAX_NAME = 120;
 const MAX_DETAIL = 500;
 
-// Rows in the left margin, under the states.
+// The row in the left margin, under the states.
 export function OutlineRows(props: { s: DesignScreenState }) {
-  const s = props.s;
   return (
-    <>
-      <For each={s.stateOutlines()}>
-        {(o) => (
-          <div class="lm-item lm-outline">
-            <button
-              type="button"
-              class="lm-row"
-              aria-label={`${o.name}, ${o.requested ? "asked for" : "not drawn"}`}
-              onClick={() => s.setAskingState({ name: o.name })}
-            >
-              <span class="lm-pic lm-dash" classList={{ flat: s.frameW() > 600 }} />
-              <span class="lm-text">
-                <b>{o.name}</b>
-                <small>{o.requested ? "Asked for" : "Not drawn"}</small>
-              </span>
-            </button>
-            <button
-              type="button"
-              class="ib lm-hide x-remove"
-              aria-label={`${o.name} doesn't apply`}
-              title="Doesn't apply"
-              onClick={() => void s.dismissOutline(o.name)}
-            >
-              <Icon name="close" />
-            </button>
-          </div>
-        )}
-      </For>
-      <button type="button" class="lm-row lm-new" onClick={() => s.setAskingState({ name: "" })}>
-        <Icon name="plus" />
-        New state
-      </button>
-    </>
+    <button
+      type="button"
+      class="lm-row lm-new"
+      onClick={() => props.s.setAskingState({ name: "" })}
+    >
+      <Icon name="plus" />
+      New state
+    </button>
   );
 }
 
-// The same in the flow bar, where margins can't stand. A tap opens the card below, which
-// holds "doesn't apply" too: no room here for a target that small.
+// The same in the flow bar, where margins can't stand.
 export function OutlineChips(props: { s: DesignScreenState }) {
-  const s = props.s;
   return (
-    <>
-      <For each={s.stateOutlines()}>
-        {(o) => (
-          <button
-            type="button"
-            class="ftab ftab-outline"
-            aria-label={`${o.name}, ${o.requested ? "asked for" : "not drawn"}`}
-            onClick={() => s.setAskingState({ name: o.name })}
-          >
-            <span>{o.name}</span>
-          </button>
-        )}
-      </For>
-      <button
-        type="button"
-        class="ftab ftab-new"
-        aria-label="New state"
-        onClick={() => s.setAskingState({ name: "" })}
-      >
-        <Icon name="plus" />
-        <span>New state</span>
-      </button>
-    </>
+    <button
+      type="button"
+      class="ftab ftab-new"
+      aria-label="New state"
+      onClick={() => props.s.setAskingState({ name: "" })}
+    >
+      <Icon name="plus" />
+      <span>New state</span>
+    </button>
   );
 }
 
-// Asking for a state: named by the outline it came from, or typed. It goes as a reply of
-// its own and nothing waits for it.
+// Asking for a state: one of the standard states the screen lacks, or typed. It goes as
+// a reply of its own and nothing waits for it.
 export function StateAsk(props: { s: DesignScreenState }) {
   const s = props.s;
   const [typed, setTyped] = createSignal("");
   const [detail, setDetail] = createSignal("");
   const [busy, setBusy] = createSignal(false);
-  const fixed = () => s.askingState()?.name ?? "";
+  // A standard state picked from the card's own list, else the one it opened on.
+  const [chosen, setChosen] = createSignal("");
+  const fixed = () => chosen() || (s.askingState()?.name ?? "");
   const name = () => (fixed() || typed()).trim();
   const requested = () => s.stateOutlines().find((o) => o.name === fixed())?.requested ?? false;
   const shut = () => {
+    setChosen("");
     setTyped("");
     setDetail("");
     s.setAskingState(null);
@@ -134,6 +95,22 @@ export function StateAsk(props: { s: DesignScreenState }) {
             <Icon name="close" />
           </button>
         </div>
+        <Show when={!fixed() && s.stateOutlines().length}>
+          <div class="stateask-owed" role="group" aria-label="States it may need">
+            <For each={s.stateOutlines()}>
+              {(o) => (
+                <button
+                  type="button"
+                  class="btn"
+                  title={o.requested ? "Already asked for" : undefined}
+                  onClick={() => setChosen(o.name)}
+                >
+                  {o.name}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <input
           class="stateask-detail"
           aria-label="What it should show"
@@ -144,7 +121,7 @@ export function StateAsk(props: { s: DesignScreenState }) {
         />
         <div class="stateask-acts">
           <button type="submit" class="btn" disabled={!name() || busy()}>
-            Ask your agent
+            Ask
           </button>
           <Show when={fixed()}>
             <button
@@ -177,12 +154,11 @@ export function PlannedStage(props: { s: DesignScreenState }) {
       <div class="planned-card" classList={{ phone: s.frameW() <= 600 }}>
         <span class="planned-tag">Planned</span>
         <h2>{state() ?? m()?.title}</h2>
-        <p>Not drawn yet. It fills in when your agent publishes here.</p>
         <Show when={m()?.source}>{(src) => <p class="planned-src">{src()}</p>}</Show>
         <div class="planned-acts">
           <Show when={!readonly() && !m()?.archivedAt}>
             <button type="button" class="btn" onClick={() => void s.askToDraw()}>
-              Ask your agent to draw it
+              Ask to draw
             </button>
           </Show>
           <Show when={specShown(s)}>

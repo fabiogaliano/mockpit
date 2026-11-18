@@ -1,15 +1,16 @@
-// What stays reachable after a question is answered: the answers kept for later beside
-// the design, as pills on its top edge to look at without changing anything, and the
-// user's saved combos of answers. Values follow every new version by themselves; a kept
-// screen doesn't, so it says how far behind it is and how to bring it along.
+// What stays reachable after a question is answered: each answered question as one line
+// in the panel, the answers it kept for later folded into it, the same as pills on the
+// design's top edge to look at without changing anything, and the user's saved combos of
+// answers. Values follow every new version by themselves; a kept screen doesn't, so it
+// says how far behind it is and how to bring it along.
 
 import { createSignal, For, Show } from "solid-js";
 import type { AnswerCombo, Ask, AskOption } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { answerIds, splitLabel } from "./logic.ts";
-import { optionPicture } from "./Questions.tsx";
-import { pictured } from "./SideBySide.tsx";
+import { optionPicture, saidOf } from "./Questions.tsx";
+import { AnsweredCard, pictured } from "./SideBySide.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 
@@ -43,22 +44,79 @@ function behind(s: DesignScreenState, ask: Ask, kept: AskOption, inUse: AskOptio
   return (mine.history ?? []).filter((h) => !("hidden" in h && h.hidden) && h.at > since).length;
 }
 
-export function KeptAnswers(props: { s: DesignScreenState }) {
+// The answered questions on the state on stage, one line each: what was asked, what was
+// said, and how many answers it kept. Opened, a line holds the rest: the answers as they
+// were left, the kept ones with what can be done with them, and Change answer.
+export function AnsweredLines(props: { s: DesignScreenState }) {
   const s = props.s;
   return (
-    <For each={keptGroups(s)}>
-      {(g) => (
-        <section class="keptans" aria-label={`Kept for later: ${g.ask.text}`}>
-          <h4 class="keptans-hd">
-            <span>{`Kept · ${g.kept.length}`}</span>
-            <small>{g.ask.text}</small>
-          </h4>
-          <ul>
-            <For each={g.kept}>{(o) => <KeptRow s={s} group={g} option={o} />}</For>
-          </ul>
-        </section>
-      )}
-    </For>
+    <Show when={s.closedAsks("state").length}>
+      <section class="anslines" aria-label="Answered">
+        <h4 class="anslines-hd">Answered</h4>
+        <For each={s.closedAsks("state")}>{(a) => <AnsweredLine s={s} ask={a} />}</For>
+      </section>
+    </Show>
+  );
+}
+
+function AnsweredLine(props: { s: DesignScreenState; ask: Ask }) {
+  const s = props.s;
+  const [open, setOpen] = createSignal(false);
+  const group = () => keptGroups(s).find((g) => g.ask.id === props.ask.id);
+  const kept = () => group()?.kept.length ?? 0;
+  return (
+    <div class="ansline" classList={{ open: open() }} data-answered={props.ask.id}>
+      <button
+        type="button"
+        class="ansline-hd"
+        aria-expanded={open()}
+        onClick={() => setOpen(!open())}
+      >
+        <span class="ansline-q">{props.ask.text}</span>
+        <span class="ansline-said" classList={{ dismissed: !!props.ask.dismissed }}>
+          {`${saidOf(props.ask)}${kept() ? ` · ${kept()} kept` : ""}`}
+        </span>
+        <span class="ansline-chev" aria-hidden="true">
+          ›
+        </span>
+      </button>
+      <Show when={open()}>
+        <div class="ansline-more">
+          <Show
+            when={!props.ask.dismissed && pictured(s, props.ask)}
+            fallback={
+              <>
+                <Show when={props.ask.comment && !props.ask.dismissed}>
+                  <span class="answered-note">
+                    <span class="sr-only">Comment: </span>
+                    {props.ask.comment}
+                  </span>
+                </Show>
+                <Show when={!readonly() && !props.ask.dismissed}>
+                  <button
+                    type="button"
+                    class="secondary answered-change"
+                    aria-label={`Change answer: ${props.ask.text}`}
+                    onClick={() => s.changeAnswer(props.ask)}
+                  >
+                    Change answer
+                  </button>
+                </Show>
+              </>
+            }
+          >
+            <AnsweredCard s={s} ask={props.ask} bare />
+          </Show>
+          <Show when={group()}>
+            {(g) => (
+              <ul class="keptans" aria-label={`Kept for later: ${props.ask.text}`}>
+                <For each={g().kept}>{(o) => <KeptRow s={s} group={g()} option={o} />}</For>
+              </ul>
+            )}
+          </Show>
+        </div>
+      </Show>
+    </div>
   );
 }
 
@@ -127,7 +185,7 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
                 disabled={busy()}
                 onClick={() => void run(() => s.updateOnce(ask(), o()))}
               >
-                Update it now, once
+                Update now
               </button>
             </Show>
             <button
@@ -144,7 +202,7 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
             <fieldset class="keptrow-mode">
               <legend>{`When ${inUseName()} changes`}</legend>
               <span class="seg">
-                <label>
+                <label title="It falls behind, and you can update it when you want it.">
                   <input
                     type="radio"
                     name={`carry-${ask().id}-${o().id}`}
@@ -152,9 +210,9 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
                     disabled={busy()}
                     onChange={() => void run(() => s.carryKept(ask(), o(), false))}
                   />
-                  Leave it alone
+                  Leave as is
                 </label>
-                <label>
+                <label title="Always current, but the agent makes every change twice.">
                   <input
                     type="radio"
                     name={`carry-${ask().id}-${o().id}`}
@@ -162,13 +220,8 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
                     disabled={busy()}
                     onChange={() => void run(() => s.carryKept(ask(), o(), true))}
                   />
-                  Update it too
+                  Keep in sync
                 </label>
-              </span>
-              <span class="keptrow-desc">
-                {carried()
-                  ? "Always current, but the agent makes every change twice."
-                  : "It falls behind, and you can update it when you want it."}
               </span>
             </fieldset>
           </Show>

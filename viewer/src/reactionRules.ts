@@ -85,11 +85,11 @@ export const commentText = (c: PartComment): string =>
       ? `Borrow ${c.borrow.part ? `the ${c.borrow.part} ` : ""}from ${borrowSource(c.borrow.from)}${c.text ? ` · ${c.text}` : ""}`
       : c.text;
 
-// "felt@2" as the viewer names a version: "Felt #2".
+// "felt@2" as the viewer names a version: "Felt v2".
 const borrowSource = (from: string) => {
   const at = from.lastIndexOf("@");
   const alternative = at > 0 ? from.slice(0, at) : from;
-  return `${alternative.charAt(0).toUpperCase()}${alternative.slice(1)}${at > 0 ? ` #${from.slice(at + 1)}` : ""}`;
+  return `${alternative.charAt(0).toUpperCase()}${alternative.slice(1)}${at > 0 ? ` v${from.slice(at + 1)}` : ""}`;
 };
 
 // Where a reaction was left: its part (if any), the alternative, the state.

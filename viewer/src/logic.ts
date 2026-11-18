@@ -929,7 +929,7 @@ const KIND_NAMES: Record<DesignKind, string> = {
 export const editedLine = (e: DesignEdit): string =>
   [
     e.kind ? `Moved to ${KIND_NAMES[e.kind]}` : "",
-    e.area !== undefined ? (e.area ? `Area ${e.area}` : "No area") : "",
+    e.area !== undefined ? (e.area ? `Area ${e.area}` : "Unsorted") : "",
     e.spec?.purpose !== undefined
       ? e.spec.purpose === null
         ? "What it is for cleared"
@@ -1816,13 +1816,13 @@ export function versionSteps(alternatives: StepSource[], state: string | null): 
   return rows.map((r, i) => ({ ...r.step, n: i + 1 }));
 }
 
-// A version as the user reads it: the agent's own number, so "Dark #2" is the
+// A version as the user reads it: the agent's own number, so "Dark v2" is the
 // agent's dark@2, with the alternative's name in front when its state has others.
 export const alternativeName = (alternative: string): string =>
   `${alternative.charAt(0).toUpperCase()}${alternative.slice(1)}`;
 
 export const versionName = (ref: VersionRef, named: boolean): string =>
-  named ? `${alternativeName(ref.alternative)} #${ref.version}` : `#${ref.version}`;
+  named ? `${alternativeName(ref.alternative)} v${ref.version}` : `v${ref.version}`;
 
 export const stepFor = (steps: VersionStep[], ref: VersionRef | null | undefined) =>
   ref ? steps.find((x) => sameVersion(x, ref)) : undefined;

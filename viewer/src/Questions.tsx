@@ -50,6 +50,15 @@ export function ArchivedNote(props: { s: DesignScreenState }) {
   );
 }
 
+// What a sent question got, in words.
+export const saidOf = (a: Ask) => {
+  if (a.dismissed) return "Dismissed, not answered";
+  const out = answerIds(a.answer).map((x) => a.options.find((o) => o.id === x)?.label ?? x);
+  if (a.other !== undefined) out.push(a.other ? `“${a.other}”` : "an image");
+  if (!out.length && a.comment !== undefined) out.push("a comment");
+  return out.join(", ");
+};
+
 // Sent answers, folded: read-only, each with the answer it got. Changing one
 // is its own button, so a stray tap can't reopen it.
 export function Answered(props: {
@@ -62,13 +71,6 @@ export function Answered(props: {
   const [open, setOpen] = createSignal(false);
   const id = createUniqueId();
   const rows = () => s.closedAsks(props.scope).filter((a) => !props.except?.includes(a.id));
-  const said = (a: Ask) => {
-    if (a.dismissed) return "Dismissed, not answered";
-    const out = answerIds(a.answer).map((x) => a.options.find((o) => o.id === x)?.label ?? x);
-    if (a.other !== undefined) out.push(a.other ? `“${a.other}”` : "an image");
-    if (!out.length && a.comment !== undefined) out.push("a comment");
-    return out.join(", ");
-  };
   return (
     <Show when={rows().length}>
       <div class="answered">
@@ -92,7 +94,7 @@ export function Answered(props: {
                   <span class="review-text">
                     <span class="review-name">{a.text}</span>
                     <span class="review-said" classList={{ dismissed: !!a.dismissed }}>
-                      {said(a)}
+                      {saidOf(a)}
                     </span>
                     <Show when={a.comment && !a.dismissed}>
                       <span class="answered-note">
@@ -308,9 +310,14 @@ export function AskBody(props: {
     <div class="qblock">
       <Show when={s.revisingOf(props.ask)}>
         <div class="revising" role="status">
-          <span>{"Changing a sent answer. A new pick goes out with your next Send."}</span>
-          <button type="button" class="lnk" onClick={() => s.keepAnswer(props.ask)}>
-            Keep sent answer
+          <span>Changing a sent answer</span>
+          <button
+            type="button"
+            class="lnk"
+            title="Keep the sent answer"
+            onClick={() => s.keepAnswer(props.ask)}
+          >
+            Undo
           </button>
         </div>
       </Show>
@@ -330,9 +337,9 @@ export function AskBody(props: {
       <Show when={dormant()}>
         {(d) => (
           <div class="dormant" role="status">
-            {"Only for "}
+            {"Only when "}
             <b>{d().label}</b>
-            {": inactive, and not sent while that part shows something else."}
+            {" is chosen"}
             <Show when={parentAsk() >= 0}>
               <button type="button" class="lnk" onClick={() => s.goQuestion(parentAsk())}>
                 {`Go to question ${parentAsk() + 1}`}
@@ -425,7 +432,7 @@ export function AskBody(props: {
                       aria-label={`Restore ${o.label}`}
                       onClick={() => void s.restoreAlternative(o.alternative!, archivedIn())}
                     >
-                      restore
+                      Restore
                     </button>
                   </Show>
                 </div>
@@ -769,7 +776,7 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
       when={!s.moreWaiting(props.ask)}
       fallback={
         <p class="morewait" role="status">
-          More answers asked for. They'll appear here.
+          More answers on the way
         </p>
       }
     >
@@ -804,7 +811,7 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
           </dl>
           <textarea
             aria-label="What to aim for"
-            placeholder="Anything to aim for? Optional"
+            placeholder="What to aim for (optional)"
             value={note()}
             ref={(el) => host().window.setTimeout(() => el.focus({ preventScroll: true }))}
             onInput={(e) => setNote(e.currentTarget.value)}
@@ -1188,8 +1195,8 @@ function HiddenAnswers(props: {
                     <button
                       type="button"
                       class="optic hiddenans-back"
-                      aria-label={`Bring back ${o.label}`}
-                      title="Bring back"
+                      aria-label={`Restore ${o.label}`}
+                      title="Restore"
                       onClick={() => props.move(() => s.unhideAnswer(props.ask, o))}
                     >
                       <Icon name="undo" />

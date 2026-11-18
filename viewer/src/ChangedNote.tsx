@@ -1,19 +1,29 @@
 // A newer version than the one in use takes over by itself: the stage moves to it once the
 // tab has focus, and ten seconds later it goes in use. Nothing is written until then,
 // because Use wakes the agent and records a decision, so going back costs only a stay and
-// the agent hears nothing. On a screen or a component the newer version is already
-// current, so nothing counts down: the note is the way back, to the version marked Ready
-// or, unmarked, to the one shown before, until the user keeps the newest.
+// the agent hears nothing. While the user is busy here it waits as a dot on the version
+// button (VersionMenu), the way to it. On a screen or a component the newer version is
+// already current, so nothing counts down: the note is the way back to the version marked
+// Ready; unmarked, the way back to the one shown before is in the version menu.
 
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
 import { host, readonly, root } from "./host.ts";
-import { Icon } from "./icons.tsx";
 import { sameVersion, type VersionRef } from "./logic.ts";
 import { away } from "./notifyRules.ts";
 import type { DesignScreenState } from "./state.ts";
 
 const TAKEOVER_MS = 10_000;
 const TICK_MS = 100;
+
+// Back from the newer version to the one in use, or on a screen or a component to the one
+// marked Ready or shown before: a stay, which the agent never hears.
+export function backFromChanged(s: DesignScreenState) {
+  const c = s.changed();
+  if (!c) return;
+  if (s.product()) s.followShown();
+  else s.showVersion(c.use);
+  s.stayOnUse();
+}
 
 export function ChangedNote(props: { s: DesignScreenState }) {
   const s = props.s;
@@ -34,7 +44,7 @@ export function ChangedNote(props: { s: DesignScreenState }) {
   const name = (ref: VersionRef) =>
     ref.alternative === s.changed()?.to.alternative &&
     ref.alternative === s.changed()?.use.alternative
-      ? `#${ref.version}`
+      ? `v${ref.version}`
       : s.nameOf(ref);
 
   // What the user has underway belongs to the version on stage, so it must not move.
@@ -50,6 +60,11 @@ export function ChangedNote(props: { s: DesignScreenState }) {
     if (!c || stopped() || s.product()) return;
     const here = !away(root().visibilityState, root().hasFocus());
     if (!counting()) {
+      // Gone to it from the version menu: looking closely, so no timer follows.
+      if (looking()) {
+        setStopped(true);
+        return;
+      }
       if (!here || busy()) return;
       s.showVersion(c.to);
       touched = false;
@@ -119,15 +134,17 @@ export function ChangedNote(props: { s: DesignScreenState }) {
   });
 
   function goBack() {
-    const c = s.changed();
-    if (!c) return;
-    if (s.product()) s.followShown();
-    else s.showVersion(c.use);
-    s.stayOnUse();
+    if (s.changed()) backFromChanged(s);
   }
 
   return (
-    <Show when={live() && s.changed()}>
+    <Show
+      when={
+        live() && (counting() || (looking() && (!s.product() || s.changed()?.marked)))
+          ? s.changed()
+          : null
+      }
+    >
       {(c) => (
         <div
           ref={(el) => (note = el)}
@@ -141,58 +158,21 @@ export function ChangedNote(props: { s: DesignScreenState }) {
           <Show
             when={counting()}
             fallback={
-              <Show
-                when={looking()}
-                fallback={
-                  <>
-                    <button
-                      type="button"
-                      class="changed-see"
-                      onClick={() => {
-                        // Asking to see it is looking closely, so no timer follows.
-                        setStopped(true);
-                        s.showVersion(c().to);
-                      }}
-                    >
-                      <i class="dot ok" />
-                      <span>{`New version · See ${name(c().to)} ›`}</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="ib"
-                      aria-label={`Keep ${name(c().use)}`}
-                      onClick={s.stayOnUse}
-                    >
-                      <Icon name="close" />
-                    </button>
-                  </>
-                }
-              >
-                {/* Said first, so "Back to" reads as the way out of something: the mark
-                    the design moved past, else the newer version now on stage. */}
-                <span class="changed-name changed-text">
-                  {c().marked ? "Changed since Ready" : `New version · ${name(c().to)}`}
-                </span>
+              <>
+                {/* Said first, so "Back to" reads as the way out of the mark the design
+                    moved past. A newer version needs no words: it is on stage. */}
+                <Show when={c().marked}>
+                  <span class="changed-name changed-text">Changed since Ready</span>
+                </Show>
                 <button type="button" class="btn" onClick={goBack}>
                   <span class="changed-name">{`Back to ${name(c().use)}`}</span>
                 </button>
-                <Show when={s.product() && !c().marked}>
-                  <button
-                    type="button"
-                    class="ib"
-                    aria-label={`Keep ${name(c().to)}`}
-                    title={`Keep ${name(c().to)}`}
-                    onClick={s.keepNewest}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </Show>
                 <Show when={!s.product()}>
                   <button type="button" class="btn go" onClick={() => void s.useThis(c().to)}>
                     <span class="changed-name">{`Use ${name(c().to)}`}</span>
                   </button>
                 </Show>
-              </Show>
+              </>
             }
           >
             <span class="changed-name changed-text">{`Now on ${name(c().to)}`}</span>

@@ -318,11 +318,8 @@ export function SideBySide(props: { s: DesignScreenState; ask: Ask }) {
 // A sent question in the panel: its answers as they were left, the pick outlined and
 // named, kept ones bookmarked beside it, archived ones folded. Hovering one shows it on
 // the design and a click holds it there, changing nothing; Change answer reopens it.
-export function AnsweredQuestions(props: { s: DesignScreenState }) {
-  return <For each={answeredRows(props.s)}>{(ask) => <AnsweredCard s={props.s} ask={ask} />}</For>;
-}
-
-function AnsweredCard(props: { s: DesignScreenState; ask: Ask }) {
+// `bare`: inside the question's own line, which already names it.
+export function AnsweredCard(props: { s: DesignScreenState; ask: Ask; bare?: boolean }) {
   const s = props.s;
   const [archivedOpen, setArchivedOpen] = createSignal(false);
   const chosen = () => answerIds(props.ask.answer);
@@ -336,8 +333,10 @@ function AnsweredCard(props: { s: DesignScreenState; ask: Ask }) {
   };
   return (
     <section class="ansd" aria-label={`Answered: ${props.ask.text}`} data-answered={props.ask.id}>
-      <span class="ansd-st">Answered</span>
-      <span class="ansd-q">{props.ask.text}</span>
+      <Show when={!props.bare}>
+        <span class="ansd-st">Answered</span>
+        <span class="ansd-q">{props.ask.text}</span>
+      </Show>
       <Show when={!phoneLayout()}>
         <SideBySideToggle s={s} ask={props.ask} />
       </Show>

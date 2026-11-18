@@ -4,6 +4,8 @@
 // read all three. Decisions come from the project's decision log and are read-only
 // here. Everything is text nodes. A How it works line pinned to a part is an
 // annotation: numbered here, and a pin with that number on the stage while this is open.
+// Said briefly: the purpose as a lead, the first few lines, one "draft" tag while an
+// agent's words stand, Edit only on hover, and a section with nothing in it not drawn.
 
 import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
 import type { DecisionLine } from "../../server/decisionLog.ts";
@@ -12,6 +14,7 @@ import { type AskAnswer, MAX_SPEC, type SpecLine } from "../../server/types.ts";
 import type { DesignDetail } from "./api.ts";
 import { createDecisions } from "./Decisions.tsx";
 import { readonly } from "./host.ts";
+import { Icon } from "./icons.tsx";
 import type { DesignScreenState } from "./state.ts";
 
 // A product design always offers one, empty or not: a build agent reads it. An idea
@@ -42,8 +45,8 @@ export const annotationsOn = (s: DesignScreenState): Annotation[] =>
     (a) => a.state === undefined || a.state === s.activeState(),
   );
 
-const byWho = (held: boolean) =>
-  held ? "Written by you. Agents can't replace this." : "An agent's draft.";
+// How it works shows this many lines until asked for the rest.
+const LINES_SHOWN = 3;
 
 export function Spec(props: { s: DesignScreenState }) {
   const s = props.s;
@@ -83,77 +86,72 @@ export function Spec(props: { s: DesignScreenState }) {
     let n = 0;
     return behaviour().map((l) => (l.part ? ++n : null));
   });
+  const [allLines, setAllLines] = createSignal(false);
+  const shownLines = () => (allLines() ? behaviour() : behaviour().slice(0, LINES_SHOWN));
+  const purposeShown = () => !!spec()?.purpose || writing()?.section === "purpose";
+  const behaviourShown = () => behaviour().length > 0 || writing()?.section === "behaviour";
+  // An agent's words still standing in a section the user hasn't taken over.
+  const drafted = () =>
+    (!!spec()?.purpose && !held("purpose")) || (behaviour().length > 0 && !held("behaviour"));
 
   return (
     <div class="spec">
-      <section class="spec-sec" aria-label="What it is for">
-        <h4 class="spec-hd">What it is for</h4>
-        <Show
-          when={writing()?.section === "purpose"}
-          fallback={
-            <>
-              <Show
-                when={spec()?.purpose}
-                fallback={<p class="spec-none">Not written yet. One line on what this is for.</p>}
-              >
-                {(text) => <p class="spec-text">{text()}</p>}
-              </Show>
-              <Show when={spec()?.purpose}>
-                <p class="spec-by">{byWho(held("purpose"))}</p>
-              </Show>
-              <SectionActs
-                writing={() =>
-                  s.setSpecWriting({ section: "purpose", text: spec()?.purpose ?? "" })
-                }
-                written={!!spec()?.purpose}
-                held={held("purpose")}
-                busy={busy()}
-                clear={() => void save({ purpose: "" })}
-              />
-            </>
-          }
-        >
-          <textarea
-            class="spec-input"
-            aria-label="What it is for"
-            rows={4}
-            maxLength={MAX_SPEC}
-            value={(writing() as { text: string }).text}
-            onInput={(e) => s.setSpecWriting({ section: "purpose", text: e.currentTarget.value })}
-            on:keydown={(e) => {
-              // Esc shuts panels, and a spec half typed isn't what it's reaching for.
-              if (e.key === "Escape") e.preventDefault();
-            }}
-            ref={(el) => queueMicrotask(() => el.focus())}
-          />
-          <EditActs
-            busy={busy()}
-            save={() => {
-              const w = writing();
-              if (w?.section === "purpose") void save({ purpose: w.text });
-            }}
-            cancel={() => s.setSpecWriting(null)}
-          />
-        </Show>
-      </section>
+      <Show when={drafted()}>
+        <span class="spec-draft" title="An agent's draft">
+          draft
+        </span>
+      </Show>
+      <Show when={purposeShown()}>
+        <section class="spec-sec" aria-label="What it is for">
+          <Show
+            when={writing()?.section === "purpose"}
+            fallback={
+              <>
+                <p class="spec-text spec-lead">{spec()?.purpose}</p>
+                <SectionActs
+                  writing={() =>
+                    s.setSpecWriting({ section: "purpose", text: spec()?.purpose ?? "" })
+                  }
+                  held={held("purpose")}
+                  busy={busy()}
+                  clear={() => void save({ purpose: "" })}
+                />
+              </>
+            }
+          >
+            <textarea
+              class="spec-input"
+              aria-label="What it is for"
+              rows={4}
+              maxLength={MAX_SPEC}
+              value={(writing() as { text: string }).text}
+              onInput={(e) => s.setSpecWriting({ section: "purpose", text: e.currentTarget.value })}
+              on:keydown={(e) => {
+                // Esc shuts panels, and a spec half typed isn't what it's reaching for.
+                if (e.key === "Escape") e.preventDefault();
+              }}
+              ref={(el) => queueMicrotask(() => el.focus())}
+            />
+            <EditActs
+              busy={busy()}
+              save={() => {
+                const w = writing();
+                if (w?.section === "purpose") void save({ purpose: w.text });
+              }}
+              cancel={() => s.setSpecWriting(null)}
+            />
+          </Show>
+        </section>
+      </Show>
 
-      <section class="spec-sec" aria-label="How it works">
-        <h4 class="spec-hd">How it works</h4>
-        <Show
-          when={writing()?.section === "behaviour"}
-          fallback={
-            <>
-              <Show
-                when={behaviour().length}
-                fallback={
-                  <p class="spec-none">
-                    Not written yet. What the picture can't show: gestures, timing, what happens
-                    next.
-                  </p>
-                }
-              >
+      <Show when={behaviourShown()}>
+        <section class="spec-sec" aria-label="How it works">
+          <Show
+            when={writing()?.section === "behaviour"}
+            fallback={
+              <>
                 <ul class="spec-lines">
-                  <For each={behaviour()}>
+                  <For each={shownLines()}>
                     {(l, i) => (
                       <li class="spec-line">
                         <Show when={numbers()[i()]}>
@@ -173,52 +171,79 @@ export function Spec(props: { s: DesignScreenState }) {
                     )}
                   </For>
                 </ul>
-                <p class="spec-by">{byWho(held("behaviour"))}</p>
-              </Show>
-              <SectionActs
-                writing={() =>
-                  s.setSpecWriting({
-                    section: "behaviour",
-                    lines: behaviour().length ? behaviour().map((l) => ({ ...l })) : [{ text: "" }],
-                  })
-                }
-                written={behaviour().length > 0}
-                held={held("behaviour")}
-                busy={busy()}
-                clear={() => void save({ behaviour: [] })}
-              />
-            </>
-          }
-        >
-          <LinesEditor s={s} busy={busy()} save={(lines) => void save({ behaviour: lines })} />
-        </Show>
-      </section>
-
-      <section class="spec-sec" aria-label="Decisions">
-        <h4 class="spec-hd">
-          Decisions
-          <Show when={lines().length}>
-            <span class="spec-hd-n">{String(lines().length)}</span>
+                <Show when={behaviour().length > LINES_SHOWN}>
+                  <button
+                    type="button"
+                    class="lnk spec-more"
+                    aria-expanded={allLines()}
+                    onClick={() => setAllLines(!allLines())}
+                  >
+                    {allLines() ? "Fewer" : `${behaviour().length - LINES_SHOWN} more`}
+                  </button>
+                </Show>
+                <SectionActs
+                  writing={() =>
+                    s.setSpecWriting({
+                      section: "behaviour",
+                      lines: behaviour().map((l) => ({ ...l })),
+                    })
+                  }
+                  held={held("behaviour")}
+                  busy={busy()}
+                  clear={() => void save({ behaviour: [] })}
+                />
+              </>
+            }
+          >
+            <LinesEditor s={s} busy={busy()} save={(lines) => void save({ behaviour: lines })} />
           </Show>
-        </h4>
-        <Show
-          when={lines().length}
-          fallback={<p class="spec-none">Nothing decided here yet. Your answers land here.</p>}
-        >
+        </section>
+      </Show>
+
+      <Show when={lines().length}>
+        <section class="spec-sec" aria-label="Decisions">
+          <h4 class="spec-hd">
+            Decisions
+            <span class="spec-hd-n">{String(lines().length)}</span>
+          </h4>
           <ul class="spec-decisions">
             <For each={lines()}>
               {(l) => <DecisionRow line={l} design={s.design() ?? undefined} />}
             </For>
           </ul>
-        </Show>
-      </section>
+        </section>
+      </Show>
+
+      <Show when={!readonly() && !writing() && (!purposeShown() || !behaviourShown())}>
+        <div class="spec-write">
+          <Show when={!purposeShown()}>
+            <button
+              type="button"
+              class="btn"
+              onClick={() => s.setSpecWriting({ section: "purpose", text: "" })}
+            >
+              <Icon name="plus" />
+              What it is for
+            </button>
+          </Show>
+          <Show when={!behaviourShown()}>
+            <button
+              type="button"
+              class="btn"
+              onClick={() => s.setSpecWriting({ section: "behaviour", lines: [{ text: "" }] })}
+            >
+              <Icon name="plus" />
+              How it works
+            </button>
+          </Show>
+        </div>
+      </Show>
     </div>
   );
 }
 
 function SectionActs(props: {
   writing: () => void;
-  written: boolean;
   held: boolean;
   busy: boolean;
   clear: () => void;
@@ -227,7 +252,7 @@ function SectionActs(props: {
     <Show when={!readonly()}>
       <div class="spec-acts">
         <button type="button" class="btn" onClick={() => props.writing()}>
-          {props.written ? "Edit" : "Write"}
+          Edit
         </button>
         <Show when={props.held}>
           <button

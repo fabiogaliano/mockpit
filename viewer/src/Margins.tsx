@@ -1,10 +1,11 @@
-// Focus's sides. States and versions stand on the left of the design; on the right a
-// panel with three tabs, Question, Spec (with its Instances) and Activity, which stands
-// open while there is room for it, and opens for a question whatever the room. When a
+// Focus's sides. The states (and alternatives, and ideas) stand on the left of the design
+// while there is more than one frame to go to; on the right a panel that opens for a
+// question and is not there without one. It shows one thing at a time: the question,
+// Spec (with its Instances) or Activity, the last two opened from the ⋯ menu. When a
 // margin would shrink the design past what marginLayout allows it stops standing there:
-// its tab opens it floating over the canvas instead, which stays the size it was. The
-// centre only reads the bands they take (--canvas-l, --canvas-r, canvasBox), so it
-// needn't be the stage.
+// it opens floating over the canvas instead, which stays the size it was. The centre only
+// reads the bands they take (--canvas-l, --canvas-r, canvasBox), so it needn't be the
+// stage. The tools and the versions are the top bar's (DesignScreen.tsx).
 
 import {
   createEffect,
@@ -20,10 +21,9 @@ import {
   Switch,
 } from "solid-js";
 import { isLive } from "../../server/types.ts";
-import { assetUrl, surfaceUrl } from "./api.ts";
-import { frameMode, posterShown } from "./systemRev.ts";
+import { assetUrl } from "./api.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
-import { AnswerCombos, KeptAnswers, keptGroups } from "./Kept.tsx";
+import { AnswerCombos, AnsweredLines, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -33,26 +33,19 @@ import {
   boardWidths,
   commentPlace,
   GHOST_W,
-  isBuiltinAsk,
   LEFT_MARGIN_W,
   LEFT_THUMBS_W,
   marginLayout,
   RIGHT_MARGIN_W,
-  sameVersion,
-  TOOL_BAND_W,
-  alternativeName,
-  type VersionStep,
   widthChoices,
 } from "./logic.ts";
 import { Spec, specShown } from "./Spec.tsx";
 import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
-import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
-import { PreviewTool } from "./PreviewTool.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
 import { AlternativeActs, AlternativeList } from "./Alternatives.tsx";
-import { AnsweredQuestions, answeredRows } from "./SideBySide.tsx";
+import { answeredRows } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
 import type { Shortlists } from "./shortlist.ts";
@@ -60,7 +53,6 @@ import type { DesignScreenState } from "./state.ts";
 import { Thread } from "./Thread.tsx";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
-import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, tabletLayout, win } from "./viewport.ts";
 
 // "built" is Tune's: the panel while Tune is on, with no tabs.
@@ -79,7 +71,8 @@ export function createMargins(
   active: () => boolean,
   // A reading column is what the margins have to leave room for, instead of artboards.
   columnW: () => number | null,
-  // A screen whose states can still grow lists them even with only the one so far.
+  // A screen whose states can still grow: its list of states ends in New state, and with
+  // only the one so far New state is in the ⋯ menu instead.
   outlining: () => boolean,
   // Answers side by side take the canvas: the design's frame, its states and its tools
   // step aside, and the question beside it stays.
@@ -91,21 +84,15 @@ export function createMargins(
   const [pinned, setPinned] = createSignal(false);
   // Shut by hand: it stays shut until opened, or until a new question comes.
   const [shut, setShut] = createSignal(false);
-  // Held here because folding the margin unmounts the list.
-  const [versionsOpen, setVersionsOpen] = createSignal(false);
 
   const onList = () => nav.at() >= 0 || nav.outside().some((x) => x.state === s.activeState());
   const walkable = () =>
     (nav.steps().length + nav.outside().length > 1 || nav.emptied().length > 0) && onList();
-  const statesShown = () => walkable() || (outlining() && onList());
+  const statesShown = () => walkable();
   const ideasFor = () => s.design()?.ideasFor ?? [];
   const alternativesHere = () => s.alternatives().filter((v) => v.state === s.activeState());
   const leftHas = () =>
-    !sideBySide() &&
-    (statesShown() ||
-      s.steps().length > 1 ||
-      ideasFor().length > 0 ||
-      alternativesHere().length > 1);
+    !sideBySide() && (statesShown() || ideasFor().length > 0 || alternativesHere().length > 1);
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -117,18 +104,21 @@ export function createMargins(
     columnW() === null && (page() || widthChoices(s.design()?.widths ?? []).length > 1);
 
   const closed = () => !!s.design()?.archivedAt;
-  // Kept answers and a sent question's row wait beside the design, so they hold the side
-  // open after a Send; so does what can be done with an idea's alternative on stage.
+  // Only an open question opens the panel by itself. What else it holds (what this Send
+  // carries, answered questions, an idea's alternative's actions) is there when opened.
   const ideaActs = () =>
     !readonly() &&
     !s.product() &&
     alternativesHere().some((v) => isLive(v.status) && v === s.activeAlternative());
-  const talkWants = () =>
+  const talkWants = () => !closed() && !!s.curAsk();
+  const talkHas = () =>
     !closed() &&
-    (!!s.curAsk() ||
+    (talkWants() ||
+      s.flow().length > 0 ||
       s.sendable() ||
       keptGroups(s).length > 0 ||
       answeredRows(s).length > 0 ||
+      s.closedAsks("state").length > 0 ||
       ideaActs());
   const boards = () => boardWidths(s.design()?.widths ?? [], s.frameW(), s.allWidths(), false);
   const fitWith = (left: boolean, right = side() !== null) => {
@@ -136,7 +126,7 @@ export function createMargins(
     return marginLayout({
       winW: win().w - safeX(),
       designW: columnW() ?? row.reduce((sum, w) => sum + w, 0) + BOARD_GAP * (row.length - 1),
-      tools: page() || leftHas() || previewHas(),
+      tools: false,
       left,
       right,
       leftW: leftW(),
@@ -144,8 +134,6 @@ export function createMargins(
   };
   const builtHas = () => s.tunable().length > 0 || !!s.activeAlternative()?.instancesKey;
   const specHas = () => specShown(s) || builtHas();
-  // With nothing asked, the panel stands open only where it costs the design nothing.
-  const rests = () => active() && !closed() && fitWith(leftHas() && !folded(), true).right;
   const side = createMemo<Side | null>(() => {
     if (s.drawer()) return "built";
     if (shut()) return null;
@@ -153,8 +141,7 @@ export function createMargins(
     if (s.panel() === "spec") return "spec";
     if (s.cardMin()) return null;
     if (talkWants() || pinned()) return "talk";
-    if (!rests()) return null;
-    return specHas() ? "spec" : "talk";
+    return null;
   });
   createEffect(
     on(
@@ -176,10 +163,6 @@ export function createMargins(
   const rightDocked = () => fit().right;
   const leftTab = () => active() && leftHas() && !leftDocked();
   const leftFloats = () => leftTab() && over();
-  const stripW = () =>
-    active() && !sideBySide() && (page() || s.tunable().length > 0 || leftTab() || previewHas())
-      ? TOOL_BAND_W
-      : 0;
   const band = () => ({
     left: leftDocked() ? leftW() : 0,
     right: rightDocked() ? RIGHT_MARGIN_W : 0,
@@ -191,8 +174,7 @@ export function createMargins(
     !sideBySide() &&
     walkable() &&
     boards().length === 1 &&
-    win().w - safeX() - band().left - band().right - stripW() - 2 * BOARD_PAD - 2 * GHOST_W >=
-      s.frameW();
+    win().w - safeX() - band().left - band().right - 2 * BOARD_PAD - 2 * GHOST_W >= s.frameW();
 
   createEffect(() => {
     if (!active()) return setCanvasBox(NO_BOX);
@@ -237,11 +219,11 @@ export function createMargins(
     setPinned(false);
     setShut(true);
   }
-  // The toggle in the top bar: shut, or open on what there is to see.
+  // The toggle in the top bar: shut, or open on the question and what goes with it.
   function togglePanel() {
     if (side()) return closeSide();
     setShut(false);
-    toggleSide(talkWants() || !specHas() ? "talk" : "spec");
+    toggleSide("talk");
   }
   // A tab: what it shows, in the panel whether or not it stood open.
   function toggleSide(to: Side) {
@@ -270,12 +252,12 @@ export function createMargins(
     builtHas,
     specHas,
     side,
+    talkHas,
     closed,
     leftDocked,
     rightDocked,
     leftTab,
     leftFloats,
-    stripW,
     previewHas,
     band,
     ghosts,
@@ -284,65 +266,21 @@ export function createMargins(
     closeSide,
     toggleSide,
     togglePanel,
-    versionsOpen,
-    setVersionsOpen,
   };
 }
 
-// Try, Comment, Tune and the preview, against the design's left edge. They change what a
-// tap on it does or how it's shown, so they stay by it however narrow it is or wherever
-// it's panned, and the left margin's tab rides with them while it is folded.
-export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
-  const s = props.s;
-  const m = props.m;
-  const tools = () => m.page() || s.tunable().length > 0;
-  return (
-    <Show when={m.stripW() > 0}>
-      <div class="toolstrip" role="toolbar" aria-label="Tools">
-        <Show when={m.leftTab()}>
-          <button
-            type="button"
-            class="ib"
-            classList={{ on: m.leftFloats() }}
-            aria-expanded={m.leftFloats()}
-            aria-label="States and versions"
-            title="States and versions"
-            onClick={() => m.toggleLeft()}
-          >
-            <Icon name="versions" />
-          </button>
-          <Show when={tools() || m.previewHas()}>
-            <span class="toolstrip-sep" />
-          </Show>
-        </Show>
-        <CanvasTools s={s} page={m.page()} />
-        <Show when={m.previewHas()}>
-          <Show when={tools()}>
-            <span class="toolstrip-sep" />
-          </Show>
-          <PreviewTool s={s} qr={m.page()} />
-        </Show>
-        <Show when={paletteChoices(s).length}>
-          <Show when={tools() || m.previewHas()}>
-            <span class="toolstrip-sep" />
-          </Show>
-          <PaletteTool s={s} />
-        </Show>
-      </div>
-    </Show>
-  );
-}
+const TITLES: Record<Side, string> = {
+  talk: "Question",
+  spec: "Spec",
+  thread: "Activity",
+  built: "Instances",
+};
 
-const TABS: { id: Exclude<Side, "built">; label: string }[] = [
-  { id: "talk", label: "Question" },
-  { id: "spec", label: "Spec" },
-  { id: "thread", label: "Activity" },
-];
-
-// The panel's toggle, in the top bar where it costs the design nothing.
+// The panel's toggle, in the top bar where it costs the design nothing. Only there while
+// the panel has something to open on.
 export function PanelToggle(props: { m: Margins }) {
   const m = props.m;
-  const label = () => (m.side() ? "Hide the panel" : "Show the panel");
+  const label = () => (m.side() ? "Hide panel" : "Show panel");
   return (
     <div class="mtabs">
       <button
@@ -359,10 +297,6 @@ export function PanelToggle(props: { m: Margins }) {
     </div>
   );
 }
-
-// The questions open on this design: the one place Focus counts them.
-const askedCount = (s: DesignScreenState) =>
-  new Set(s.flow().flatMap((e) => (isBuiltinAsk(e.ask) ? [] : [e.ask.id]))).size;
 
 export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margins }) {
   const s = props.s;
@@ -391,9 +325,6 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
         <Show when={s.design()?.ideasFor}>
           {(ideas) => <IdeasForList project={s.project} ideas={ideas()} />}
         </Show>
-        <Show when={s.steps().length > 1}>
-          <VersionList s={s} open={m.versionsOpen()} onToggle={m.setVersionsOpen} />
-        </Show>
       </aside>
     </Show>
   );
@@ -412,10 +343,10 @@ function AlternativesLine(props: { s: DesignScreenState }) {
   return (
     <Show when={s.design()?.holdsAlternatives && most() > 1}>
       <p class="alts-line">
-        {`${most()} alternatives here; they belong in an idea. `}
+        {`${most()} alternatives · `}
         <Show when={!readonly()}>
           <button type="button" class="alts-move" onClick={() => void s.moveIntoIdea()}>
-            Move into an idea
+            Move to an idea
           </button>
         </Show>
       </p>
@@ -482,7 +413,7 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
         <span class="lm-text">
           <b>{nav.label(x)}</b>
           <Show when={nav.planned(x)}>
-            <small>Not drawn</small>
+            <small>Planned</small>
           </Show>
         </span>
         <Show when={nav.owes(x)}>
@@ -527,166 +458,6 @@ function StateList(props: { s: DesignScreenState; nav: FlowNav; outlining: boole
   );
 }
 
-// A bar at the margin's foot that opens upward, so the states keep the margin until
-// the history is asked for. Shut, it still says which version is on stage. One line per
-// alternative, newest first; each version names what prompted it.
-function VersionList(props: {
-  s: DesignScreenState;
-  open: boolean;
-  onToggle: (open: boolean) => void;
-}) {
-  const s = props.s;
-  const lines = createMemo(
-    () => [...new Set([...s.steps()].reverse().map((x) => x.alternative))],
-    [],
-    {
-      equals: sameList,
-    },
-  );
-  const inLine = (alternative: string) =>
-    s
-      .steps()
-      .filter((x) => x.alternative === alternative)
-      .reverse();
-  return (
-    <section class="lm-versions" classList={{ open: props.open }}>
-      <button
-        type="button"
-        class="lm-versions-bar"
-        aria-expanded={props.open}
-        onClick={() => props.onToggle(!props.open)}
-      >
-        <span>Versions</span>
-        <Show when={s.stageLabel()}>{(at) => <b class="num">{`#${at().version}`}</b>}</Show>
-        <Icon name="down" />
-      </button>
-      <Show when={props.open}>
-        <div
-          class="lm-versions-list"
-          ref={(el) =>
-            host().window.requestAnimationFrame(() =>
-              el.querySelector(".lm-row.on")?.scrollIntoView({ block: "nearest" }),
-            )
-          }
-        >
-          <For each={lines()}>
-            {(alternative) => (
-              <>
-                <Show when={lines().length > 1}>
-                  <span class="lm-line" title={alternative}>
-                    {alternativeName(alternative)}
-                  </span>
-                </Show>
-                <For each={inLine(alternative)}>{(step) => <VersionRow s={s} step={step} />}</For>
-              </>
-            )}
-          </For>
-        </div>
-      </Show>
-    </section>
-  );
-}
-
-function VersionRow(props: { s: DesignScreenState; step: VersionStep }) {
-  const s = props.s;
-  const on = () => sameVersion(props.step, s.onStage());
-  const current = () => sameVersion(props.step, s.inUse());
-  const was = () => !current() && s.usedBefore().some((r) => sameVersion(r, props.step));
-  const note = () => {
-    const v = s
-      .alternatives()
-      .find((o) => o.state === s.activeState() && o.alternative === props.step.alternative);
-    return props.step.prompt ?? (v?.version === props.step.version ? v?.description : undefined);
-  };
-  const src = () => {
-    const i = props.step.kinds.indexOf("html");
-    return i < 0
-      ? null
-      : surfaceUrl(props.step.postId, i, {
-          version: props.step.version,
-          mode: frameMode(),
-          w: props.step.rewrites,
-        });
-  };
-  return (
-    <div class="lm-item" data-version={props.step.n}>
-      <button
-        type="button"
-        class="lm-row"
-        classList={{ on: on(), hid: props.step.hidden }}
-        aria-pressed={on()}
-        aria-label={`${s.nameOf(props.step)}${current() ? ", in use" : ""}${props.step.hidden ? ", hidden" : ""}`}
-        title={note()}
-        onClick={() => s.showVersion(props.step)}
-      >
-        <Show when={s.steps().length <= PICTURED_UP_TO}>
-          <span class="lm-pic" classList={{ flat: s.frameW() > 600 }}>
-            <Show
-              when={posterShown(props.step.poster)}
-              fallback={
-                <Show
-                  when={src()}
-                  fallback={<span class="hkind">{props.step.kinds[0] ?? ""}</span>}
-                >
-                  {(u) => <Thumb src={u()} width={s.frameW()} fit whole />}
-                </Show>
-              }
-            >
-              {(id) => <img src={assetUrl(id())} alt="" loading="lazy" decoding="async" />}
-            </Show>
-            <Show when={current()}>
-              <span class="mk cur" aria-hidden="true">
-                <Icon name="check" />
-              </span>
-            </Show>
-            <Show when={was()}>
-              <span class="mk was" aria-hidden="true" />
-            </Show>
-          </span>
-        </Show>
-        <span class="lm-text">
-          <b class="num">{`#${props.step.version}`}</b>
-          <Show when={note()}>
-            <small>{note()}</small>
-          </Show>
-        </span>
-      </button>
-      <Show when={on() && !readonly()}>
-        <Show
-          when={props.step.hidden}
-          fallback={
-            <button
-              type="button"
-              class="ib lm-hide x-remove"
-              classList={{ off: current() }}
-              aria-disabled={current()}
-              aria-label={
-                current()
-                  ? `${s.nameOf(props.step)} is in use and can't be hidden`
-                  : `Hide ${s.nameOf(props.step)}`
-              }
-              title={
-                current() ? "In use. Use another version first." : `Hide ${s.nameOf(props.step)}`
-              }
-              onClick={() => !current() && void s.hideVersion(props.step, true)}
-            >
-              <Icon name="close" />
-            </button>
-          }
-        >
-          <button
-            type="button"
-            class="vrestore lm-restore"
-            onClick={() => void s.hideVersion(props.step, false)}
-          >
-            Restore
-          </button>
-        </Show>
-      </Show>
-    </div>
-  );
-}
-
 export function RightMargin(props: {
   s: DesignScreenState;
   t: TuneState;
@@ -696,14 +467,8 @@ export function RightMargin(props: {
   const s = props.s;
   const m = props.m;
   const [body, setBody] = createSignal<HTMLElement>();
-  const tabs = () => TABS.filter((t) => t.id !== "spec" || m.specHas());
-  const tabLabel = (t: (typeof TABS)[number]) => {
-    const n = t.id === "talk" ? askedCount(s) : 0;
-    return n ? `${t.label} · ${n}` : t.label;
-  };
-  // Something there the user hasn't got in front of them.
-  const waiting = (t: (typeof TABS)[number]) =>
-    t.id === "talk" && m.side() !== "talk" && !m.closed() && !askedCount(s) && s.sendable();
+  const title = (side: Side) =>
+    side === "built" ? (s.tool() === "tune" ? "Tune" : "Instances") : TITLES[side];
   return (
     <Show when={m.side()}>
       {(side) => (
@@ -713,33 +478,11 @@ export function RightMargin(props: {
           aria-label={side() === "built" ? "Tune" : "Panel"}
         >
           <div class="rm-head">
-            <Show
-              when={side() !== "built"}
-              fallback={<h2>{s.tool() === "tune" ? "Tune" : "Instances"}</h2>}
-            >
-              <div class="rm-tabs" role="tablist" aria-label="Panel">
-                <For each={tabs()}>
-                  {(t) => (
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={side() === t.id}
-                      classList={{ on: side() === t.id, q: t.id === "talk" && askedCount(s) > 0 }}
-                      onClick={() => m.toggleSide(t.id)}
-                    >
-                      {tabLabel(t)}
-                      <Show when={waiting(t)}>
-                        <span class="mtab-dot" aria-hidden="true" />
-                      </Show>
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
+            <h2>{title(side())}</h2>
             <button
               type="button"
               class="ib"
-              aria-label={side() === "built" ? "Close Tune" : "Hide the panel"}
+              aria-label={side() === "built" ? "Close Tune" : "Hide panel"}
               title={side() === "built" ? "Close" : "Hide"}
               onClick={() => m.closeSide()}
             >
@@ -798,7 +541,7 @@ function Talk(props: { s: DesignScreenState; m: Margins; sl: Shortlists }) {
         <>
           <div class="qscroll rm-scroll">
             <Show when={!s.flow().length && !s.sendable()}>
-              <p class="rm-none">Nothing waiting on you here.</p>
+              <p class="rm-none">Nothing to answer</p>
             </Show>
             {below()}
           </div>
@@ -916,9 +659,7 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
           </button>
         </div>
       </Show>
-      <AnsweredQuestions s={s} />
-      <KeptAnswers s={s} />
-      <Answered s={s} scope="state" except={answeredRows(s).map((a) => a.id)} />
+      <AnsweredLines s={s} />
       <AnswerCombos s={s} />
     </>
   );

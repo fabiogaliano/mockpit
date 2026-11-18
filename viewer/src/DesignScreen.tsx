@@ -1,7 +1,8 @@
-// Focus: one design, decided on. A quiet top bar (project / page / design, the panel's
-// toggle), the design live on a canvas with its version and what acts on that above it and
-// its tools beside it, its states (or variants, or alternatives) in a margin on its left
-// and a panel on its right with Question, Spec and Activity (Margins.tsx). Esc and the
+// Focus: one design, decided on. One bar on top: where you are (project / page / design),
+// the tools, the version and its menu, Send, and the panel's toggle while there is a
+// question. Under it the design live on a canvas, its states (or variants, or
+// alternatives) in a margin on its left while there is more than one frame, and a panel on
+// its right that a question opens; Spec and Activity open there from ⋯ (Margins.tsx). Esc and the
 // page in the path go back up to the Board, fit to the frame. A phone has no room beside
 // the design: it is one frame a swipe walks through the states, named in tabs above with a
 // counter. Its foot is a bar of Question and Spec, each a sheet over the design's lower
@@ -47,19 +48,11 @@ import {
   readsAsDocument,
   sameVersion,
   stillWorking,
-  type VersionRef,
   versionStamp,
 } from "./logic.ts";
 import { sectionOf } from "./albums.ts";
 import { turnClock } from "./Album.tsx";
-import {
-  createMargins,
-  LeftMargin,
-  type Margins,
-  PanelToggle,
-  RightMargin,
-  ToolStrip,
-} from "./Margins.tsx";
+import { createMargins, LeftMargin, type Margins, PanelToggle, RightMargin } from "./Margins.tsx";
 import { NotFound } from "./NotFound.tsx";
 import { OutlineChips, PlannedStage, StateAsk } from "./Outlines.tsx";
 import { PhoneBar, QuestionCard } from "./QuestionCard.tsx";
@@ -83,7 +76,7 @@ import {
   route,
 } from "./route.ts";
 import { usePopover } from "./popover.ts";
-import { PaletteTool } from "./PaletteTool.tsx";
+import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
 import { Stage } from "./Stage.tsx";
 import type { ScreenOpen } from "./route.ts";
@@ -92,7 +85,8 @@ import { createDesignScreen, type DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { WakeLine } from "./Thread.tsx";
 import { createTune } from "./tune.ts";
-import { NewVersionButton, UseThis, VersionBar, VersionStepper } from "./VersionBar.tsx";
+import { CanvasTools, UseThis, VersionBar, VersionMenu } from "./VersionBar.tsx";
+import { draftIsEmpty } from "./logic.ts";
 import {
   canvasBox,
   canvasTop,
@@ -110,6 +104,10 @@ import { setPeek } from "./systemRev.ts";
 const SWIPE_STEP = 60;
 const SWIPE_MS = 170;
 
+// A tool's hint shows the first few times it is taken up; after that the button is enough.
+const HINT_TIMES = 3;
+const hintKey = (tool: string) => `mockpit:tool-hint:${tool}`;
+
 // One version of one alternative, across every design this screen shows.
 const stepKeyOf = (st: VersionStep) => `${st.postId}@${st.version}`;
 
@@ -126,7 +124,7 @@ function boardHome(
   if (isProduct(m)) {
     if (m.area) return { href: boardPath(m.project, { page: m.area, sel }), name: m.area };
     if (m.kind === "screen")
-      return { href: boardPath(m.project, { unsorted: true, sel }), name: "No area" };
+      return { href: boardPath(m.project, { unsorted: true, sel }), name: "Unsorted" };
     return { href: projectPath(m.project, "components"), name: "Components" };
   }
   const states = m.states.length ? m.states : [null];
@@ -296,6 +294,41 @@ export function DesignScreen(props: {
     if (reading() && tool) s.toggleTool(tool);
   });
   useFlowKeys(s);
+  const [hinted, setHinted] = createSignal(false);
+  createEffect(
+    on(
+      () => s.tool(),
+      (tool) => {
+        if (!tool) return;
+        const store = host().storage;
+        const n = Number(store?.getItem(hintKey(tool)) ?? 0);
+        setHinted(n < HINT_TIMES);
+        store?.setItem(hintKey(tool), String(n + 1));
+      },
+    ),
+  );
+  // A version published since the Send takes the stage at once while nothing unsent is
+  // bound to this one and nothing is underway here; otherwise the version button's dot
+  // says it came. Once per version, so going back from it stays back.
+  let tookStage = "";
+  createEffect(() => {
+    const a = s.sinceSend();
+    if (!a || readonly()) return;
+    const key = `${a.postId}@${a.version}`;
+    if (key === tookStage) return;
+    const busy =
+      !draftIsEmpty(s.draft()) ||
+      s.tool() !== null ||
+      !!s.preview() ||
+      (!!s.curAsk() && !s.questionHidden());
+    if (untrack(() => sameVersion(s.onStage(), a) && s.activeState() === a.state)) {
+      tookStage = key;
+      return;
+    }
+    if (busy) return;
+    tookStage = key;
+    untrack(() => s.seeSinceSend());
+  });
   const about = createAbout(
     () => s.design()?.project ?? props.project,
     () => {
@@ -394,7 +427,7 @@ export function DesignScreen(props: {
       return;
     }
     const ghost = m.ghosts() ? GHOST_W : 0;
-    setCardInset({ ...NO_INSET, left: m.stripW() + ghost, right: ghost });
+    setCardInset({ ...NO_INSET, left: ghost, right: ghost });
   });
   onCleanup(() => setCardInset(NO_INSET));
 
@@ -554,7 +587,6 @@ export function DesignScreen(props: {
         "--canvas-l": `${m.band().left}px`,
         "--canvas-r": `${m.band().right}px`,
         "--canvas-top": `${canvasTop()}px`,
-        "--strip": `${m.stripW()}px`,
         "--design-l": `${designAt()?.left ?? 0}px`,
         "--design-t": `${designAt()?.top ?? 0}px`,
         "--design-r": `${designAt()?.right ?? 0}px`,
@@ -570,8 +602,22 @@ export function DesignScreen(props: {
           reading={reading()}
           tabs={m.statesShown()}
           shortlists={shortlists}
-          panels={
+          m={m}
+          bar={
             <Show when={m.active()}>
+              <FocusBar
+                s={s}
+                m={m}
+                reading={reading()}
+                drawn={!undrawn()}
+                sideRow={!!sideRow()}
+                saw={sawStep()}
+                onCompare={setComparing}
+              />
+            </Show>
+          }
+          panels={
+            <Show when={m.active() && (m.talkHas() || m.side())}>
               <PanelToggle m={m} />
             </Show>
           }
@@ -607,7 +653,7 @@ export function DesignScreen(props: {
                   s={s}
                   head={
                     <Show when={m.active()}>
-                      <VersionCaption s={s} m={m} reading />
+                      <VersionCaption s={s} reading />
                     </Show>
                   }
                 />
@@ -638,14 +684,14 @@ export function DesignScreen(props: {
             bottom: `${(s.panel() ? panelH() : 0) + (phoneLayout() ? dockH() : 0) + 12}px`,
           }}
         >
-          <Show when={s.tool()}>
+          <Show when={hinted() ? s.tool() : null}>
             {(tool) => (
               <div class="modehint" role="status">
                 {
                   {
-                    try: "Tap the outlined parts",
-                    mark: "Tap where something should change",
-                    tune: "Tap a part to adjust it",
+                    try: "Tap a highlighted part",
+                    mark: "Tap to comment",
+                    tune: "Tap a part to tune",
                   }[tool()]
                 }
               </div>
@@ -669,15 +715,8 @@ export function DesignScreen(props: {
             when={phoneLayout()}
             fallback={
               <>
-                <ToolStrip s={s} m={m} />
                 <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
-                  <VersionCaption
-                    s={s}
-                    m={m}
-                    reading={false}
-                    saw={sawStep()}
-                    onCompare={setComparing}
-                  />
+                  <VersionCaption s={s} reading={false} />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
                 <RightMargin s={s} t={t} m={m} sl={shortlists} />
@@ -709,17 +748,10 @@ export function DesignScreen(props: {
   );
 }
 
-// The version on stage and what acts on it, on the top edge of the design they're about:
-// a row of its own over the canvas, or the head of a document's column. Each piece is
-// opaque, since panning brings the design under them.
-function VersionCaption(props: {
-  s: DesignScreenState;
-  m: Margins;
-  reading: boolean;
-  // The version this browser last had on screen, when a newer one is on stage.
-  saw?: VersionStep | null;
-  onCompare?: (with_: VersionStep) => void;
-}) {
+// What the stage is showing besides the design as it stands, on its top edge: the
+// answers kept for later to look at, and the one being previewed. Nothing when neither.
+// Each piece is opaque, since panning brings the design under them.
+function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
   const s = props.s;
   const holding = () => s.heldPreview()?.key === s.preview()?.key;
   return (
@@ -743,65 +775,69 @@ function VersionCaption(props: {
             </div>
           )}
         </Show>
-        <Show when={s.boundVersion() !== null}>
-          <div role="status">
-            <button
-              type="button"
-              class="btn vcap-arrived"
-              title={`Your answers stay on ${s.arrived()?.bound ?? "this one"} until you do`}
-              onClick={() => s.viewNewVersion()}
-            >
-              {`${s.arrived()?.name ?? "A new version"} arrived`}
-              <span class="vcap-view">View</span>
-            </button>
-          </div>
-        </Show>
-        <Show when={s.steps().length > 1 && !props.m.leftDocked()}>
-          <VersionStepper
-            s={s}
-            listOpen={props.m.leftFloats()}
-            listNames="states and versions"
-            onList={props.m.toggleLeft}
-          />
-        </Show>
-        <Show when={props.onCompare && props.saw}>
-          {(saw) => (
-            <button
-              type="button"
-              class="btn"
-              title={`${s.nameOf(saw())} was on your screen last. Compare it with this one, 2-up`}
-              onClick={() => props.onCompare?.(saw())}
-            >
-              Compare with what you saw
-            </button>
-          )}
-        </Show>
-        <Show when={props.onCompare && comparable(s).length}>
-          <select
-            class="btn vcap-compare"
-            aria-label="Compare with another version"
-            title="Compare with another version, 2-up"
-            value=""
-            onChange={(e) => {
-              const n = Number(e.currentTarget.value);
-              e.currentTarget.value = "";
-              const to = comparable(s).find((x) => x.n === n);
-              if (to) props.onCompare?.(to);
-            }}
-          >
-            <option value="">Compare with…</option>
-            <For each={comparable(s).toReversed()}>
-              {(x) => <option value={x.n}>{s.nameOf(x)}</option>}
-            </For>
-          </select>
-        </Show>
-        <Show when={!readonly()}>
-          <NewVersionButton s={s} />
-        </Show>
-        <Show when={!props.reading}>
-          <UseThis s={s} primary />
-        </Show>
       </div>
+    </div>
+  );
+}
+
+// The bar's tools, version and Send. The tools change what a tap on the design does or how
+// it's shown; the version holds everything about versions behind its menu.
+function FocusBar(props: {
+  s: DesignScreenState;
+  m: Margins;
+  reading: boolean;
+  drawn: boolean;
+  sideRow: boolean;
+  saw: VersionStep | null;
+  onCompare: (with_: VersionStep) => void;
+}) {
+  const s = props.s;
+  const m = props.m;
+  const page = () => !props.reading && props.drawn && !props.sideRow;
+  return (
+    <div class="fbar" role="toolbar" aria-label="Tools">
+      <Show when={m.leftTab()}>
+        <button
+          type="button"
+          class="ib"
+          classList={{ on: m.leftFloats() }}
+          aria-expanded={m.leftFloats()}
+          aria-label="States"
+          title="States"
+          onClick={() => m.toggleLeft()}
+        >
+          <Icon name="layers" />
+        </button>
+      </Show>
+      <Show when={page()}>
+        <CanvasTools s={s} page={m.page()} />
+        <Show when={m.previewHas()}>
+          <PreviewTool s={s} qr={m.page()} />
+        </Show>
+        <Show when={paletteChoices(s).length}>
+          <PaletteTool s={s} />
+        </Show>
+      </Show>
+      <Show when={props.drawn}>
+        <VersionMenu
+          s={s}
+          saw={props.sideRow || props.reading ? null : props.saw}
+          onCompare={props.sideRow || props.reading ? undefined : props.onCompare}
+        />
+      </Show>
+      <Show when={page()}>
+        <UseThis s={s} />
+      </Show>
+      <Show when={!readonly()}>
+        <button
+          type="button"
+          class="btn go fsend"
+          disabled={!s.sendable() || s.sending()}
+          onClick={() => s.sendDraft()}
+        >
+          Send
+        </button>
+      </Show>
     </div>
   );
 }
@@ -822,7 +858,10 @@ function TopRow(props: {
   // Whether the state tabs are showing, which name the state where it isn't.
   tabs: boolean;
   shortlists: Shortlists;
-  // The right panel's toggle: in this row it costs the design no room.
+  m: Margins;
+  // The tools, the version and Send: in this row they cost the design no room.
+  bar: JSX.Element;
+  // The right panel's toggle.
   panels: JSX.Element;
 }) {
   const s = props.s;
@@ -848,7 +887,7 @@ function TopRow(props: {
   // The name an agent finds this by, as far down as the screen is looking.
   const spoken = () => {
     const step = s.stageStep();
-    const named = step && (s.steps().length > 1 || !s.nameOf(step).startsWith("#"));
+    const named = step && (s.steps().length > 1 || s.nameOf(step) !== `v${step.version}`);
     return [title(), s.activeState(), named ? s.nameOf(step) : null].filter(Boolean).join(", ");
   };
   const copyName = () => {
@@ -1005,6 +1044,43 @@ function TopRow(props: {
                     <Icon name="info" />
                     About
                   </button>
+                  <Show when={props.m.outlining() && !props.m.statesShown() && !readonly()}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMore(false);
+                        s.setAskingState({ name: "" });
+                      }}
+                    >
+                      <Icon name="plus" />
+                      New state
+                    </button>
+                  </Show>
+                  <Show when={props.m.specHas()}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setMore(false);
+                        props.m.toggleSide("spec");
+                      }}
+                    >
+                      <Icon name="spec" />
+                      Spec
+                    </button>
+                  </Show>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMore(false);
+                      props.m.toggleSide("thread");
+                    }}
+                  >
+                    <Icon name="thread" />
+                    Activity
+                  </button>
                   <button
                     type="button"
                     role="menuitem"
@@ -1082,6 +1158,7 @@ function TopRow(props: {
       </div>
       <div class="mzone mzone-end">
         <Show when={!phoneLayout()}>{pill()}</Show>
+        {props.bar}
         {props.panels}
       </div>
     </div>
@@ -1222,23 +1299,16 @@ function Ghost(props: { s: DesignScreenState; nav: FlowNav; by: 1 | -1 }) {
   );
 }
 
-// After a Send: how far it has come (not seen, delivered, the agent working, a new
-// version). What's next is Needs you's to say.
+// After a Send: how far it has come (not seen, delivered, the agent working). A version
+// it brought takes the stage, or puts a dot on the version button. What's next is Needs
+// you's to say.
 function SentNote(props: { s: DesignScreenState; slug: string }) {
   const s = props.s;
-  const looking = (a: VersionRef & { state: string | null }) =>
-    s.activeState() === a.state && sameVersion(s.onStage(), a);
   const progress = () => {
-    if (s.sentDelivered() === false) return "Not seen yet";
-    const to = s.sentReply()?.recipient;
-    const delivered = to ? `Delivered to ${to}` : "Delivered";
+    if (s.sentDelivered() === false) return "not seen yet";
     return stillWorking(s.sentReply()?.calledAt, turnClock())
-      ? `${delivered} · Agent working`
-      : delivered;
-  };
-  const listeningHint = () => {
-    const to = s.sentReply()?.recipient;
-    return to ? `${to} is listening` : "Your agent's watcher is open";
+      ? `${s.sentReply()?.recipient ?? "agent"} working`
+      : "delivered";
   };
   return (
     <div class="sentnote">
@@ -1248,46 +1318,19 @@ function SentNote(props: { s: DesignScreenState; slug: string }) {
       <SystemNote s={s} />
       <ChangedNote s={s} />
       <Show when={s.sent()}>
-        <div class="sentrow" role="status">
-          <Show
-            when={s.sinceSend()}
-            fallback={
-              <button
-                type="button"
-                class="pill count"
-                classList={{ waiting: s.sentDelivered() === false }}
-                onClick={() => s.setPanel("thread")}
-              >
-                <i class="dot" classList={{ ok: s.sentDelivered() !== false }} />
-                <span>{`Sent · ${progress()}`}</span>
-              </button>
-            }
-          >
-            {(a) => (
-              <Show when={!sameVersion(s.changed()?.to, a())}>
-                <Show
-                  when={!looking(a())}
-                  fallback={
-                    <span class="pill count">
-                      <i class="dot ok" />
-                      <span>{`New version · ${s.nameOf(a())} is on stage`}</span>
-                    </span>
-                  }
-                >
-                  <button type="button" class="pill count" onClick={s.seeSinceSend}>
-                    <i class="dot ok" />
-                    <span>{`New version · See ${s.nameOf(a())} ›`}</span>
-                  </button>
-                </Show>
-              </Show>
-            )}
-          </Show>
-          <Show when={s.beatPassed() && s.agentListening()}>
-            <span class="sent-hint" title={listeningHint()}>
-              {listeningHint()}
-            </span>
-          </Show>
-        </div>
+        <Show when={!s.sinceSend()}>
+          <div class="sentrow" role="status">
+            <button
+              type="button"
+              class="pill count"
+              classList={{ waiting: s.sentDelivered() === false }}
+              onClick={() => s.setPanel("thread")}
+            >
+              <i class="dot" classList={{ ok: s.sentDelivered() !== false }} />
+              <span>{`Sent · ${progress()}`}</span>
+            </button>
+          </div>
+        </Show>
         {/* Activity says this itself when it's open beside the design. */}
         <Show when={s.beatPassed() && !s.agentListening() && s.panel() !== "thread"}>
           <WakeLine slug={props.slug} />
