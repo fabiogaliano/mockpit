@@ -83,6 +83,7 @@ verbs:
       --source <path>   the code path that implements it
       --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
       --alternative-knobs <json|file>  knobs this alternative alone has
+      --looks <json|file>  named knob values: {"<name>": {"<path>": value}}
       --from <N>        branch from version N
       --amend           replace the latest version in place: a fix before the
                         user has acted on it (one request, one version)
@@ -263,6 +264,9 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
   --knobs <json|file>  knobs in tunekit usePane shape
   --alternative-knobs <json|file>  knobs this alternative alone has, same shape
+  --looks <json|file>  looks, named sets of knob values the user can apply to any
+                     frame with those knobs: {"Big dots, blue": {"marks": "dots"}}.
+                     Alone, adds them with no new version; a look the user made stands
   --from <N>         branch from version N
   --fork <v[@N]>     start this new alternative from sibling v (its version N, else
                      its latest); alone it copies v, with --parts/--swaps it
@@ -299,8 +303,9 @@ mockpit read --area <name> [--project <name>]
   otherwise. No slug: one line per design (states, alternatives, open questions), one per
   flow, plus pending, what the user is doing now, then the decisions. A slug: the
   design's spec (purpose: what it is for; behaviour: how it works; decisions: what was
-  settled on it), states, alternatives, questions with answers, parts, knobs and settled
-  values, plus its pending and decisionLog (its own lines marked here), as JSON.
+  settled on it), states, alternatives, questions with answers, parts, knobs, looks
+  (named knob values, its own and those offered from designs with the same knobs) and
+  settled values, plus its pending and decisionLog (its own lines marked here), as JSON.
   --area: one product area, read before drawing in it: what the project and the area
   are for, what's left in it (coverage: each design's states as Ready, In design,
   Planned or Missing, the map the Board's page card draws, and each flow's steps ready),
@@ -1108,6 +1113,12 @@ function printPublished(result, flags) {
   if (flags.json) return out(result);
   if (flags.quiet) return;
   const { design, post } = result;
+  if (!post && result.looks) {
+    console.log(`${design.slug}: looks ${result.looks.map((l) => l.name).join(", ")}`);
+    for (const nudge of result.nudges ?? []) console.log(`nudge: ${nudge}`);
+    printFeedback(result.feedback);
+    return;
+  }
   if (result.planned) {
     console.log(
       `${design.slug}${result.state ? `/${result.state}` : ""}: planned, nothing drawn yet · ${result.url}`,
@@ -1223,6 +1234,7 @@ function parsePublishFlags() {
       swaps: { type: "string", multiple: true },
       knobs: { type: "string" },
       "alternative-knobs": { type: "string" },
+      looks: { type: "string" },
       from: { type: "string" },
       fork: { type: "string" },
       prompt: { type: "string" },
@@ -1336,7 +1348,15 @@ async function publishDesign() {
     surfaces.push(...(await surfacesFromFlags(flags, tokens, { session, layout: flags.layout })));
   }
   const declaring = flags.kind === "screen" || flags.kind === "component";
-  if (!surfaces && !parts && !swaps && !flags.fork && flags.flow === undefined && !declaring)
+  if (
+    !surfaces &&
+    !parts &&
+    !swaps &&
+    !flags.fork &&
+    flags.flow === undefined &&
+    !declaring &&
+    flags.looks === undefined
+  )
     die(`no html for ${slug}`, `mockpit publish --design ${slug} --html <file>`);
   const poster =
     flags.poster === undefined ? undefined : (await uploadFile(flags.poster, { session })).id;
@@ -1359,6 +1379,7 @@ async function publishDesign() {
     ...(flags["alternative-knobs"] !== undefined && {
       alternativeKnobs: readJsonFlag("alternative-knobs", flags["alternative-knobs"]),
     }),
+    ...(flags.looks !== undefined && { looks: readJsonFlag("looks", flags.looks) }),
     ...(from !== undefined && { from }),
     ...(flags.fork !== undefined && { fork: flags.fork }),
     prompt: flags.prompt,

@@ -20,6 +20,7 @@ import {
   shipped,
   shownVersion,
 } from "./ready.ts";
+import type { LookView } from "./looks.ts";
 import {
   changedTo,
   draftedCount,
@@ -478,6 +479,8 @@ export const designDetailView = (
   opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
     settledOn?: Record<string, Record<string, KnobValue>>;
+    // Its own looks, then those offered from the project's other designs.
+    looks?: LookView[];
     repliesGoTo?: string;
     // This design's lines of the decision log; absent where the read carries none.
     decisions?: string[];
@@ -501,6 +504,7 @@ const detailOf = (
   opts: AlternativeViewOptions & {
     settled?: Record<string, KnobValue>;
     settledOn?: Record<string, Record<string, KnobValue>>;
+    looks?: LookView[];
     repliesGoTo?: string;
     decisions?: string[];
     decisionsFrom?: string[];
@@ -553,6 +557,7 @@ const detailOf = (
   settled: opts.settled ?? {},
   // By alternative, where a frame was tuned apart: all of that frame's values.
   ...(opts.settledOn ? { settledOn: opts.settledOn } : {}),
+  ...(opts.looks?.length ? { looks: opts.looks } : {}),
 });
 
 export const sessionRowView = (session: Session, postCount: number) => ({

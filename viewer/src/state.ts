@@ -37,6 +37,7 @@ import {
   type CommentRow,
   type DraftInput,
   type DesignDetail,
+  type LookView,
   type SendRecipients,
   subscribe,
   type AlternativeView,
@@ -70,6 +71,9 @@ import {
   knobPart,
   resolveKnobs,
   settledOf,
+  lookValues,
+  tunedWithLook,
+  wearsLook,
   overflowWidth,
   listedSteps,
   neighbourStep,
@@ -196,6 +200,8 @@ export function createDesignScreen(
     states,
     latest,
     inState,
+    looks,
+    writeLook,
   } = createDesignData();
   const [comments, setComments] = createSignal<CommentRow[]>([]);
   const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
@@ -2369,6 +2375,69 @@ export function createDesignScreen(
         : `Leave ${splitLabel(o.label).name} as it is`,
     });
   }
+  // --- looks ---
+
+  // The knobs the frame on stage declares: a look is offered here when it sets only these.
+  const declaredHere = createMemo(
+    () =>
+      new Set([
+        ...Object.keys(knobContext().knobs),
+        ...(activeAlternative()?.swaps ?? []).map((sl) => sl.part),
+      ]),
+  );
+  const looksHere = createMemo(() =>
+    looks().filter((l) => Object.keys(l.values).every((p) => declaredHere().has(p))),
+  );
+  // What "Save as look" would store from the frame on stage.
+  const lookFromFrame = createMemo(() => lookValues(knobContext(), declaredHere()));
+  const lookKey = (l: LookView) => `look:${l.design}:${l.name}`;
+  const lookOn = (l: LookView) => wearsLook(knobContext(), l.values);
+  function previewLook(l: LookView): Preview {
+    const ctx = knobContext();
+    return {
+      key: lookKey(l),
+      label: l.name,
+      knobs: resolveKnobs({ ...ctx, tuned: tunedWithLook(ctx, l.values) }),
+    };
+  }
+  // The frame on stage takes the look; its siblings keep theirs.
+  function applyLook(l: LookView) {
+    const alternative = activeAlternative()?.alternative;
+    if (alternative === undefined || readonly()) return;
+    const ctx = knobContext();
+    const before = { ...ctx.tuned };
+    replaceTuned(alternative, tunedWithLook(ctx, l.values));
+    setHoveredPreview(null);
+    setToast({
+      text: `${l.name} on ${alternative}`,
+      undo: () => {
+        setToast(null);
+        replaceTuned(alternative, before);
+      },
+    });
+  }
+  async function saveLook(name: string): Promise<boolean> {
+    if (readonly()) return false;
+    try {
+      await writeLook({ name, values: lookFromFrame() });
+      setToast({ text: `Saved ${name}` });
+      return true;
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+  }
+  function removeLook(l: LookView) {
+    void writeLook({ name: l.name, remove: true }).catch(fail);
+    setToast({
+      text: `Removed ${l.name}`,
+      undo: () => {
+        setToast(null);
+        void writeLook({ name: l.name, values: l.values }).catch(fail);
+      },
+    });
+  }
+
   // A steer names the version it is about.
   function steer(c: SteerNote) {
     return sendAlone({
@@ -2658,6 +2727,14 @@ export function createDesignScreen(
     useInstead,
     updateOnce,
     carryKept,
+    looksHere,
+    lookFromFrame,
+    lookKey,
+    lookOn,
+    previewLook,
+    applyLook,
+    saveLook,
+    removeLook,
     moreWaiting,
     isNewOption,
     answeredAround,

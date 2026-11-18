@@ -1079,6 +1079,46 @@ export function untunedValue(path: string, ctx: KnobContext): KnobValue | undefi
   return resolveKnobs({ ...ctx, tuned })[path];
 }
 
+// --- Looks: a frame's knob values under a name ---
+
+// What a look of this frame stores: the declared knobs it shows apart from their
+// defaults, whatever set them (tuning, an answer, an earlier reply).
+export function lookValues(ctx: KnobContext, declared: Set<string>): Record<string, KnobValue> {
+  const now = resolveKnobs(ctx);
+  const base = resolveKnobs({ ...ctx, answers: {}, tuned: {}, settled: {} });
+  const out: Record<string, KnobValue> = {};
+  for (const [path, value] of Object.entries(now)) {
+    if (declared.has(path) && !same(value, base[path])) out[path] = value;
+  }
+  return out;
+}
+
+// A frame's tuned values once it takes a look: the look's knobs over its own, and a
+// value back at what the frame shows untuned is no tune at all.
+export function tunedWithLook(
+  ctx: KnobContext,
+  values: Record<string, KnobValue>,
+): Record<string, KnobValue> {
+  const untuned = resolveKnobs({ ...ctx, tuned: {} });
+  const out: Record<string, KnobValue> = {};
+  for (const [path, value] of Object.entries({ ...ctx.tuned, ...values })) {
+    if (!same(value, untuned[path])) out[path] = value;
+  }
+  return out;
+}
+
+// The frame shows the look already: every knob it sets is at its value.
+export const wearsLook = (ctx: KnobContext, values: Record<string, KnobValue>): boolean => {
+  const now = resolveKnobs(ctx);
+  return Object.entries(values).every(([path, value]) => same(now[path], value));
+};
+
+// "marks dots · size 1.6": a look's values, in a line.
+export const lookLine = (values: Record<string, KnobValue>): string =>
+  Object.entries(values)
+    .map(([k, v]) => `${k} ${fmtValue(v)}`)
+    .join(" · ");
+
 export type TuneWrite =
   | { kind: "answer"; ask: Ask; option: string }
   | { kind: "tuned"; path: string; value: KnobValue | undefined };

@@ -286,7 +286,6 @@ function feedbackLines(feedback) {
         );
       }
       for (const r of reply.reactions ?? []) lines.push(`- ${prefix}${r}`);
-      if (reply.combo) lines.push(`- ${prefix}put the combo ${reply.combo} in use`);
       if (reply.verdict)
         lines.push(
           `- ${prefix}${reply.verdict.kind} ${reply.verdict.alternative ?? reply.verdict.variant}`,
@@ -668,6 +667,11 @@ export default function mockpitExtension(pi) {
         },
         knobs: { type: "object", description: "Knobs in tunekit usePane shape, keyed by path" },
         alternativeKnobs: { type: "object", description: "Knobs this alternative alone has" },
+        looks: {
+          type: "object",
+          description:
+            'Named knob values the user can apply: {"name": {path: value}}. Alone, adds them',
+        },
         from: { type: "number", description: "Branch from this version" },
         prompt: { type: "string", description: "What prompted this version" },
       },
@@ -701,6 +705,17 @@ export default function mockpitExtension(pi) {
             {
               type: "text",
               text: `${params.design}: withdrew ${w.state ? `${w.state}/` : ""}${w.alternative ?? w.variant} v${w.version}, its only version, so it is gone · ${result.url}${feedbackSummary(result.feedback)}`,
+            },
+          ],
+          details: { ...result, baseUrl: baseUrl() },
+        };
+      }
+      if (!post && result.looks) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `${result.design.slug}: looks ${result.looks.map((l) => l.name).join(", ")}${(result.nudges ?? []).map((n) => `\nnudge: ${n}`).join("")}${feedbackSummary(result.feedback)}`,
             },
           ],
           details: { ...result, baseUrl: baseUrl() },

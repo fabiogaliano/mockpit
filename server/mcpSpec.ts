@@ -40,6 +40,8 @@ const field = {
   knobs:
     'Global knobs (tunekit usePane shape) keyed by path: [default,min,max,step], boolean, {type:"select",options}, "#hex"',
   alternativeKnobs: "Knobs this alternative alone has",
+  looks:
+    'Named knob values the user can apply: {"name": {path: value}}. Alone, adds them; a user\'s look of that name stands',
   from: "Branch from this version",
   amend: "Replace the latest version in place: a fix before the user acts on it",
   withdraw: "Take the latest version back, before the user acts on it",
@@ -274,6 +276,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       },
       knobs: { t: "object", d: field.knobs },
       alternativeKnobs: { t: "object", d: field.alternativeKnobs },
+      looks: { t: "object", d: field.looks },
       from: { t: "integer", d: field.from },
       fork: { t: "string", d: field.fork },
       amend: { t: "boolean", d: field.amend },
@@ -304,7 +307,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it and what's left (coverage); read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it and what's left (coverage); read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs, looks and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -707,6 +710,10 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       ),
     settled: bag.optional().describe("Every knob value the user has sent, later replies winning"),
     settledOn: bag.optional().describe("Alternative → its settled values, where tuned apart"),
+    looks: z
+      .array(bag)
+      .optional()
+      .describe("Named knob values {name, values, author, design}: its own, then offered"),
     tree: z.array(bag).optional(),
     spec: bag.optional(),
     ready: bag

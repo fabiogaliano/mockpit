@@ -4802,6 +4802,79 @@ html:has(.design-screen) {
   color: var(--t2);
   font-size: 13px;
 }
+/* The looks strip under the frame (Looks.tsx): the user's own in the accent. */
+.looks {
+  display: flex;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  background: var(--panel);
+  scrollbar-width: none;
+}
+.look {
+  display: flex;
+  flex: none;
+  align-items: center;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px transparent;
+}
+.look.on {
+  background: var(--row);
+  box-shadow: inset 0 0 0 1.5px var(--t4);
+}
+.look.previewing {
+  background: var(--row-hover);
+}
+.look-b {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--t2);
+  white-space: nowrap;
+}
+.look.mine .look-b {
+  color: var(--accent);
+}
+.look-b:hover:not(:disabled) {
+  color: var(--t1);
+}
+.look-x {
+  display: none;
+  margin: 0 4px 0 -6px;
+  padding: 2px;
+  border-radius: 999px;
+  color: var(--t4);
+}
+.look:hover .look-x,
+.look-x:focus-visible {
+  display: grid;
+}
+.look-x:hover {
+  color: var(--t1);
+}
+.look-x .icon {
+  width: 14px;
+  height: 14px;
+}
+.savelook {
+  width: 100%;
+}
+.savelook-form {
+  display: flex;
+  gap: 6px;
+}
+.savelook-form input {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  background: var(--row);
+  color: var(--t1);
+}
 .sentnote {
   display: flex;
   flex-direction: column;

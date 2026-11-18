@@ -49,7 +49,7 @@ declare const mockpit: {
    * ({id} alone keeps that surface, a missing id is removed); parts {"name"|"name#key": outer html};
    * swaps {"part#swap": outer html}, replacing or adding one swap of a part.
    * None of them, with kind screen or component: plans it, for a later publish to draw. */
-  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; variants?: boolean; for?: string; becomes?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; swaps?: Record<string, string>; knobs?: Knobs; alternativeKnobs?: Knobs; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
+  publish(v: Ref & { title?: string; kind?: "screen" | "component" | "idea"; area?: string; group?: string; variants?: boolean; for?: string; becomes?: string; source?: string; html?: string; poster?: string; surfaces?: (Surface | { id: string })[]; parts?: Record<string, string>; swaps?: Record<string, string>; knobs?: Knobs; alternativeKnobs?: Knobs; looks?: Record<string, Record<string, unknown>>; from?: number; prompt?: string; description?: string; widths?: number[]; flow?: string; step?: number }): Promise<Written>;
   ask(design: string, asks: Ask[]): Promise<{ asks: { id: string; text: string }[]; url: string; nudges?: string[] }>;
   /** Never waits: what the user sent since you last heard, and what they are doing now. */
   feedback(): Promise<{ feedback: Feedback[]; pending: Pending[] }>;

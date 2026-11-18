@@ -8,6 +8,7 @@ import type {
   treeNodeView,
   alternativeView,
 } from "../../server/apiViews.ts";
+import type { LookView } from "../../server/looks.ts";
 import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
 import type { FeedEvent } from "../../server/events.ts";
@@ -117,7 +118,7 @@ export interface SendRecipients {
   default: string | null;
   recipients: SendRecipient[];
 }
-export type { FeedEvent, JumpHit, ProjectSummary };
+export type { FeedEvent, JumpHit, LookView, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.
 export interface DraftInput {
@@ -305,6 +306,12 @@ export const api = {
       `/api/designs/${encodeURIComponent(id)}/standings`,
       json("POST", body),
     ),
+  // The user's look, saved from the frame on screen, or removed.
+  saveLook: (
+    id: string,
+    body: { name: string } & ({ values: Record<string, KnobValue> } | { remove: true }),
+  ) =>
+    call<{ looks: LookView[] }>(`/api/designs/${encodeURIComponent(id)}/looks`, json("POST", body)),
   reply: (
     id: string,
     body: DraftInput & {

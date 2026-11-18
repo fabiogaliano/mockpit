@@ -22,6 +22,7 @@ import {
   htmlSurface,
   type Knobs,
   type KnobValue,
+  type Look,
   MAX_WORKSPACE_ASSET_BYTES,
   type Design,
   type DesignReady,
@@ -1173,6 +1174,7 @@ export class SqlStore implements Store {
       standings: "TEXT NOT NULL DEFAULT '{}'",
       // Inert: saved combinations of answers went, and looks cover knob values.
       sets: "TEXT NOT NULL DEFAULT '[]'",
+      looks: "TEXT NOT NULL DEFAULT '[]'",
     });
     if (!specced) this.migrateNotesToSpec();
     this.migrateReadyStates();
@@ -1844,6 +1846,7 @@ export class SqlStore implements Store {
       stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
+      looks: parseJson<Look[]>(r.looks, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -2181,11 +2184,12 @@ export class SqlStore implements Store {
       stateOutlines: {},
       answerAdditions: [],
       standings: {},
+      looks: input.looks ?? [],
       createdAt: now,
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, forDesign, becomes, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, forDesign, becomes, looks, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)",
       design.id,
       design.project,
       design.slug,
@@ -2202,6 +2206,7 @@ export class SqlStore implements Store {
       design.variants ? 1 : 0,
       design.for,
       design.becomes,
+      JSON.stringify(design.looks),
       design.createdAt,
       design.updatedAt,
     );
@@ -2242,10 +2247,11 @@ export class SqlStore implements Store {
       ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
       ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
       ...(patch.standings !== undefined && { standings: patch.standings }),
+      ...(patch.looks !== undefined && { looks: patch.looks }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, looks = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -2266,6 +2272,7 @@ export class SqlStore implements Store {
       JSON.stringify(next.stateOutlines),
       JSON.stringify(next.answerAdditions),
       JSON.stringify(next.standings),
+      JSON.stringify(next.looks),
       next.updatedAt,
       id,
     );
@@ -2809,6 +2816,20 @@ export class SqlStore implements Store {
       )
       .toArray()
       .map((r) => ({ designId: r.designId as string, state: (r.state as string | null) ?? null }));
+  }
+
+  async looksIn(project: string) {
+    return this.sql
+      .exec(
+        "SELECT id, slug, looks FROM designs WHERE project = ? AND archivedAt IS NULL AND looks != '[]'",
+        project,
+      )
+      .toArray()
+      .map((r) => ({
+        designId: r.id as string,
+        slug: r.slug as string,
+        looks: parseJson<Look[]>(r.looks, []),
+      }));
   }
 
   async countPostsBySession() {

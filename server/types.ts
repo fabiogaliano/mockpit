@@ -476,6 +476,16 @@ export interface AnswerStanding {
   unsent?: true;
 }
 
+// A named set of knob values ("Big dots, blue"): only the knobs it changes from a frame's
+// defaults. Stored with the design it was made on and offered on every design that
+// declares each knob it sets (looks.ts).
+export interface Look {
+  name: string;
+  values: Record<string, KnobValue>;
+  author: Author;
+  at: string;
+}
+
 // The state a version option names a version in: the ask's state, else the
 // design's first (`ask` accepts version options without a state only while the
 // design has one).
@@ -916,6 +926,8 @@ export interface Design {
   answerAdditions: AnswerAddition[];
   // By ask id (the built-in Which alternative? included): kept and hidden answers.
   standings: Record<string, AnswerStanding>;
+  // In the order they were made; one name each.
+  looks: Look[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1253,6 +1265,7 @@ export interface CreateDesignInput {
   variants?: boolean;
   for?: string | null;
   becomes?: IdeaBecomes | null;
+  looks?: Look[];
 }
 
 export interface UpdateDesignInput {
@@ -1281,6 +1294,7 @@ export interface UpdateDesignInput {
   ready?: DesignReady | null;
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
+  looks?: Look[];
   standings?: Record<string, AnswerStanding>;
 }
 
@@ -1484,6 +1498,9 @@ export interface Store {
   // Every (design id, state) of a project that holds an alternative, archived ones included:
   // what a flow step needs to tell a drawn state from a planned one.
   drawnStates(project: string): Promise<{ designId: string; state: string | null }[]>;
+  // The live designs of a project that hold looks, with only those: what every read of a
+  // design offers from the others.
+  looksIn(project: string): Promise<{ designId: string; slug: string; looks: Look[] }[]>;
   getPost(id: string): Promise<Post | null>;
   setForkedFrom(id: string, from: ForkRef | null): Promise<Post | null>;
   findPost(designId: string, state: string | null, alternative: string): Promise<Post | null>;

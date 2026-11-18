@@ -128,6 +128,7 @@ import {
   parseDecisionEdits,
 } from "./decisionLog.ts";
 import { chosenSwaps, decisionsFor, settledByAlternative, settledValues } from "./decisions.ts";
+import { checkLooks, looksFor, MAX_LOOK_NAME, withLooks } from "./looks.ts";
 import {
   checkAnswerSwap,
   checkAnswerStyle,
@@ -206,6 +207,7 @@ import {
   type AnswerAddition,
   type TunedOn,
   tunedCount,
+  type Look,
   type AnswerStanding,
   type Knobs,
   type KnobValue,
@@ -1909,6 +1911,18 @@ export function createApp({
     return { settled, ...(Object.keys(settledOn).length ? { settledOn } : {}) };
   }
 
+  // The design's looks and those the project's other designs hold that it has every
+  // knob of.
+  async function lookViews(design: Design, posts: Post[]) {
+    const projectKnobs = (await systemFor(design.project))?.knobs;
+    const looks = looksFor(
+      { ...design, knobs: { ...projectKnobs, ...design.knobs } },
+      posts,
+      await store.looksIn(design.project),
+    );
+    return looks.length ? { looks } : {};
+  }
+
   // Resolves tags to bodies: the tag's version if it pins one, else a peek
   // (`overrides`, slug → version) the viewer asked for, else the latest. The
   // body shows the component as decided: its slots composed to the swaps its
@@ -2389,9 +2403,12 @@ export function createApp({
     const flowOnly = given.length === 0 && !forkIn && !!flowIn;
     // With no body, a declared kind plans the screen or component instead of drawing it.
     const declaring = body.kind === "screen" || body.kind === "component";
+    // `looks` alone adds looks to a design that exists, with no new version.
+    const looksOnly = given.length === 0 && !forkIn && !flowIn && !declaring && !!body.looks;
     const noBody =
-      'provide "html", "surfaces", "parts" or "swaps" (or "fork" alone, or "kind" screen or component to plan it)';
-    if (given.length === 0 && !forkIn && !flowIn && !declaring) return fail(400, noBody);
+      'provide "html", "surfaces", "parts" or "swaps" (or "fork" alone, "looks" alone, or "kind" screen or component to plan it)';
+    if (given.length === 0 && !forkIn && !flowIn && !declaring && !looksOnly)
+      return fail(400, noBody);
     if (given.length > 1) {
       return fail(
         400,
@@ -2487,6 +2504,46 @@ export function createApp({
     }
 
     const posts = design ? await store.listPosts({ designId: design.id }) : [];
+    const looksIn = checkLooks(
+      body.looks,
+      {
+        ...(await systemFor(project))?.knobs,
+        ...design?.knobs,
+        ...knobs.value,
+        ...alternativeKnobs.value,
+      },
+      posts,
+    );
+    if (!looksIn.ok) return fail(400, looksIn.error);
+    const looks = Object.keys(looksIn.value).length ? looksIn.value : undefined;
+    const lookCheck = looks ? withLooks(design?.looks ?? [], looks, "agent", "") : null;
+    if (lookCheck && "error" in lookCheck) return fail(400, lookCheck.error);
+    const lookNudges = lookCheck ? keptLookNudges(lookCheck.kept) : [];
+    if (looksOnly) {
+      if (!design) {
+        return fail(
+          404,
+          `${slug} doesn't exist yet: publish it with a body, and "looks" beside it`,
+        );
+      }
+      const id = design.id;
+      return serialDecision(id, async () => {
+        const now = await store.getDesign(id);
+        if (!now) return fail(404, "design not found");
+        const merged = withLooks(now.looks, looks!, "agent", new Date().toISOString());
+        if ("error" in merged) return fail(400, merged.error);
+        const updated = await store.updateDesign(id, { looks: merged.looks });
+        if (!updated) return fail(404, "design not found");
+        bus.broadcast({ type: "design-updated", id, project: updated.project });
+        const nudges = keptLookNudges(merged.kept);
+        return ok({
+          design: { id, project: updated.project, slug: updated.slug, title: updated.title },
+          looks: updated.looks,
+          ...(nudges.length ? { nudges } : {}),
+          ...(session ? { feedback: await collectFeedback(session.id, ctx.base) } : {}),
+        });
+      });
+    }
     const variants = variantsArg(body, slug, kind ?? design?.kind ?? "idea", !!design?.variants);
     if (isResult(variants)) return variants;
     const forIn = await forArg(body, project, design?.id ?? null);
@@ -2586,6 +2643,7 @@ export function createApp({
           states: state === null ? [] : [state],
           knobs: knobs.value,
           ...(widths ? { widths } : {}),
+          ...(lookCheck ? { looks: stampLooks(lookCheck.looks) } : {}),
           sessionId: session.id,
         });
         bus.broadcast({ type: "design-created", id: design.id, project });
@@ -2611,6 +2669,7 @@ export function createApp({
             kind,
             title,
             knobs: knobs.value,
+            looks,
             widths,
             area,
             group,
@@ -2624,7 +2683,7 @@ export function createApp({
       }
       const flow = flowIn ? await placeFlow(project, flowIn.name, screen, flowIn.step) : undefined;
       if (flow) bus.broadcast({ type: "design-updated", id: design.id, project });
-      const nudges = titleNudges(title);
+      const nudges = [...titleNudges(title), ...lookNudges];
       return ok(
         {
           design: {
@@ -2768,6 +2827,7 @@ export function createApp({
     const nudges = [
       ...knobNudges({ ...knobs.value, ...alternativeKnobs.value }),
       ...titleNudges(title),
+      ...lookNudges,
       ...oldWordNudges(surfaces),
       // The CLI or stdio server has a browser and is taking the still itself.
       ...(target || body.posterComing === true ? [] : posterNudges(surfaces)),
@@ -2803,6 +2863,7 @@ export function createApp({
             states: state === null ? [] : [state],
             knobs: knobs.value,
             ...(widths ? { widths } : {}),
+            ...(lookCheck ? { looks: stampLooks(lookCheck.looks) } : {}),
             sessionId: session.id,
           });
           bus.broadcast({ type: "design-created", id: design.id, project });
@@ -2837,6 +2898,7 @@ export function createApp({
           kind,
           title,
           knobs: knobs.value,
+          looks,
           widths,
           area,
           group,
@@ -2880,6 +2942,7 @@ export function createApp({
           state,
           kind,
           knobs: knobs.value,
+          looks,
           widths,
           area,
           group,
@@ -2932,6 +2995,7 @@ export function createApp({
         state,
         kind,
         knobs: knobs.value,
+        looks,
         widths,
         area,
         group,
@@ -3512,6 +3576,16 @@ export function createApp({
 
   // A write may add a state, retitle the design, declare knobs, and makes its
   // session the one a reply is delivered to.
+  // A look the user made stands against an agent's of the same name.
+  const keptLookNudges = (kept: string[]): string[] =>
+    kept.map(
+      (name) => `the user's look "${name}" stands; give yours another name to add it beside it`,
+    );
+  const stampLooks = (looks: Look[]): Look[] => {
+    const at = new Date().toISOString();
+    return looks.map((l) => (l.at ? l : { ...l, at }));
+  };
+
   async function updateDesignAfterWrite(
     design: Design,
     w: {
@@ -3519,6 +3593,8 @@ export function createApp({
       kind?: DesignKind;
       title?: string;
       knobs: Knobs;
+      // The agent's looks, by name.
+      looks?: Record<string, Record<string, KnobValue>>;
       widths?: number[];
       area?: string | null;
       group?: string | null;
@@ -3532,7 +3608,11 @@ export function createApp({
     // What an idea is for means nothing once it is a screen or a component.
     const product = !!w.kind && w.kind !== "idea";
     const knobs = Object.keys(w.knobs).length ? { ...design.knobs, ...w.knobs } : undefined;
+    const merged = w.looks
+      ? withLooks(design.looks, w.looks, "agent", new Date().toISOString())
+      : null;
     const updated = await store.updateDesign(design.id, {
+      ...(merged && "looks" in merged ? { looks: merged.looks } : {}),
       ...(w.state !== null ? { addState: w.state } : {}),
       ...(w.kind ? { kind: w.kind } : {}),
       ...(w.title ? { title: w.title } : {}),
@@ -4101,6 +4181,7 @@ export function createApp({
       body: query.body,
       history: query.history,
       ...(await settledViews(design, posts)),
+      ...(await lookViews(design, posts)),
       instances,
       builtFrom: await builtFromOf(
         design.project,
@@ -6810,6 +6891,41 @@ export function createApp({
     return { ask: ask.id, option: option.id };
   }
 
+  // The user saves the frame on screen's values as a look, or removes one. Nothing goes
+  // to the agent: the look waits for every frame and design with its knobs, and every
+  // read of those shows it.
+  async function looksFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const found = await resolveDesign(ref);
+    if (isResult(found)) return found;
+    return serialDecision(found.id, async () => {
+      const design = await store.getDesign(found.id);
+      if (!design) return fail(404, "design not found");
+      const name = str(body?.name, MAX_LOOK_NAME);
+      if (!name) return fail(400, '"name" is required');
+      let looks: Look[];
+      if (body?.remove === true) {
+        looks = design.looks.filter((l) => l.name !== name);
+        if (looks.length === design.looks.length)
+          return fail(404, `${design.slug} has no look "${name}"`);
+      } else {
+        const checked = checkLooks(
+          { [name]: body?.values },
+          { ...(await systemFor(design.project))?.knobs, ...design.knobs },
+          await store.listPosts({ designId: design.id }),
+        );
+        if (!checked.ok) return fail(400, checked.error);
+        const merged = withLooks(design.looks, checked.value, "user", new Date().toISOString());
+        if ("error" in merged) return fail(400, merged.error);
+        looks = merged.looks;
+      }
+      const updated = await store.updateDesign(design.id, { looks });
+      if (!updated) return fail(404, "design not found");
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      return ok({ looks: updated.looks.map((l) => ({ ...l, design: updated.slug })) });
+    });
+  }
+
   // The user copies a version into an idea they are gathering (stored as a shortlist,
   // the word `read` still carries), or into any other design or state of the project. It stays a copy of that one version, so its original and that
   // design's decisions stay as they were, and an agent iterates on it like any other
@@ -9052,6 +9168,9 @@ export function createApp({
   );
   app.post("/api/designs/:id/standings", async (c) =>
     send(c, await standingFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/looks", async (c) =>
+    send(c, await looksFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/designs/:id/alternatives/archive", async (c) =>
     send(c, await archiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

@@ -59,6 +59,7 @@ import { PhoneBar, QuestionCard } from "./QuestionCard.tsx";
 import { QuestionDot, questionDotted } from "./QuestionDot.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
+import { LooksStrip } from "./Looks.tsx";
 import { Present } from "./Present.tsx";
 import { SideOver } from "./SideOver.tsx";
 import { SideBySide, sideAsk } from "./SideBySide.tsx";
@@ -699,6 +700,7 @@ export function DesignScreen(props: {
           </Show>
           <SentNote s={s} slug={props.slug} />
           <Show when={s.design()}>
+            <LooksStrip s={s} />
             <StateAsk s={s} />
             <Show when={phoneLayout()}>
               <Show when={reading()}>
