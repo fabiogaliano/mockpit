@@ -44,7 +44,7 @@ mockpit feedback
 
 - **Pick** from pictures, or lay every answer **side by side** at full height. Hover one to
   preview it on the design.
-- **Keep** runners-up. After Send they stay in the row beside the pick, one click from Use this
+- **Keep** runners-up. After Send they stay in the row beside the pick, one click from Use
   instead.
 - **Archive** what you don't want, with a reason if you like. The agent won't offer it again.
 - **Ask for more** answers without sending the rest of your draft.

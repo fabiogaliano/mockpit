@@ -38,9 +38,8 @@ kept only for it as `alphabetical`, never ranked, and the project has its own in
 it does, any word; a component with no area is **shared**, and the library lists the shared
 ones by group). The user can move a design too,
 from a cover's ⋯ menu on a Library page (kind, area, archive); the agent hears a move as a feedback
-batch's `edited`, through the same cursor as a Send. The user's is Send (or Use this / New version on a design whose
-state has one alternative and no asks), which releases one **reply**. A screen or component
-has nothing to choose between: no Use this, no Which alternative?, nothing in use; its newest
+batch's `edited`, through the same cursor as a Send. The user's is Send, which releases one **reply**; Use releases one of its own. A screen or component
+has nothing to choose between: no Use, no Which alternative?, nothing in use; its newest
 version is current, and the user's one mark on it is **Ready** (below).
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -68,8 +67,8 @@ consciously, not as a side effect):
   comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
   screen/component, areas and flows → the Board's pages and sections; undeclared is an idea
   or a document, by what it contains, on the Ideas or Documents page). A plain publish of
-  any kind still gets Focus + Activity + Use this / New version, except a document (only written surfaces and pictures, no declared
-  width), which opens in `Reader` with its paragraphs to comment on and no Use this.
+  any kind still gets Focus + Activity + Use / New version, except a document (only written surfaces and pictures, no declared
+  width), which opens in `Reader` with its paragraphs to comment on and no Use.
 - Two places: the Board to see, Focus to decide. A design always opens the same way: every
   link, the agent's included, lands on the Board fit to that design or state, and Enter, a
   double-click or Open ↵ opens Focus. The Board shows posters only; pages run live only in
@@ -323,7 +322,7 @@ Stances reversed knowingly, so nobody restores them by accident:
   and ⋯ (Pick, and for an idea's live alternative Borrow and Move); the agent's suggestion is a
   mark on the picture. A comment belongs to one answer, picked or not (`Draft.answerComments`,
   askId → option id, delivered as an answered ask's `onAnswers`), so changing the pick never moves
-  it. More answers is an icon in the question's head; `MoreAnswers` sends `reply.more` through `sendAlone`, so the draft stays;
+  it. More answers is an icon in the question's head; `MoreAnswers` adds a `more` request to the draft, which goes with the next Send;
   `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
   the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice.
 - One choice, one question (`server/alternativeQuestion.ts`, shared with the viewer): a Send
@@ -338,8 +337,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   Which alternative? included): saved on the click through `POST /api/designs/:id/standings`
   (serialized per design), never waiting for a Send; the next reply of any kind carries the
   changed ones (`Reply.standings`, `unsent`). A re-ask remaps them to the new option ids; a
-  hidden answer stays folded and `existing` in `more` leaves it out. An alternative some question
-  keeps is never archived by a Send or Use this, only released from use (`release` in
+  hidden answer stays folded and `existing` in `more` leaves it out. A Send or a Use archives
+  nothing: an alternative it leaves out is only released from use (`release` in
   `commitReply`). The cards (`OptionCard`'s actions, `flipCards` for the fade and slide) put
   kept ones first and archived ones in `HiddenAnswers` ("Archived · N"); `Kept.tsx` holds what waits after a
   Send: `AnsweredLines` in the panel, each answered question one line that opens in place
@@ -467,7 +466,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     (`FocusBar`): Try, Comment (C), Tune, the preview with the QR, the palette pick beside
     Light | Dark (`PaletteTool`), the version menu (`VersionMenu` in `VersionBar.tsx`: the
     versions with hide and restore, what's new as a dot and its item, Compare with last
-    seen, Compare…, New version), Use this, and Send. Esc and the page in the path go back
+    seen, Compare…, New version), Use, and Send (its count opens the list, `SendList.tsx`). Esc and the page in the path go back
     to the Board, fit to the frame, selected. `Margins.tsx`: the states on the left (not
     drawn ones dashed; the standard states a screen lacks wait behind New state) and the
     state's alternatives (`Alternatives.tsx`; headed Variants on a variants design,
@@ -492,10 +491,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     version and dims in place; archive is per alternative and per design, with Undo.
     `ChangedNote` is the way back from a newer version ("Changed since Ready" when
     marked). New versions and new answers take the stage by themselves when nothing is
-    unsent; otherwise they wait as a dot on the version button. On an idea, past Use this a newer version takes over by itself (`changedTo`):
+    unsent; otherwise they wait as a dot on the version button. On an idea, past Use a newer version takes over by itself (`changedTo`):
     the stage moves to it when the tab has focus and it goes in use ten seconds later,
     writing nothing before then. Back to the old one is a stay, which `stayedVersion`
-    remembers until a newer one comes, as does Use this on an older version. Anything
+    remembers until a newer one comes, as does Use on an older version. Anything
     underway (a draft, an open question, a tool, typing) holds it to the dot, and
     touching the page stops the count.
   - **Phone and tablet** (`viewport.ts`). Under 700 px the Board is its sections as rows
@@ -624,8 +623,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   server-side draft per design — they survive reload, stay bound to the version
   they were made on, are never delivered before Send, and are cleared by it.
   The reply is one `kind: "reply"` comment through the same cursor; a
-  alternative-bound answer puts one alternative in use and archives its siblings, except
-  kept ones, in the same transaction (stored as `accepted`, read as `inUse`).
+  alternative-bound answer puts one alternative in use and releases its siblings from use,
+  archiving none, in the same transaction (stored as `accepted`, read as `inUse`).
 - Borrow (Tune, per part) offers a part from another alternative only when that alternative's frame reports it
   differently (count, labels, rounded sizes, visibility); a pure restyle at
   equal size is not offered.

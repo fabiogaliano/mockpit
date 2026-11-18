@@ -117,11 +117,11 @@ drops it, so send one with each, or let the CLI or stdio server take the new one
 
 ## What the user sees
 
-| you publish              | the user gets                                                         |
-| ------------------------ | --------------------------------------------------------------------- |
-| a plain design, any kind | a frame on the Board; Focus and Activity, with Use this / New version |
-| several alternatives     | Focus's list of them, plus a built-in alternative question            |
-| questions (`ask`)        | Questions: picture options on the frame in Focus, then Send           |
-| `data-part`              | Tune's component list and comments anchored on parts                  |
-| `knobs`                  | Tune's controls, live on the frame in Focus                           |
-| several states           | the states beside the frame in Focus, and frames across on the Board  |
+| you publish              | the user gets                                                        |
+| ------------------------ | -------------------------------------------------------------------- |
+| a plain design, any kind | a frame on the Board; Focus and Activity, with Use / New version     |
+| several alternatives     | Focus's list of them, plus a built-in alternative question           |
+| questions (`ask`)        | Questions: picture options on the frame in Focus, then Send          |
+| `data-part`              | Tune's component list and comments anchored on parts                 |
+| `knobs`                  | Tune's controls, live on the frame in Focus                          |
+| several states           | the states beside the frame in Focus, and frames across on the Board |

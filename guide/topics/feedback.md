@@ -79,7 +79,7 @@ without taking any feedback.
 ## Reading order
 
 1. `answers` and `asks` decide structure. An alternative-bound answer has already put that
-   alternative in use and archived its siblings (`inUse`, `archived`). Each `inUse` entry
+   alternative in use and released its siblings from use, archiving none (`inUse`). Each `inUse` entry
    is pinned at the `version` the user put in use (`read` → `inUse`): `export` and
    instances show that one, not your newer publishes, until the user picks again.
    A batch's `system` (`{rev, changes}`) is what its Send decided for the whole project:
@@ -110,7 +110,8 @@ without taking any feedback.
    without a part is about the whole alternative; one may end with the user's words in quotes.
 5. `verdict` (`{kind: use|revise, state, alternative}`; on a variants design `variant`, as
    are its batch's `inUse`, `archived` and messages, and `move`'s result) is the user's word on one alternative
-   outside any question. `use` is Use this, with the `version` now in use; `revise` is
+   outside any question. `use` is Use, with the `version` now in use, and its `picks` when the user used
+   what they picked (Main first, each with its `look` or `values`): put them in the code; `revise` is
    New version: publish another version of that alternative (its `text` says from which).
    Archived alternatives stay in view, muted, and the user can restore them.
 6. `text` is the user's message on the Send.
