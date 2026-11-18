@@ -14,6 +14,7 @@ import { openJump } from "./Jump.tsx";
 import { ProjectSwitcher } from "./ProjectSwitcher.tsx";
 import { boardPath, type HomePlace, linkClick, projectPath, questionPath } from "./route.ts";
 import { ChromeButtons } from "./TopBar.tsx";
+import { framesOf, type Section as PageSection, stepNumber } from "./BoardFrame.tsx";
 
 export interface RailLayer {
   id: string;
@@ -21,6 +22,27 @@ export interface RailLayer {
   name: string;
   frames: { key: string; label: string }[];
 }
+
+// The page's layers: each section, and the frames in it. A grid's frames are too many to
+// list; its section is the layer.
+export const railLayers = (
+  sections: PageSection[],
+  title: (s: PageSection) => string,
+): RailLayer[] =>
+  sections.map((s) => ({
+    id: s.id,
+    kind: s.kind === "grid" ? (s.grid.idea ? "idea" : "variants") : s.kind,
+    name: title(s),
+    frames: (s.kind === "flow"
+      ? s.steps.flatMap((x, i) => [
+          { f: x.frame, label: `${stepNumber(i)}. ${x.frame.name}` },
+          ...x.below.map((b, j) => ({ f: b, label: `${stepNumber(i, j)}. ${b.name}` })),
+        ])
+      : s.kind === "grid"
+        ? []
+        : framesOf(s).map((f) => ({ f, label: f.name }))
+    ).map(({ f, label }) => ({ key: f.key, label })),
+  }));
 
 export interface RailLibrary {
   components: boolean;

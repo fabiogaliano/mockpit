@@ -22,34 +22,22 @@ import {
   createResource,
   createSignal,
   For,
-  Index,
   type JSX,
-  Match,
   on,
   onCleanup,
   onMount,
   Show,
-  Switch,
   untrack,
 } from "solid-js";
 import { type Cell, CELLS, coverageSummary, flowLine } from "../../server/coverage.ts";
-import {
-  api,
-  assetUrl,
-  type BoardFrame,
-  type BoardPage,
-  type BoardSection,
-  subscribe,
-  type TreeNode,
-} from "./api.ts";
+import { api, type BoardFrame, type BoardPage, subscribe, type TreeNode } from "./api.ts";
 import { sectionOf, sidebarOf } from "./albums.ts";
-import { cellShown, FILTER_FROM, type Grid, gridOf } from "./boardGrid.ts";
+import { cellShown, gridOf } from "./boardGrid.ts";
 import {
   type Box,
   DEFAULT_WIDTH,
   FIT_MS,
   fitView,
-  frameHeight,
   RESERVE_BOTTOM,
   RESERVE_TOP,
   unionBox,
@@ -58,7 +46,7 @@ import {
   wrapWidth,
   zoomAbout,
 } from "./boardLayout.ts";
-import { BoardRail, libraryOf, type RailLayer } from "./BoardRail.tsx";
+import { BoardRail, libraryOf, railLayers } from "./BoardRail.tsx";
 import { FIELD } from "./flowKeys.ts";
 import { Home, NewIdea } from "./Home.tsx";
 import { readHomeProjects, saveHomeProjects } from "./homeCache.ts";
@@ -85,93 +73,16 @@ import {
 } from "./route.ts";
 import { openJump } from "./Jump.tsx";
 import { coarse, phoneLayout, railSlides } from "./viewport.ts";
-
-// A frame as the Board draws it: the server's, a state the screen is still owed, or one
-// alternative's cell in a grid.
-interface Frame extends BoardFrame {
-  key: string;
-  missing?: true;
-  alternative?: string;
-  archived?: true;
-}
-type Section =
-  | (Omit<Extract<BoardSection, { kind: "flow" }>, "steps"> & {
-      steps: { frame: Frame; below: Frame[] }[];
-    })
-  | (Omit<Extract<BoardSection, { kind: "screen" }>, "frames"> & { frames: Frame[] })
-  | { kind: "components" | "planned"; id: string; frames: Frame[] }
-  // An idea or a variants design; `under` is the product design it was unfolded from.
-  // `more` alternatives wait past its first rows, and `folded` is their frames while they do.
-  | {
-      kind: "grid";
-      id: string;
-      grid: Grid;
-      frames: Frame[];
-      under: string | null;
-      more: number;
-      folded: Frame[];
-    };
-
-type BoardQuestion = BoardPage["questions"][number];
-const questionsWord = (n: number) => (n === 1 ? "1 question" : `${n} questions`);
-
-// The count of questions on a frame, and the way to the first of them.
-function QuestionBadge(props: { qs: BoardQuestion[]; path: string | null; title: string }) {
-  const label = () =>
-    props.qs.length === 1
-      ? `Question on ${props.title}: ${props.qs[0]!.text}`
-      : `${props.qs.length} questions on ${props.title}`;
-  return (
-    <Show
-      when={props.path}
-      fallback={
-        <span class="bf-q" title={label()}>
-          {props.qs.length}
-        </span>
-      }
-    >
-      {(path) => (
-        <a
-          class="bf-q"
-          href={path()}
-          title={label()}
-          aria-label={label()}
-          onClick={(e) => {
-            e.stopPropagation();
-            linkClick(e, path(), true);
-          }}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          {props.qs.length}
-        </a>
-      )}
-    </Show>
-  );
-}
-
-// `at` tells apart the frames of one state a flow shows at two of its steps, or two flows do.
-const frameKey = (
-  slug: string,
-  state: string | null,
-  missing = false,
-  alternative?: string,
-  at?: string,
-) => JSON.stringify([slug, state, missing, alternative ?? null, ...(at ? [at] : [])]);
-
-const framesOf = (s: Section): Frame[] =>
-  s.kind === "flow" ? s.steps.flatMap((x) => [x.frame, ...x.below]) : s.frames;
-
-// A grid's frame at one alternative and state, and the rows its filter leaves.
-const cellIn = (frames: Frame[], alternative: string, state: string | null) =>
-  frames.find((f) => f.alternative === alternative && f.state === state);
-const rowsIn = (grid: Grid, frames: Frame[]) => {
-  const names = new Set(frames.map((f) => f.alternative));
-  return grid.rows.filter((n) => names.has(n));
-};
-// A flow's steps are numbered as the canvas's arrows read them: 1, 2, 3, and the states
-// stacked under a step 3b, 3c.
-const stepNumber = (i: number, below?: number) =>
-  below === undefined ? String(i + 1) : `${i + 1}${String.fromCharCode(98 + below)}`;
+import {
+  type BoardQuestion,
+  type Frame,
+  frameKey,
+  framesOf,
+  questionsWord,
+  rowsIn,
+  type Section,
+} from "./BoardFrame.tsx";
+import { RowSection, type SectionCtx, SectionView } from "./BoardSection.tsx";
 
 const reducedMotion = () =>
   host().window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
@@ -406,11 +317,6 @@ export function Board(props: {
   const [filters, setFilters] = createSignal<Record<string, string>>({});
   // The grids showing every row, past their first.
   const [whole, setWhole] = createSignal<ReadonlySet<string>>(new Set());
-  const flip = (set: ReadonlySet<string>, id: string) => {
-    const next = new Set(set);
-    if (!next.delete(id)) next.add(id);
-    return next;
-  };
   // A grid shows its first rows, so one idea or one long variants design doesn't stretch
   // the page into a column: a screen's first alternative across its states (a lab's first
   // of each state), or the first GRID_COMPONENT_ROWS of a component's, which are short.
@@ -1229,23 +1135,7 @@ export function Board(props: {
   const flowCoverage = (s: Extract<Section, { kind: "flow" }>) =>
     data()?.coverage.flows.find((f) => f.name === s.name) ?? { ready: 0, steps: s.steps.length };
 
-  // A grid's frames are too many to list; its section is the layer.
-  const layers = createMemo<RailLayer[]>(() =>
-    sections().map((s) => ({
-      id: s.id,
-      kind: s.kind === "grid" ? (s.grid.idea ? "idea" : "variants") : s.kind,
-      name: sectionTitle(s),
-      frames: (s.kind === "flow"
-        ? s.steps.flatMap((x, i) => [
-            { f: x.frame, label: `${stepNumber(i)}. ${x.frame.name}` },
-            ...x.below.map((b, j) => ({ f: b, label: `${stepNumber(i, j)}. ${b.name}` })),
-          ])
-        : s.kind === "grid"
-          ? []
-          : framesOf(s).map((f) => ({ f, label: f.name }))
-      ).map(({ f, label }) => ({ key: f.key, label })),
-    })),
-  );
+  const layers = createMemo(() => railLayers(sections(), sectionTitle));
   // On a phone a section or a frame is scrolled to, its row too.
   const scrollTo = (el: HTMLElement, block: ScrollLogicalPosition) =>
     el.scrollIntoView({ block, inline: "center", behavior: reducedMotion() ? "auto" : "smooth" });
@@ -1361,564 +1251,47 @@ export function Board(props: {
     () =>
       new Set(sections().flatMap((x) => (x.kind === "flow" ? framesOf(x).map((f) => f.key) : []))),
   );
-  const frameView = (f: Frame) => {
-    const w = () => widthOf(f);
-    const component = () => designOf(f.slug)?.kind === "component";
-    // A screen's one unnamed state is called by the screen's name, which its section's
-    // header already says.
-    const named = () =>
-      !!f.alternative || flowKeys().has(f.key) || f.name !== (designOf(f.slug)?.title ?? "");
-    return (
-      <div
-        class="bf"
-        classList={{
-          sel: selected()?.key === f.key,
-          planned: !!f.planned,
-          missing: !!f.missing,
-          cmp: component(),
-          archived: !!f.archived,
-          writing: writingOn(f),
-        }}
-        data-key={f.key}
-        ref={keepFrame(f.key)}
-        style={{ width: `${w()}px` }}
-      >
-        <div
-          class="bf-nm"
-          classList={{ quiet: !named() }}
-          title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}
-        >
-          <Show when={isChanged(f)}>
-            <i class="bf-dot" aria-label="Changed since you were here" />
-          </Show>
-          <Show when={named()} fallback={<span class="sr-only">{f.name}</span>}>
-            {f.name}
-          </Show>
-        </div>
-        <Show when={writingOn(f)}>
-          <span class="bf-agent" role="status">
-            agent…
-          </span>
-        </Show>
-        <Show when={asksOn().get(f.key)}>
-          {(qs) => (
-            <QuestionBadge
-              qs={qs()}
-              path={pathOf(qs()[0])}
-              title={designOf(f.slug)?.title ?? f.name}
-            />
-          )}
-        </Show>
-        <div
-          class="bf-pic"
-          style={
-            component()
-              ? {
-                  "max-height": `${w() * 2}px`,
-                  "contain-intrinsic-size": `auto ${w()}px ${w() / 2}px`,
-                  ...(f.poster && near().has(f.key) ? {} : { height: `${w() / 2}px` }),
-                }
-              : { height: `${frameHeight(w())}px` }
-          }
-        >
-          <Switch
-            fallback={
-              <span class="bf-ph">
-                <span>{f.name}</span>
-                <small>No still yet</small>
-              </span>
-            }
-          >
-            <Match when={f.missing || f.planned}>
-              <span class="bf-ph">
-                <span>{f.name}</span>
-                <small>{f.missing ? "Asked for" : "Planned"}</small>
-              </span>
-            </Match>
-            <Match when={f.poster}>
-              {(id) => (
-                <Show when={near().has(f.key)}>
-                  <img
-                    src={assetUrl(id())}
-                    alt=""
-                    draggable={false}
-                    decoding="async"
-                    loading="lazy"
-                    onLoad={settleSoon}
-                  />
-                </Show>
-              )}
-            </Match>
-          </Switch>
-        </div>
-      </div>
-    );
-  };
-  // Read when drawn and again as they change, so a refetch's words reach a header in place.
-  const chip = (text: () => string, cls: () => string = () => "") => (
-    <span class={`bchip ${cls()}`}>{text()}</span>
-  );
-  // The section as one kind, for a header's Match.
-  const asKind = <K extends Section["kind"]>(x: Section, kind: K) =>
-    x.kind === kind ? (x as Section & { kind: K }) : false;
-  // An accessor, so a refetch's counts, statuses and titles reach the header it already drew.
-  const sectionHead = (s: () => Section) => (
-    <div class="bsec-hd">
-      <span class="bsec-nm">{sectionTitle(s())}</span>
-      <Switch>
-        <Match when={asKind(s(), "flow")}>
-          {(f) => (
-            <>
-              {chip(
-                () => "flow",
-                () => "flow",
-              )}
-              <Show when={f().status}>{(w) => chip(w, () => statusClass(w()))}</Show>
-              {chip(() => flowLine(flowCoverage(f())))}
-              <button
-                type="button"
-                class="bchip bplay"
-                title="Present this flow (P): → and ← walk it, R starts over, Esc ends"
-                onClick={() => present(f())}
-              >
-                ▶ Present
-              </button>
-            </>
-          )}
-        </Match>
-        <Match when={asKind(s(), "screen")}>
-          {(sc) => (
-            <>
-              <Show when={designOf(sc().slug)?.status}>
-                {(w) => chip(w, () => statusClass(w()))}
-              </Show>
-              <Show when={!readonly() && suggestedOf(sc().slug).length}>
-                <span class="bsugg" role="group" aria-label="States it may need">
-                  <span class="bsugg-l">Add</span>
-                  <For each={suggestedOf(sc().slug)}>
-                    {(name) => (
-                      <button
-                        type="button"
-                        title={`Ask the agent to draw ${name}`}
-                        onClick={() => void askState(sc().slug, name)}
-                      >
-                        {name}
-                      </button>
-                    )}
-                  </For>
-                  <button
-                    type="button"
-                    class="bsugg-x"
-                    aria-label="None of these apply"
-                    title="None of these apply"
-                    onClick={() => void dropSuggested(sc().slug)}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </span>
-              </Show>
-            </>
-          )}
-        </Match>
-        <Match when={asKind(s(), "grid")}>
-          {(g) => (
-            <>
-              {chip(
-                // Unfolded under its design, an idea's target is the section above it.
-                () => (g().under && g().grid.idea ? "Idea" : g().grid.label),
-                () => (g().grid.idea ? "idea" : ""),
-              )}
-              <Show when={!g().grid.idea && designOf(g().grid.slug)?.status}>
-                {(w) => chip(w, () => statusClass(w()))}
-              </Show>
-              <Show when={!phoneLayout() && g().grid.live}>
-                {(n) =>
-                  chip(
-                    () =>
-                      `${n()} ${g().grid.idea ? "alternative" : "variant"}${n() === 1 ? "" : "s"}`,
-                  )
-                }
-              </Show>
-              <Show when={g().more || whole().has(g().id)}>
-                <button
-                  type="button"
-                  class="bchip"
-                  aria-expanded={whole().has(g().id)}
-                  title={whole().has(g().id) ? "Show only the first rows" : "Show every row"}
-                  onClick={() => {
-                    touch();
-                    setWhole(flip(whole(), g().id));
-                  }}
-                >
-                  {whole().has(g().id) ? "Show fewer" : `Show ${g().more} more`}
-                </button>
-              </Show>
-              <Show when={g().grid.archived}>
-                {(n) => (
-                  <button
-                    type="button"
-                    class="bchip"
-                    aria-expanded={archivedOn().has(g().id)}
-                    onClick={() => {
-                      touch();
-                      setArchivedOn(flip(archivedOn(), g().id));
-                    }}
-                  >
-                    {archivedOn().has(g().id) ? "Hide archived" : `Show ${n()} archived`}
-                  </button>
-                )}
-              </Show>
-              <Show when={g().grid.live > FILTER_FROM}>
-                <input
-                  class="bfilter"
-                  type="search"
-                  placeholder="Filter by name or description"
-                  aria-label={`Filter ${g().grid.title}`}
-                  value={filters()[g().id] ?? ""}
-                  onInput={(e) => setFilters({ ...filters(), [g().id]: e.currentTarget.value })}
-                />
-              </Show>
-            </>
-          )}
-        </Match>
-        <Match when={asKind(s(), "components")}>
-          {(c) => chip(() => String(c().frames.length))}
-        </Match>
-        <Match when={s().kind === "planned"}>{chip(() => "not drawn yet")}</Match>
-      </Switch>
-      <Show when={sectionAsks(s())}>
-        {(n) => (
-          <Show
-            when={firstQuestion(s())}
-            fallback={chip(
-              () => questionsWord(n()),
-              () => "q",
-            )}
-          >
-            {(path) => (
-              <a
-                class="bchip q"
-                href={path()}
-                title="Answer in Focus"
-                onClick={(e) => linkClick(e, path(), true)}
-              >
-                {questionsWord(n())}
-              </a>
-            )}
-          </Show>
-        )}
-      </Show>
-      <Show when={unfoldable(s())}>
-        {(slug) => (
-          <Show when={ideasFor(slug()).length}>
-            {(n) => (
-              <button
-                type="button"
-                class="bchip idea"
-                aria-expanded={unfolded().has(slug())}
-                title={unfolded().has(slug()) ? "Fold the ideas away" : "Unfold its ideas under it"}
-                onClick={() => {
-                  touch();
-                  setUnfolded(flip(unfolded(), slug()));
-                }}
-              >
-                {`${n()} ${n() === 1 ? "idea" : "ideas"} ${unfolded().has(slug()) ? "▴" : "▾"}`}
-              </button>
-            )}
-          </Show>
-        )}
-      </Show>
-    </div>
-  );
-  const sectionView = (id: string) => {
-    const s = () => sectionById().get(id);
-    const flow = () => {
-      const x = s();
-      return x?.kind === "flow" ? x : null;
-    };
-    const frames = () => {
-      const x = s();
-      return x && x.kind !== "flow" ? x.frames : [];
-    };
-    const grid = () => {
-      const x = s();
-      return x?.kind === "grid" ? x : null;
-    };
-    const cell = (alternative: string, state: string | null) =>
-      cellIn(frames(), alternative, state);
-    const shownRows = () => {
-      const g = grid();
-      return g ? rowsIn(g.grid, frames()) : [];
-    };
-    const colName = (c: string | null) => c ?? grid()?.grid.title ?? "";
-    const gridView = (g: () => Extract<Section, { kind: "grid" }>) => (
-      <Show
-        when={g().grid.aligned}
-        fallback={
-          <div class="bcols">
-            <For each={g().grid.cols}>
-              {(c) => (
-                <Show when={frames().some((f) => f.state === c)}>
-                  <div class="bcol">
-                    <span class="bgrid-col">{colName(c)}</span>
-                    <For each={frames().filter((f) => f.state === c)}>{frameView}</For>
-                  </div>
-                </Show>
-              )}
-            </For>
-          </div>
-        }
-      >
-        <div
-          class="bgrid"
-          style={{ "grid-template-columns": `auto repeat(${g().grid.cols.length}, auto)` }}
-        >
-          <span />
-          <For each={g().grid.cols}>{(c) => <span class="bgrid-col">{colName(c)}</span>}</For>
-          <For each={shownRows()}>
-            {(name) => (
-              <>
-                <span class="bgrid-row">{name}</span>
-                <For each={g().grid.cols}>
-                  {(c) => (
-                    <Show when={cell(name, c)} keyed fallback={<span />}>
-                      {frameView}
-                    </Show>
-                  )}
-                </For>
-              </>
-            )}
-          </For>
-        </div>
-      </Show>
-    );
-    return (
-      <section
-        class="bsec"
-        classList={{
-          idea: !!grid()?.grid.idea,
-          under: !!grid()?.under,
-          writing: outlined().has(id),
-        }}
-        ref={keepSection(id)}
-      >
-        <Show when={s()}>{(x) => sectionHead(x)}</Show>
-        <Show
-          when={flow()}
-          fallback={
-            <Show
-              when={grid()}
-              fallback={
-                <div class="bframes">
-                  <For each={frames()}>{frameView}</For>
-                </div>
-              }
-            >
-              {(g) => gridView(g)}
-            </Show>
-          }
-        >
-          {(f) => (
-            <div class="bsteps">
-              <Index each={f().steps}>
-                {(x, i) => (
-                  <>
-                    <Show when={i > 0}>
-                      <div
-                        class="barrow"
-                        aria-hidden="true"
-                        style={{ height: `${frameHeight(widthOf(x().frame))}px` }}
-                      >
-                        →
-                      </div>
-                    </Show>
-                    <div class="bstep">
-                      <Show when={x().frame} keyed>
-                        {frameView}
-                      </Show>
-                      <For each={x().below}>{frameView}</For>
-                    </div>
-                  </>
-                )}
-              </Index>
-            </div>
-          )}
-        </Show>
-      </section>
-    );
-  };
-
-  // --- a phone's rows ---
-  // A frame as a still a finger can take in at once; a tap opens it.
-  const tileView = (f: Frame, label?: JSX.Element) => {
-    const component = () => designOf(f.slug)?.kind === "component";
-    return (
-      <button
-        type="button"
-        class="ptile"
-        classList={{
-          cmp: component(),
-          wide: !component() && widthOf(f) >= 700,
-          missing: !!f.missing,
-          planned: !!f.planned,
-          archived: !!f.archived,
-          sel: selected()?.key === f.key,
-          writing: writingOn(f),
-        }}
-        data-key={f.key}
-        ref={keepFrame(f.key)}
-        title={isChanged(f) ? `${f.name}, changed since you were here` : f.name}
-        onClick={() => open(f)}
-      >
-        <span class="ptile-pic">
-          <Switch
-            fallback={
-              <span class="bf-ph">
-                <small>No still yet</small>
-              </span>
-            }
-          >
-            <Match when={f.missing || f.planned}>
-              <span class="bf-ph">
-                <small>{f.missing ? "Asked for" : "Planned"}</small>
-              </span>
-            </Match>
-            <Match when={f.poster}>
-              {(id) => (
-                <img
-                  src={assetUrl(id())}
-                  alt=""
-                  draggable={false}
-                  decoding="async"
-                  loading="lazy"
-                />
-              )}
-            </Match>
-          </Switch>
-          <Show when={asksOn().get(f.key)}>
-            {(qs) => (
-              <QuestionBadge
-                qs={qs()}
-                path={pathOf(qs()[0])}
-                title={designOf(f.slug)?.title ?? f.name}
-              />
-            )}
-          </Show>
-          <Show when={writingOn(f)}>
-            <span class="bf-agent" role="status">
-              agent…
-            </span>
-          </Show>
-        </span>
-        <span class="ptile-nm">
-          <Show when={isChanged(f)}>
-            <i class="bf-dot" aria-label="Changed since you were here" />
-          </Show>
-          {label ?? f.name}
-        </span>
-      </button>
-    );
-  };
-  // A section as the canvas has it, its frames in one row that snaps frame by frame; a
-  // grid a row per alternative (or per state, where its alternatives don't line up).
-  const rowSection = (id: string) => {
-    const s = () => sectionById().get(id);
-    const flow = () => {
-      const x = s();
-      return x?.kind === "flow" ? x : null;
-    };
-    const grid = () => {
-      const x = s();
-      return x?.kind === "grid" ? x : null;
-    };
-    const frames = () => {
-      const x = s();
-      return x && x.kind !== "flow" ? x.frames : [];
-    };
-    const colName = (c: string | null) => c ?? grid()?.grid.title ?? "";
-    const numbered = (n: string, f: Frame) => (
-      <>
-        <i>{n}</i>
-        {f.name}
-      </>
-    );
-    return (
-      <section
-        class="psec"
-        classList={{ idea: !!grid()?.grid.idea, writing: outlined().has(id) }}
-        ref={keepSection(id)}
-      >
-        <Show when={s()}>{(x) => sectionHead(x)}</Show>
-        <Switch
-          fallback={
-            <div class="prow">
-              <For each={frames()}>{(f) => tileView(f)}</For>
-            </div>
-          }
-        >
-          <Match when={flow()}>
-            {(fl) => (
-              <div class="prow">
-                <Index each={fl().steps}>
-                  {(x, i) => (
-                    <>
-                      {tileView(x().frame, numbered(stepNumber(i), x().frame))}
-                      <For each={x().below}>
-                        {(b, j) => tileView(b, numbered(stepNumber(i, j()), b))}
-                      </For>
-                    </>
-                  )}
-                </Index>
-              </div>
-            )}
-          </Match>
-          <Match when={grid()}>
-            {(g) => (
-              <Show
-                when={g().grid.aligned}
-                fallback={
-                  <For each={g().grid.cols}>
-                    {(c) => (
-                      <Show when={frames().some((f) => f.state === c)}>
-                        <div class="palt">{colName(c)}</div>
-                        <div class="prow">
-                          <For each={frames().filter((f) => f.state === c)}>
-                            {(f) => tileView(f, f.alternative)}
-                          </For>
-                        </div>
-                      </Show>
-                    )}
-                  </For>
-                }
-              >
-                <For each={rowsIn(g().grid, frames())}>
-                  {(name) => (
-                    <>
-                      <div class="palt">{name}</div>
-                      <div class="prow">
-                        <For each={g().grid.cols}>
-                          {(c) => (
-                            <Show when={cellIn(frames(), name, c)} keyed>
-                              {(f) => tileView(f, colName(c))}
-                            </Show>
-                          )}
-                        </For>
-                      </div>
-                    </>
-                  )}
-                </For>
-              </Show>
-            )}
-          </Match>
-        </Switch>
-      </section>
-    );
+  const sectionCtx: SectionCtx = {
+    widthOf,
+    designOf,
+    flowKeys,
+    selected,
+    writingOn,
+    keepFrame,
+    isChanged,
+    asksOn,
+    pathOf,
+    near,
+    settleSoon,
+    open,
+    sectionById,
+    outlined,
+    keepSection,
+    sectionTitle,
+    flowCoverage,
+    present,
+    suggestedOf,
+    askState,
+    dropSuggested,
+    sectionAsks,
+    firstQuestion,
+    unfoldable,
+    ideasFor,
+    unfolded,
+    setUnfolded,
+    archivedOn,
+    setArchivedOn,
+    whole,
+    setWhole,
+    filters,
+    setFilters,
+    touch,
   };
   let rowsEl: HTMLDivElement | undefined;
   const rows = (): JSX.Element => (
     <div class="prows" ref={(el) => (rowsEl = el)}>
       <div class="pbhead">{pageHead(true)}</div>
-      <For each={sectionIds()}>{rowSection}</For>
+      <For each={sectionIds()}>{(id) => <RowSection c={sectionCtx} id={id} />}</For>
       <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
         <p class="bempty">
           {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
@@ -2114,7 +1487,7 @@ export function Board(props: {
             ...(wrapAt() ? { width: `${wrapAt()! + WORLD_PAD * 2}px` } : {}),
           }}
         >
-          <For each={sectionIds()}>{sectionView}</For>
+          <For each={sectionIds()}>{(id) => <SectionView c={sectionCtx} id={id} />}</For>
           <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
             <p class="bempty">
               {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
@@ -2503,8 +1876,6 @@ function CoverageMap(props: {
     </div>
   );
 }
-
-const statusClass = (w: string) => (w === "Ready" ? "ok" : w === "Changed" ? "changed" : "");
 
 const SEC_NAME: Partial<Record<HomePlace, string>> = {
   components: "Components",
