@@ -6321,6 +6321,14 @@ html:has(.design-screen) {
   align-items: center;
   gap: 2px;
 }
+.ptoggle .icon path:last-child {
+  fill: none;
+  stroke: none;
+}
+.ptoggle.on .icon path:last-child {
+  fill: currentColor;
+  fill-opacity: 0.35;
+}
 .lmargin,
 .rmargin {
   position: fixed;

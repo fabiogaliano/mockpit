@@ -112,6 +112,12 @@ const PATHS = {
     "M14 3.5V8h4.5",
     "M8 12.5h8M8 16h5",
   ],
+  // Lucide's panel-right (ISC); its last path is the pane, filled while the panel is open.
+  panel: [
+    "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z",
+    "M15 3v18",
+    "M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4z",
+  ],
   versions: ["M12 7v5l3 2", "M20.5 12a8.5 8.5 0 1 1-2.6-6.1", "M20.5 3.5V8H16"],
   qr: [
     "M4 4h6v6H4z",

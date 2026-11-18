@@ -286,14 +286,14 @@ export function PanelToggle(props: { m: Margins }) {
     <div class="mtabs">
       <button
         type="button"
-        class="ib"
+        class="ib ptoggle"
         classList={{ on: !!m.side() }}
         aria-pressed={!!m.side()}
         aria-label={label()}
         title={label()}
         onClick={() => m.togglePanel()}
       >
-        <Icon name="spec" />
+        <Icon name="panel" />
       </button>
     </div>
   );
