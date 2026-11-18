@@ -10606,16 +10606,22 @@ button.bmc {
 .markpill.inline {
   box-shadow: 0 0 0 1px var(--line);
 }
-/* On a frame or a cell the pill is sized by what it sits on: a button about a twelfth of
-   its width, from a finger's least on a small cell to a little over the top bar's size on a
-   large one or the stage, where it has to read against a whole design. A cell is a size
-   container for it; a frame says its width (--frame-w) instead, since containment would
-   make it a stacking context for the part overlay. Under 200px a cell keeps the marks alone. */
+/* On a frame or a cell the pill is sized by what it sits on, up to a little over the top
+   bar's size, where it has to read against a whole design. A cell gives a button about an
+   eighth of its width: a sheet's usual cell is near 200px, and a share fit for the stage
+   left the pill at its least there. A cell is a size container for it; a frame says its
+   width (--frame-w) instead, since containment would make it a stacking context for the
+   part overlay. Under 200px a cell keeps the marks alone, sized so three still fit. */
 .sheet-cellw {
   container-type: inline-size;
 }
 .sheet-cellw > .markpill {
-  --mp: clamp(20px, 8.5cqi, 42px);
+  --mp: clamp(26px, 13cqi, 42px);
+}
+@container (max-width: 200px) {
+  .sheet-cellw > .markpill {
+    --mp: clamp(18px, 26cqi, 24px);
+  }
 }
 .frame > .markpill {
   --mp: clamp(20px, var(--frame-w, 0px) * 0.085, 42px);
