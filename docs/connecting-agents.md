@@ -1,7 +1,8 @@
 # Connecting agents
 
-Every tier covers the whole loop: publish, ask, read the one reply, revise. Nothing waits
-for the user: the agent asks, says where to look and ends its turn.
+Every tier covers the whole loop: publish, read the one reply (a Send, or a Use of the
+user's picks), revise. Nothing waits for the user: the agent publishes, says where to look
+and ends its turn, and asks a question only when a choice blocks its next step.
 
 With a shell, paste the setup block into the agent's instructions. It points the agent at
 the live instructions on `/agent-howto`.
@@ -17,17 +18,16 @@ No dependencies. Keeps one session per agent conversation.
 ```sh
 mockpit publish --design cache --state "Cold" --alternative grid --html grid.html   # or --md / --diff …
 mockpit publish --design cache --state "Cold" --alternative list --html list.html
-mockpit ask --design cache "Which layout?" --option Grid=grid --option List=list
-mockpit feedback            # after the user answers; returns at once
+mockpit feedback            # after the user sends; returns at once
 mockpit watch               # one line per Send, for a background monitor
 mockpit guide               # the brief; --topic html for one topic
-mockpit run loop.js         # publish and ask in one script
+mockpit run loop.js         # publish every alternative in one script
 ```
 
 ## MCP
 
-Tools: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`,
-`guide`. MCP agents get the usage instructions automatically.
+Tools: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `system`, `export`,
+`upload`, `guide`. MCP agents get the usage instructions automatically.
 
 ```sh
 claude mcp add --scope user mockpit -- npx -y mockpit mcp
@@ -35,7 +35,7 @@ claude mcp add --scope user mockpit -- npx -y mockpit mcp
 claude mcp add --scope user --transport http mockpit http://localhost:8228/mcp
 ```
 
-**Code mode** serves one tool, `run`: the agent writes one script that publishes and asks,
+**Code mode** serves one tool, `run`: the agent writes one script that publishes,
 run in a QuickJS sandbox; a later run reads `mockpit.feedback()`. Use it for clients that
 load every tool into each conversation and have no codemode of their own (claude.ai,
 Desktop and ChatGPT connectors). Skip it in harnesses that already turn MCP tools into code
@@ -80,7 +80,7 @@ that reaches the hook's 24 hours ends without waking anyone; the reply arrives o
 call. Uses an installed `mockpit` new enough for `--once`, else `npx`.
 
 Without the plugin, install the skill (`cp -r skills/mockpit ~/.claude/skills/`). The agent
-then arms the watch itself after asking and re-arms it when it expires, at 30 minutes at most:
+then arms the watch itself after publishing and re-arms it when it expires, at 30 minutes at most:
 
 ```text
 Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })
@@ -133,6 +133,6 @@ works there too.
 ## The design contract
 
 `/agent-howto` is the brief agents read before their first publish. Deeper topics are
-fetched when needed: `knobs`, `asks`, `surfaces`, `html`, `feedback`, `http`, `scripts`
+fetched when needed: `system`, `knobs`, `asks`, `surfaces`, `html`, `feedback`, `http`, `scripts`
 (`mockpit guide --topic <id>`, `guide({ topic })`, or `/agent-howto?topic=<id>`). `/guide`
 serves the `html` topic.

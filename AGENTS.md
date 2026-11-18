@@ -8,10 +8,11 @@ _use_ a running mockpit lives in `guide/AGENT_SETUP.md`, served at `/setup`.)
 
 A design-decision loop for terminal coding agents: an agent publishes a **design**
 (html, or any surface kind: markdown, diff, terminal, image, mermaid, json, code)
-over CLI/MCP/HTTP, asks structured questions on it and exposes knobs; the user
-answers in place in a browser, tunes, comments on parts, and presses Send once.
-The loop — publish → ask → answer/tune/comment → one reply → revise — is the
-product. When in doubt, optimize for the loop.
+over CLI/MCP/HTTP, with what varies as alternatives and knobs, and a question only where
+a choice blocks it; the user looks, picks, tunes and comments in a browser, and presses
+Send, or Use to put the picks in the product. The loop — publish → look, mark, tune,
+comment, answer → one reply → revise — is the product. When in doubt, favour: look, mark,
+Send or Use.
 
 The model is **project › design › state › alternative › version**: a project is a repo
 (from the agent's cwd/git remote), a design is a screen or component by stable slug
@@ -88,6 +89,17 @@ Stances reversed knowingly, so nobody restores them by accident:
 - "A design opens by what it is" (2026-11-06): Answers for a waiting question, a grid for
   a variants design, Studio for an idea. Opening differently by data was the top "where am
   I" problem, so a design now always opens on the Board.
+- "A choice is several alternatives plus one question that binds them" (2026-11-18), with
+  the nudge and `suggestedAsk` for alternatives no question binds, and "a 2–3 option knob is
+  a choice: ask". The user now compares, picks and Uses without a question, so an agent
+  publishes what varies as alternatives or a choice knob and asks only when a choice blocks
+  its next step. The nudge for answers mockpit added to an agent's own question stays.
+- "Tuned values are design-wide" and saved combos of answers (2026-11-18): a tune belongs to
+  one frame, and a look holds knob values by name; picks cover answers.
+- "Some actions reach the agent at once" (`sendAlone`, 2026-11-18): More answers, More like
+  this, Borrow and the rest now wait in the draft, and only Send or Use reaches the agent.
+- "A pick waits for Send" (2026-11-18): picks and Main are marks, saved on the click and
+  read in `read`, sent by nothing; Keep, a separate bookmark, is gone.
 
 ## Map
 
@@ -148,12 +160,16 @@ Stances reversed knowingly, so nobody restores them by accident:
   which a click turns to see before, and Undo, the user's own change through `/system/decide`).
 - `server/knobs.ts` — knob schema and value validation (Q3): every declared knob
   and every value (`?k=`, drafts, replies, ask `set`s) is checked here;
-  `discreteChoices` drives the ask-not-knob nudge.
+  `choices` is what a sheet lays out across.
 - `server/jump.ts` — search to jump, over names, states, alternatives, descriptions,
   questions and areas read by `SqlStore.listJumpRows`, never surfaces.
 - `server/parts.ts` — reads part identity (`data-part`, `-label`, `-key`) from
   html strings with a regex, and diffs versions into vanished/renamed. Never
   geometry: boxes are the bridge's job.
+- `server/looks.ts` — looks, named knob values holding only the knobs they change:
+  `checkLooks` for a publish's `looks` and the user's save, `withLooks` (an agent's never
+  replaces the user's of a name), `looksFor` (a read's: the design's own, then those of the
+  project's designs whose every knob it declares, `SqlStore.looksIn`).
 - `server/apiViews.ts` / `server/feedbackBatch.ts` — the response shapes every
   tier returns (design views; one feedback batch per design).
 - `server/eventLog.ts` — the event log: a middleware that writes one entry per
@@ -275,8 +291,9 @@ Stances reversed knowingly, so nobody restores them by accident:
   looks like it is for one (`likelyTarget`: same area and code path, then name). `read` of such
   an idea and each batch of a reply on it carry `target` (`ruledOutOf`: the design's archived
   alternatives, hidden answers and decisions' "Not:"); a product design's reads carry
-  `ideasFor`, and `read --area` groups `ideasWaiting` by `for`. Using an alternative there
-  (`useInTarget`, from `useFlow` and `replyFlow`, one decision per design at a time and one copy
+  `ideasFor` and `usedFrom` (the ideas its live entries were copied from), and `read --area`
+  groups `ideasWaiting` by `for`. A Use there (the user's picks, `framePicks`, Main first;
+  `useInTarget`, from `useFlow` and `replyFlow`, one decision per design at a time and one copy
   per project at a time, instance checks included, `serialDecision`) copies each version put in use onto the
   design as the next version of the entry of the same name in the state of the same name, else
   the entry the idea's last use there landed on (`entryFor`, `lastLanding`), so a later use
@@ -286,7 +303,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   alternative in a state the design lacks (`statesFor`), nothing is copied and the batch's
   `followUps` say `apply`. An idea that `becomes` a screen or component makes it on first use and is then for
   it. New idea is typed by where it starts (`POST /api/copies` with `for`, `becomes`, `area`).
-  Viewer: Use in <target> (`UseThis`), the ideas folded under the states in Focus
+  Viewer: Use in <target> (`UseButton` in `VersionBar.tsx`, "Changed since Use" once the
+  picks move), "From idea: …" on the product, the ideas folded under the states in Focus
   (`IdeasFor.tsx`), "Ideas · N ▾" on the design's Board section, which unfolds them under
   it, the Ideas page (`?sec=ideas`, `?for=<slug>` for one design's), and New idea for this
   in the design's ⋯.
@@ -350,6 +368,29 @@ Stances reversed knowingly, so nobody restores them by accident:
   pictures keeps its answered card in the panel and its row in Side by side
   (`SideBySide.tsx`) instead: the pick outlined, the kept beside it, the archived folded.
   The old `starred` column is inert.
+- **Marks** (`server/marks.ts`, shared with the viewer; `viewer/src/marks.ts`): `Design.marks`,
+  the user's picks and the one Main a state, each on a frame as it is or worn in a look or
+  knob values, as a sheet cell shows it. Saved on the click (`POST /api/designs/:id/marks`,
+  viewer only, serialized per design), refused on a product design, sent by nothing: `read`
+  lists them (`marksOf`: the stored ones still standing, then each kept answer as a pick
+  with its `answer`, then each archived frame), and a Use takes `framePicks`. Until the
+  standings fold in, both are read and a new pick is written here only.
+- **Send and Use** (`server/sendLines.ts`, shared with the viewer; `viewer/src/draft.ts`,
+  `SendList.tsx`): the draft carries `requests` (`more`, `update`, `revise`, `state`,
+  `draw`) beside the answers, and nothing reaches the agent but a Send or a Use. One
+  renderer writes a Send in words: the Send list shows the lines before it goes, and the
+  batch delivers them as `reply.lines`. A reply's `more`, `update` and a revise `verdict`
+  repeat the first of each kind for older readers; `moreAlso` and `updateAlso` hold the
+  rest. A Use is its own reply, `verdict: {kind: "use", picks}` (`useLine` its line), and
+  archives nothing.
+- **The Sheet** (`viewer/src/sheet.ts`, `Sheet.tsx`): frames down, one choice knob's values
+  (`choices` in `server/knobs.ts`) or the design's looks across, there only with two or more
+  frames and something to vary. Spread, beside a choice knob in Tune, opens it on the frame
+  on stage and All on every frame; on a product design it opens an idea for it holding copies
+  of its frames. `?sheet=<knob>` (`@looks` for the looks) opens Focus on it, which
+  `publish`'s `sheet` puts on the link. A cell is a still once made (`server/stills.ts`, the
+  cache key; `viewer/src/stills.ts` asks for the cells in view; `bin/poster.js` takes them
+  through `/api/designs/:id/stills`), else the frame drawn live.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
   no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is
@@ -407,7 +448,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     })`, `linkClick`), so every link anyone copies or sends lands on the Board, while Back,
     Forward and a reload keep Focus. Old `?view=` and `?cols=` links mean nothing and land
     on the Board.
-  - **The Board** (`Board.tsx`, `boardLayout.ts`, `boardGrid.ts`; one read,
+  - **The Board** (`Board.tsx`, its sections `BoardSection.tsx` and frames `BoardFrame.tsx`,
+    `boardLayout.ts`, `boardGrid.ts`; one read,
     `GET /api/projects/:name/board`, from `server/board.ts`). A page is an area. Its
     sections, in order: each flow (steps across, a screen's other states stacked under the
     step they follow), each screen's states in no flow, "Components used here", each
@@ -461,7 +503,9 @@ Stances reversed knowingly, so nobody restores them by accident:
     behind it for states else alternatives, and one turn word under the title, never on the
     art (`turnWord`, `designStatus`); it says "New" from `seen.ts`. A cover's ⋯
     (`CardMenu`) moves a design to another kind or area, or archives it.
-  - **Focus** (`DesignScreen.tsx`, its state and actions in `state.ts`). `TopRow`: the
+  - **Focus** (`DesignScreen.tsx`, its state and actions in `state.ts`; what is on screen in
+    `onScreen.ts`, one store; the design as the server sent it in `designData.ts`; its marks
+    in `marks.ts`; the draft and the send path in `draft.ts`). `TopRow`: the
     path, project / page / design and its ⋯ (Spec, Activity, New state), then one bar
     (`FocusBar`): Try, Comment (C), Tune, the preview with the QR, the palette pick beside
     Light | Dark (`PaletteTool`), the version menu (`VersionMenu` in `VersionBar.tsx`: the
@@ -474,7 +518,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     (or something answered waits) or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
     when it would take the design below 80%). On an idea, a frame and a sheet cell carry a
-    pill on hover (`MarkPill`: Pick, Main, Archive, More like this, Comment; keys P, M, X),
+    pill on hover (`MarkPill.tsx`: Pick, Main, Archive, More like this, Comment; keys P, M, X),
     and the panel offers the same, with Borrow, Copy to… and Move to… behind ⋯, unless the
     question on the card answers with it, whose row carries them instead. Which action a
     frame has is `frameActions.ts`'s, never a kind check in a component. `Compare.tsx` is two versions in one frame
@@ -619,9 +663,11 @@ Stances reversed knowingly, so nobody restores them by accident:
   `calledAt` (delivered, with a write or `feedback` from that session since; held in
   memory, and a watch re-arming doesn't count). "Agent working" rests on `calledAt`
   and nothing else: `agentActiveAt` can't back it, since a watch keeps that fresh.
-- Drafts (Q13): the user's picks, tuned values, borrowed parts and part comments are a
-  server-side draft per design — they survive reload, stay bound to the version
-  they were made on, are never delivered before Send, and are cleared by it.
+- Drafts (Q13): the user's answers, tuned values (by frame, `Draft.tunedOn`), borrowed parts,
+  part comments, requests and message are a server-side draft per design — they survive
+  reload, stay bound to the version they were made on, are never delivered before Send, and
+  are cleared by it. Marks, looks and kept or archived answers are no draft: saved on the
+  click, read in `read`, delivered by nothing.
   The reply is one `kind: "reply"` comment through the same cursor; a
   alternative-bound answer puts one alternative in use and releases its siblings from use,
   archiving none, in the same transaction (stored as `accepted`, read as `inUse`).
@@ -725,15 +771,19 @@ the finding needs.
   to choose between; a **variant** is a form that ships, on a design whose entries all ship
   (`Design.variants`, named with `--variant`); a state is what the user meets, a variant
   what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
-  **instance** is an included component (`<mockpit-instance>`); a **look** is a named
-  set of knob values; a **frame** is the alternative a tune was made on; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
+  **instance** is an included component (`<mockpit-instance>`); a **frame** is an
+  alternative as the viewer shows it, and a tune belongs to one; a **look** is a named set
+  of knob values; **Spread** lays a choice knob out as a **Sheet** (frames down, values or
+  looks across); a **pick** is the user's tick on a frame and **Main** the one starred a
+  state; **Send** releases a reply and **Use** puts the picks in use, in the product design
+  an idea is for; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
   viewer's word only, and stored data, the CLI and MCP say `area`. A
   project has one **system**: sheet, token, scale, role, palette, pair, project knob. Its
   revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
   **surfaces**); the tenant DB is a **workspace**. To agents and users an ask
   is a "question" (`ask` stays the tool and key name), a part with
-  alternatives is "a part with swaps", and an alternative the user picked is "in
-  use". A design's **kind** is idea, screen or component; a part is a named bit inside
+  alternatives is "a part with swaps", and an alternative an answer or a Use put in use is
+  "in use". A design's **kind** is idea, screen or component; a part is a named bit inside
   one design, a component a whole design others include as instances. Each level has one
   status ladder, capitalised wherever it shows: a screen or component is In design, Ready
   or Changed (or Archived); an idea Exploring or In use in <target> (or how many questions
@@ -746,14 +796,18 @@ the finding needs.
   `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for
   a state, moment, design system and design settings (now system), accepted and dropped
   in anything an agent reads, variant for one of several to choose between (now
-  alternative), fill (now swap), embed (now instance), set and combo for saved answers,
+  alternative), fill (now swap), embed (now instance), set and combo for saved answers
+  (now looks and picks), Keep for a runner-up (now Pick), Drop (now Archive), Use this (now
+  Use),
   decision list (now decision log), the views before the Board and Focus (Studio, Stage
   for the view, Wall, Columns, All states, the Answers board: now the Board, Focus and Side
   by side) — appear nowhere in new code, routes, tools or docs. The SQL columns keep their
   first names (`posts.variant`, `posts.slots`, `designs.sets`, `status = 'accepted'`), a
   component instance's `variant="…"` names the form it shows, and `Stage.tsx` is still the
   live canvas inside Focus, which code calls the stage. There is no back-compat beyond `SqlStore`'s in-place
-  migration: no legacy routes, aliases or query keys.
+  migration: no legacy routes, aliases or query keys. The one exception is a reply's old
+  fields, kept one release beside their successors: `tuned` beside `tunedOn`, and `more`,
+  `update` and a revise `verdict` beside `requests`.
 - Conventional Commits: `type(scope): description`.
 - Changesets drive release notes. For user-visible changes run
   `npm run changeset` and select `patch`/`minor`/`major`; for maintenance-only

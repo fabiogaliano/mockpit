@@ -1,12 +1,13 @@
 # mockpit
 
-**A design loop for terminal coding agents. Your agent shows designs in your browser and asks
-its questions there. You answer in place and press Send once.**
+**A design loop for terminal coding agents. Your agent shows designs in your browser; you
+compare, pick and press Send once, or Use to put your picks in the product.**
 
-The agent publishes a screen in its states and a few alternatives, then ends its turn. You see
-the project on a Board, open the design in Focus, put its answers side by side, tune knobs,
-comment on parts and keep the runners-up. One Send gives the agent the whole reply. Nothing it
-calls waits for you.
+The agent publishes a screen in its states, a few alternatives and the knobs worth trying, then
+ends its turn. You see the project on a Board, open the design in Focus, spread a knob into a
+sheet of every frame in every value, pick and star what works, tune, and comment on parts. It
+asks a question only when it can't go on without you. One Send gives the agent the whole reply.
+Nothing it calls waits for you.
 
 <a href="docs/mockpit-demo.gif"><img width="100%" alt="Animated demo: on HALDE, the Board shows the shop's three product grids; a double-click opens Focus on the question Which grid?, Side by side lays Index, Gallery and Editorial in a row, and a click picks Gallery" src="docs/mockpit-demo.gif"></a>
 
@@ -34,23 +35,25 @@ Then ask it to "design this up on mockpit". Claude Code, Codex, OpenCode, Pi and
 
 ```sh
 mockpit publish --design shop --state Grid --alternative index --html index.html
-mockpit publish --design shop --state Grid --alternative gallery --html gallery.html
-mockpit ask --design shop "Which grid?" --option Index=index --option Gallery=gallery
-# the agent says where to look and stops. After your Send:
+mockpit publish --design shop --state Grid --alternative gallery --html gallery.html \
+  --knobs '{"density": {"type": "select", "options": ["airy", "packed"]}}'
+# the agent says where to look and stops. After your Send or Use:
 mockpit feedback
 ```
 
-## What you can do with an answer
+## What you can do with a design
 
-- **Pick** from pictures, or lay every answer **side by side** at full height. Hover one to
-  preview it on the design.
-- **Keep** runners-up. After Send they stay in the row beside the pick, one click from Use
-  instead.
+- **Spread** a knob: every frame in every value, on one sheet.
+- **Pick** as many frames as you like and star one **Main**. Picks save at once; nothing is
+  sent.
 - **Archive** what you don't want, with a reason if you like. The agent won't offer it again.
-- **Ask for more** answers without sending the rest of your draft.
-- **Save a look**, the knob values you tuned, and give it to another alternative or design with one click.
-- **Tune** the knobs the agent declared, **borrow** a part from another alternative, and
-  **comment** on any part.
+- **Save a look**, the knob values you tuned, and give it to another frame or design with one
+  click.
+- **Tune** the knobs the agent declared, **borrow** a part from another alternative,
+  **comment** on any part, and ask for **more like this**. All of it waits in Send's list.
+- **Use** your picks: they go into the product design, Main first, and the agent hears "put
+  this in the code".
+- **Answer** the agent's questions from pictures, side by side at full height.
 
 Two places. The **Board** lays a project out like a designer's file: a page per area, a section
 per flow, every frame under its name, a map of what's left to design, and a mark on what the
@@ -73,9 +76,9 @@ it renders in a sandboxed frame.
 
 ## Agent side
 
-Eleven verbs, the same on the zero-dependency CLI, MCP (stdio, or HTTP at `/mcp`) and plain
-HTTP: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `export`, `upload`,
-`guide`, `run`. `mockpit watch` wakes a waiting agent on each Send.
+Twelve verbs, the same on the zero-dependency CLI, MCP (stdio, or HTTP at `/mcp`) and plain
+HTTP: `publish`, `ask`, `read`, `feedback`, `say`, `move`, `edit`, `system`, `export`,
+`upload`, `guide`, `run`. `mockpit watch` wakes a waiting agent on each Send.
 
 Agents read a short brief before their first publish (`/agent-howto`). Add your own taste in
 `~/.mockpit/rules.md`, or per repo in `.mockpit/rules.md`.
