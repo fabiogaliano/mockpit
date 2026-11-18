@@ -535,7 +535,6 @@ const detailOf = (
   asks: design.asks.map((a) => withAddedAnswers(a, design, posts)),
   // By question id: the answers the user kept for later and hid, with why.
   ...(Object.keys(design.standings).length ? { standings: design.standings } : {}),
-  ...(design.combos.length ? { combos: design.combos } : {}),
   open: openCount(design),
   knobs: design.knobs,
   widths: design.widths,

@@ -23,7 +23,7 @@ import {
 import { isLive, tunedCount } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
-import { AnswerCombos, AnsweredLines, keptGroups } from "./Kept.tsx";
+import { AnsweredLines, keptGroups } from "./Kept.tsx";
 import type { FlowNav } from "./flowNav.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -660,7 +660,6 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
         </div>
       </Show>
       <AnsweredLines s={s} />
-      <AnswerCombos s={s} />
     </>
   );
 }

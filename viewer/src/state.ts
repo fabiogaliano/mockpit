@@ -7,7 +7,6 @@ import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
 import { createStore } from "solid-js/store";
 import {
-  type AnswerCombo,
   type AnswerStanding,
   type Ask,
   type AskAnswer,
@@ -2154,7 +2153,6 @@ export function createDesignScreen(
     more?: { ask: string; note?: string; like?: string };
     answers?: Record<string, AskAnswer>;
     update?: { ask: string; option: string };
-    combo?: string;
   }): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
@@ -2168,7 +2166,6 @@ export function createDesignScreen(
         ...(body.text ? { text: body.text } : {}),
         ...(body.more ? { more: body.more } : {}),
         ...(body.update ? { update: body.update } : {}),
-        ...(body.combo ? { combo: body.combo } : {}),
         ...toField(),
       });
       // Every reply clears the stored draft; put the user's back before the
@@ -2372,69 +2369,6 @@ export function createDesignScreen(
         : `Leave ${splitLabel(o.label).name} as it is`,
     });
   }
-  // Saved combos: the answers on screen under a name, to come back to whole.
-  const combos = (): AnswerCombo[] => design()?.combos ?? [];
-  const answersNow = (): Record<string, AskAnswer> => {
-    const out: Record<string, AskAnswer> = {};
-    for (const a of design()?.asks ?? []) {
-      const x = answerOf(a);
-      if (answerIds(x).length) out[a.id] = x!;
-    }
-    return out;
-  };
-  async function writeCombo(body: Parameters<typeof api.saveCombo>[1]) {
-    const m = design();
-    if (!m || readonly()) return false;
-    try {
-      const { combos: next } = await api.saveCombo(m.id, body);
-      const now = design();
-      if (now) setDesign({ ...now, combos: next });
-      return true;
-    } catch (e) {
-      fail(e);
-      return false;
-    }
-  }
-  const saveCombo = (name: string) => writeCombo({ name, answers: answersNow() });
-  function removeCombo(combo: AnswerCombo) {
-    void writeCombo({ name: combo.name, remove: true });
-    setToast({
-      text: `Removed ${combo.name}`,
-      undo: () => {
-        setToast(null);
-        void writeCombo({ name: combo.name, answers: combo.answers });
-      },
-    });
-  }
-  // What a combo looks like on the stage: every answer's values, and its screen if one
-  // of them picks a screen.
-  function previewCombo(combo: AnswerCombo): Preview | null {
-    const m = design();
-    if (!m) return null;
-    let out: Preview = { key: `combo:${combo.name}`, label: combo.name, knobs: {} };
-    for (const [askId, answer] of Object.entries(combo.answers)) {
-      const ask = m.asks.find((a) => a.id === askId);
-      for (const id of answerIds(answer)) {
-        const p = ask ? previewOf(ask, id) : null;
-        if (!p) continue;
-        out = {
-          ...out,
-          ...(p.alternative ? { alternative: p.alternative, state: p.state } : {}),
-          ...(p.palette ? { palette: p.palette } : {}),
-        };
-        if (p.version) out.version = p.version;
-        out.knobs = { ...out.knobs, ...p.knobs };
-      }
-    }
-    return out;
-  }
-  const comboInUse = (combo: AnswerCombo) =>
-    Object.entries(combo.answers).every(([id, x]) => {
-      const a = design()?.asks.find((q) => q.id === id);
-      return !!a && JSON.stringify(answerIds(a.answer)) === JSON.stringify(answerIds(x));
-    });
-  const useCombo = (combo: AnswerCombo) =>
-    sendAlone({ answers: combo.answers, combo: combo.name, text: `Use ${combo.name}` });
   // A steer names the version it is about.
   function steer(c: SteerNote) {
     return sendAlone({
@@ -2724,13 +2658,6 @@ export function createDesignScreen(
     useInstead,
     updateOnce,
     carryKept,
-    combos,
-    answersNow,
-    saveCombo,
-    removeCombo,
-    previewCombo,
-    comboInUse,
-    useCombo,
     moreWaiting,
     isNewOption,
     answeredAround,

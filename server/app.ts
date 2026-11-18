@@ -204,7 +204,6 @@ import {
   type IconSetRef,
   isSandboxedSurfaceKind,
   type AnswerAddition,
-  type AnswerCombo,
   type TunedOn,
   tunedCount,
   type AnswerStanding,
@@ -294,7 +293,6 @@ import { jumpHits, recentHits } from "./jump.ts";
 import {
   isKeptAlternative,
   keptAlternatives,
-  MAX_COMBOS,
   MAX_WHY,
   remapStanding,
   reoffered,
@@ -5603,14 +5601,9 @@ export function createApp({
     }
     const update = sanitizeUpdate(body?.update, design, posts);
     if (typeof update === "string") return fail(400, update);
-    const comboName = str(body?.combo, MAX_LABEL);
-    if (comboName && !design.combos.some((x) => x.name === comboName)) {
-      return fail(400, `${design.slug} has no combo "${comboName}"`);
-    }
     const empty =
       !moreAsk &&
       !update &&
-      !comboName &&
       !text &&
       !verdict &&
       !Object.keys(draft.answers).length &&
@@ -5639,7 +5632,6 @@ export function createApp({
           }
         : {}),
       ...(update ? { update } : {}),
-      ...(comboName ? { combo: comboName } : {}),
       answers: draft.answers,
       borrowed: draft.borrowed,
       tuned: {},
@@ -6816,35 +6808,6 @@ export function createApp({
       return "update names a question and one of its screen answers";
     if (!standingOf(design, ask.id).kept.includes(option.id)) return `"${option.label}" isn't kept`;
     return { ask: ask.id, option: option.id };
-  }
-
-  // The user saves the answers on screen as a named combo, or removes one.
-  // A combo decides nothing until it is put in use, which is a reply like any other.
-  async function combosFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
-    if (!ctx.viewer) return viewerOnly();
-    const design = await resolveDesign(ref);
-    if (isResult(design)) return design;
-    const posts = await store.listPosts({ designId: design.id });
-    const name = str(body?.name, MAX_LABEL);
-    if (!name) return fail(400, '"name" is required');
-    const combos = design.combos.filter((x) => x.name !== name);
-    if (body?.remove === true) {
-      if (combos.length === design.combos.length)
-        return fail(404, `${design.slug} has no combo "${name}"`);
-    } else {
-      const answers = sanitizeAnswers(body?.answers, design, posts);
-      if (typeof answers === "string") return fail(400, answers);
-      if (!Object.keys(answers).length) return fail(400, "a combo holds at least one answer");
-      const at = design.combos.findIndex((x) => x.name === name);
-      const entry: AnswerCombo = { name, answers, at: new Date().toISOString() };
-      if (at >= 0) combos.splice(at, 0, entry);
-      else if (combos.length >= MAX_COMBOS) return fail(400, `at most ${MAX_COMBOS} combos`);
-      else combos.push(entry);
-    }
-    const updated = await store.updateDesign(design.id, { combos });
-    if (!updated) return fail(404, "design not found");
-    bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-    return ok({ combos });
   }
 
   // The user copies a version into an idea they are gathering (stored as a shortlist,
@@ -9089,9 +9052,6 @@ export function createApp({
   );
   app.post("/api/designs/:id/standings", async (c) =>
     send(c, await standingFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
-  );
-  app.post("/api/designs/:id/combos", async (c) =>
-    send(c, await combosFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/designs/:id/alternatives/archive", async (c) =>
     send(c, await archiveFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

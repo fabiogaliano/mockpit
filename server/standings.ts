@@ -14,7 +14,6 @@ import {
 import { optionStates, type AlternativeRow, withAddedAnswers } from "./alternativeQuestion.ts";
 
 export const MAX_WHY = 300;
-export const MAX_COMBOS = 12;
 
 export type StandingKind = "kept" | "hidden" | "open";
 

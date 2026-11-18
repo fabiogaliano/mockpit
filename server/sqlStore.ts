@@ -28,7 +28,6 @@ import {
   type DesignSpec,
   type ProjectArea,
   type AnswerAddition,
-  type AnswerCombo,
   type AnswerStanding,
   type StateOutline,
   isDesignKind,
@@ -1172,6 +1171,7 @@ export class SqlStore implements Store {
       stateOutlines: "TEXT NOT NULL DEFAULT '{}'",
       answerAdditions: "TEXT NOT NULL DEFAULT '[]'",
       standings: "TEXT NOT NULL DEFAULT '{}'",
+      // Inert: saved combinations of answers went, and looks cover knob values.
       sets: "TEXT NOT NULL DEFAULT '[]'",
     });
     if (!specced) this.migrateNotesToSpec();
@@ -1844,7 +1844,6 @@ export class SqlStore implements Store {
       stateOutlines: parseJson<Record<string, StateOutline>>(r.stateOutlines, {}),
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
-      combos: parseJson<AnswerCombo[]>(r.sets, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -2182,7 +2181,6 @@ export class SqlStore implements Store {
       stateOutlines: {},
       answerAdditions: [],
       standings: {},
-      combos: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -2244,11 +2242,10 @@ export class SqlStore implements Store {
       ...(patch.stateOutlines !== undefined && { stateOutlines: patch.stateOutlines }),
       ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
       ...(patch.standings !== undefined && { standings: patch.standings }),
-      ...(patch.combos !== undefined && { combos: patch.combos }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, sets = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -2269,7 +2266,6 @@ export class SqlStore implements Store {
       JSON.stringify(next.stateOutlines),
       JSON.stringify(next.answerAdditions),
       JSON.stringify(next.standings),
-      JSON.stringify(next.combos),
       next.updatedAt,
       id,
     );

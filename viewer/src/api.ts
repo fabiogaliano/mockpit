@@ -12,7 +12,6 @@ import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
 import type { FeedEvent } from "../../server/events.ts";
 import type {
-  AnswerCombo,
   AnswerStanding,
   AskAnswer,
   Comment,
@@ -306,14 +305,6 @@ export const api = {
       `/api/designs/${encodeURIComponent(id)}/standings`,
       json("POST", body),
     ),
-  saveCombo: (
-    id: string,
-    body: { name: string } & ({ answers: Record<string, AskAnswer> } | { remove: true }),
-  ) =>
-    call<{ combos: AnswerCombo[] }>(
-      `/api/designs/${encodeURIComponent(id)}/combos`,
-      json("POST", body),
-    ),
   reply: (
     id: string,
     body: DraftInput & {
@@ -322,7 +313,6 @@ export const api = {
       to?: string;
       more?: { ask: string; note?: string; like?: string };
       update?: { ask: string; option: string };
-      combo?: string;
       // The frame on screen, whose tune the reply's design-wide `tuned` carries.
       shown?: { state: string | null; alternative: string };
     },

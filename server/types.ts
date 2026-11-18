@@ -476,14 +476,6 @@ export interface AnswerStanding {
   unsent?: true;
 }
 
-// A combination of answers across questions under the user's name for it ("Warm",
-// "Quiet"): a theme is more than one answer.
-export interface AnswerCombo {
-  name: string;
-  answers: Record<string, AskAnswer>;
-  at: string;
-}
-
 // The state a version option names a version in: the ask's state, else the
 // design's first (`ask` accepts version options without a state only while the
 // design has one).
@@ -653,8 +645,6 @@ export interface Reply {
   standings?: Record<string, AnswerStanding>;
   // A kept screen brought up to date with the one in use, once.
   update?: { ask: string; option: string };
-  // A saved combo the user put in use, by name.
-  combo?: string;
   verdict?: ReplyVerdict;
   // Only on stored rows, from when an archive was written to the agent's stream: the
   // thread still lists them, and they are never delivered (feedbackBatch.ts).
@@ -926,8 +916,6 @@ export interface Design {
   answerAdditions: AnswerAddition[];
   // By ask id (the built-in Which alternative? included): kept and hidden answers.
   standings: Record<string, AnswerStanding>;
-  // The user's named combinations of answers, in the order they made them.
-  combos: AnswerCombo[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1294,7 +1282,6 @@ export interface UpdateDesignInput {
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
   standings?: Record<string, AnswerStanding>;
-  combos?: AnswerCombo[];
 }
 
 export interface CreatePostInput {

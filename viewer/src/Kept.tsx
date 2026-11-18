@@ -1,11 +1,11 @@
 // What stays reachable after a question is answered: each answered question as one line
-// in the panel, the answers it kept for later folded into it, the same as pills on the
-// design's top edge to look at without changing anything, and the user's saved combos of
-// answers. Values follow every new version by themselves; a kept screen doesn't, so it
-// says how far behind it is and how to bring it along.
+// in the panel, the answers it kept for later folded into it, and the same as pills on the
+// design's top edge to look at without changing anything. Values follow every new version
+// by themselves; a kept screen doesn't, so it says how far behind it is and how to bring
+// it along.
 
 import { createSignal, For, Show } from "solid-js";
-import type { AnswerCombo, Ask, AskOption } from "../../server/types.ts";
+import type { Ask, AskOption } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { answerIds, splitLabel } from "./logic.ts";
@@ -231,11 +231,10 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
   );
 }
 
-// On the design's top edge: the answer in use and the kept ones, and the saved combos.
+// On the design's top edge: the answer in use and the kept ones.
 // Hovering one shows it; a click holds it there. Neither changes anything.
 export function AnswerPills(props: { s: DesignScreenState }) {
   const s = props.s;
-  const combos = () => s.combos();
   // A question whose answers have pictures keeps them in its own row instead.
   const groups = () => keptGroups(s).filter((g) => !pictured(s, g.ask));
   const hold = (p: ReturnType<typeof s.previewOf>) => {
@@ -262,8 +261,8 @@ export function AnswerPills(props: { s: DesignScreenState }) {
     </button>
   );
   return (
-    <Show when={groups().length || combos().length}>
-      <div class="apills" role="group" aria-label="Kept answers and combos: look without changing">
+    <Show when={groups().length}>
+      <div class="apills" role="group" aria-label="Kept answers: look without changing">
         <For each={groups()}>
           {(g) => (
             <span class="apills-row">
@@ -283,148 +282,10 @@ export function AnswerPills(props: { s: DesignScreenState }) {
             </span>
           )}
         </For>
-        <Show when={combos().length}>
-          <span class="apills-row">
-            <For each={combos()}>
-              {(combo) => pill(`combo:${combo.name}`, combo.name, () => s.previewCombo(combo))}
-            </For>
-          </span>
-        </Show>
         <Show when={s.preview()}>
           <span class="apills-note">Just looking, nothing changes</span>
         </Show>
       </div>
     </Show>
-  );
-}
-
-// Named combinations of answers across questions: a theme is more than one answer.
-export function AnswerCombos(props: { s: DesignScreenState }) {
-  const s = props.s;
-  const [naming, setNaming] = createSignal(false);
-  const [name, setName] = createSignal("");
-  const answers = () => Object.keys(s.answersNow()).length;
-  const show = () => s.combos().length > 0 || (answers() > 1 && !readonly());
-  async function save() {
-    const n = name().trim();
-    if (!n) return;
-    if (await s.saveCombo(n)) {
-      setNaming(false);
-      setName("");
-    }
-  }
-  return (
-    <Show when={show()}>
-      <section class="combos" aria-label="Saved combos">
-        <h4 class="keptans-hd">
-          <span>{`Combos${s.combos().length ? ` · ${s.combos().length}` : ""}`}</span>
-          <small>Answers across questions, under one name</small>
-        </h4>
-        <ul>
-          <For each={s.combos()}>{(combo) => <ComboRow s={s} combo={combo} />}</For>
-        </ul>
-        <Show when={!readonly() && answers() > 0}>
-          <Show
-            when={naming()}
-            fallback={
-              <button type="button" class="moreans" onClick={() => setNaming(true)}>
-                <Icon name="plus" />
-                Save these answers as a combo
-              </button>
-            }
-          >
-            <form
-              class="combos-new"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void save();
-              }}
-            >
-              <input
-                type="text"
-                maxLength={60}
-                placeholder="Name it, like Warm or Quiet"
-                aria-label="Combo name"
-                value={name()}
-                ref={(el) => queueMicrotask(() => el.focus())}
-                onInput={(e) => setName(e.currentTarget.value)}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Escape") setNaming(false);
-                }}
-              />
-              <button type="button" class="btn" onClick={() => setNaming(false)}>
-                Cancel
-              </button>
-              <button type="submit" class="btn go" disabled={!name().trim()}>
-                Save
-              </button>
-            </form>
-          </Show>
-        </Show>
-      </section>
-    </Show>
-  );
-}
-
-function ComboRow(props: { s: DesignScreenState; combo: AnswerCombo }) {
-  const s = props.s;
-  const summary = () => {
-    const asks = s.design()?.asks ?? [];
-    return Object.entries(props.combo.answers)
-      .map(([id, x]) => {
-        const a = asks.find((q) => q.id === id);
-        return answerIds(x)
-          .map((o) => splitLabel(a?.options.find((opt) => opt.id === o)?.label ?? o).name)
-          .join(", ");
-      })
-      .join(" · ");
-  };
-  const p = () => s.previewCombo(props.combo);
-  const [busy, setBusy] = createSignal(false);
-  return (
-    <li
-      class="comborow"
-      classList={{ previewing: s.preview()?.key === p()?.key }}
-      onPointerEnter={(e) => e.pointerType === "mouse" && s.setHoveredPreview(p())}
-      onPointerLeave={(e) => e.pointerType === "mouse" && s.setHoveredPreview(null)}
-    >
-      <div class="keptrow-col">
-        <span class="keptrow-name">
-          {props.combo.name}
-          <Show when={s.comboInUse(props.combo)}>
-            <span class="comborow-use">In use</span>
-          </Show>
-        </span>
-        <span class="keptrow-desc">{summary()}</span>
-      </div>
-      <Show when={!readonly()}>
-        <span class="keptrow-acts">
-          <Show when={!s.comboInUse(props.combo)}>
-            <button
-              type="button"
-              class="btn"
-              disabled={busy()}
-              onClick={async () => {
-                setBusy(true);
-                await s.useCombo(props.combo);
-                setBusy(false);
-              }}
-            >
-              Use this combo
-            </button>
-          </Show>
-          <button
-            type="button"
-            class="optic"
-            aria-label={`Remove the combo ${props.combo.name}`}
-            title="Remove"
-            onClick={() => s.removeCombo(props.combo)}
-          >
-            <Icon name="close" />
-          </button>
-        </span>
-      </Show>
-    </li>
   );
 }
