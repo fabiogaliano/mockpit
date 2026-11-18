@@ -48,7 +48,7 @@ mockpit feedback
   instead.
 - **Archive** what you don't want, with a reason if you like. The agent won't offer it again.
 - **Ask for more** answers without sending the rest of your draft.
-- **Save a combo** of answers across questions, like Warm or Quiet, and switch between combos.
+- **Save a look**, the knob values you tuned, and give it to another alternative or design with one click.
 - **Tune** the knobs the agent declared, **borrow** a part from another alternative, and
   **comment** on any part.
 

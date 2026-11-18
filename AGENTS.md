@@ -345,8 +345,9 @@ Stances reversed knowingly, so nobody restores them by accident:
   Send: `AnsweredLines` in the panel, each answered question one line that opens in place
   (its answer, Change answer, a kept screen's missing updates counted from `since`, Update
   now, `carried`), `AnswerPills` on the design's top edge
-  for questions answered in words, and `AnswerCombos` (`Design.combos`,
-  `POST /api/designs/:id/combos`, put in use as `Reply.combo`). A question whose answers have
+  for questions answered in words. Looks (`Design.looks`, `server/looks.ts`) are the
+  strip under the frame (`Looks.tsx`) and Tune's Save as look (`POST /api/designs/:id/looks`,
+  the user's; an agent's come with a publish). A question whose answers have
   pictures keeps its answered card in the panel and its row in Side by side
   (`SideBySide.tsx`) instead: the pick outlined, the kept beside it, the archived folded.
   The old `starred` column is inert.
@@ -723,8 +724,8 @@ the finding needs.
   to choose between; a **variant** is a form that ships, on a design whose entries all ship
   (`Design.variants`, named with `--variant`); a state is what the user meets, a variant
   what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
-  **instance** is an included component (`<mockpit-instance>`); a **combo** is a named
-  combination of answers; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
+  **instance** is an included component (`<mockpit-instance>`); a **look** is a named
+  set of knob values; a **frame** is the alternative a tune was made on; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
   viewer's word only, and stored data, the CLI and MCP say `area`. A
   project has one **system**: sheet, token, scale, role, palette, pair, project knob. Its
   revisions are `rev`. An alternative is stored as a `Post` (an ordered list of
@@ -739,12 +740,12 @@ the finding needs.
   Hide only ever means a version, taking an alternative out is Archive, and the bookmark
   is Keep. An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group (for a lead's followers; a component's library `group` is live),
-  snippet, stream, `part` for a surface, trace, look (for an alternative), slot, mix
+  snippet, stream, `part` for a surface, trace, slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for
   a state, moment, design system and design settings (now system), accepted and dropped
   in anything an agent reads, variant for one of several to choose between (now
-  alternative), fill (now swap), embed (now instance), set for saved answers (now combo),
+  alternative), fill (now swap), embed (now instance), set and combo for saved answers,
   decision list (now decision log), the views before the Board and Focus (Studio, Stage
   for the view, Wall, Columns, All states, the Answers board: now the Board, Focus and Side
   by side) — appear nowhere in new code, routes, tools or docs. The SQL columns keep their

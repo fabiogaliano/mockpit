@@ -369,9 +369,6 @@ mockpit read    --decisions               # the whole decision log, when a read 
 - `update: {ask, text, kept, inUse}` asks you to bring one kept screen up to date with
   the one in use, once: publish a new version of `kept.alternative` with the changes made
   to the one in use since.
-- `combo` names a saved combo the user put in use: a combination of answers across
-  questions (`combos` on `read`, each `{name, answers}`). The reply's answers are its
-  answers.
 - An alternative's `status` is `open`, `inUse` (with `inUseVersion`) or `archived`
   (with `archiveReason` if the user gave one). `changedTo` is a newer version
   than the one in use, which the user hasn't taken or passed on yet. Both are
