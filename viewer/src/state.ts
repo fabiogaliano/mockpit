@@ -1,7 +1,7 @@
 // The design screen's state: the design as the server last sent it, the user's
 // draft, and the view (state and version on stage, question, canvas tool,
-// selection, preview, drawers). Components read signals from here and call
-// its actions; nothing else talks to the API for this screen.
+// selection, preview, drawers; what is on screen is one store, onScreen.ts). Components
+// read signals from here and call its actions; nothing else talks to the API for this screen.
 
 import type { ToastLine } from "./toast.tsx";
 import { batch, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js";
@@ -100,17 +100,14 @@ import {
   splitLabel,
 } from "./logic.ts";
 import { createDesignData } from "./designData.ts";
+import { createOnScreen, type PanelTab, type Preview, type Tool } from "./onScreen.ts";
 import { cameFrom, designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
 
 const RECIPIENTS_MS = 10_000;
 
-// The canvas's tools: Try hands taps to the design, Mark leaves a comment
-// where you tap, Tune outlines the parts and opens one's knobs.
-export type Tool = "try" | "mark" | "tune";
-// The bottom panel, opened from the version label.
-export type PanelTab = "history" | "thread" | "spec";
+export type { PanelTab, Preview, Tool } from "./onScreen.ts";
 export type AskField = "other" | "comment";
 // A section of the spec being written: what it is for, or the lines of how it works.
 export type SpecDraft =
@@ -134,23 +131,6 @@ export interface FlowEntry {
 export interface Stop {
   state: string | null;
   to: number;
-}
-
-// What the stage shows while the pointer rests on an option: another alternative,
-// or knob values sent live to the frame on stage.
-export interface Preview {
-  key: string;
-  // An option's words, for saying what the stage is showing.
-  label?: string;
-  alternative?: string;
-  // A version option: exactly that version of the alternative.
-  version?: number;
-  state?: string | null;
-  knobs?: Record<string, KnobValue>;
-  // An answer that chooses a palette of the project's system.
-  palette?: string;
-  // A Mix borrow: the part outlined on the donor look while it previews.
-  part?: string;
 }
 
 const SAVE_MS = 300;
@@ -205,10 +185,11 @@ export function createDesignScreen(
   } = createDesignData();
   const [comments, setComments] = createSignal<CommentRow[]>([]);
   const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
-  const [activeState, setActiveState] = createSignal<string | null>(null);
-  const [chosenAlternative, setChosenAlternative] = createSignal<Record<string, string>>({});
-  const [hoveredPreview, setHoveredPreview] = createSignal<Preview | null>(null);
-  const [heldPreview, setHeldPreview] = createSignal<Preview | null>(null);
+  const view = createOnScreen();
+  const [activeState, setActiveState] = view.state;
+  const [chosenAlternative, setChosenAlternative] = view.chosen;
+  const [hoveredPreview, setHoveredPreview] = view.hovered;
+  const [heldPreview, setHeldPreview] = view.held;
   const preview = () => hoveredPreview() ?? heldPreview();
   // Everyone's null here means the preview is over, a held one included. A pointer
   // leaving says setHoveredPreview(null), which falls back to what is held.
@@ -226,31 +207,24 @@ export function createDesignScreen(
     const on = activeState();
     if (untrack(stageBack)?.to !== on) setStageBack(null);
   });
-  const [cur, setCur] = createSignal(0);
+  const [cur, setCur] = view.cur;
   // Sent answers the user chose to change ("Change answer"): back among the
   // open questions until the next Send. A sent answer is otherwise read-only.
   const [revising, setRevising] = createSignal<Record<string, true>>({});
-  // The part picked on the stage, open in Instances' Tune; null is the page.
-  const [selectedPart, setSelectedPart] = createSignal<string | null>(null);
-  const [hoverPart, setHoverPart] = createSignal<string | null>(null);
-  // The part whose knobs are open in Instances (null is the page's own
-  // knobs), or false with none open.
-  const [tuneOpen, setTuneOpen] = createSignal<string | null | false>(false);
+  const [selectedPart, setSelectedPart] = view.selectedPart;
+  const [hoverPart, setHoverPart] = view.hoverPart;
+  const [tuneOpen, setTuneOpen] = view.tuneOpen;
   // The parts with knobs (or a borrow) to open, as Tune lists them (tune.ts).
   const [tunable, setTunable] = createSignal<(string | null)[]>([]);
   const openTune = (part: string | null | false) => {
     if (part !== false) setSelectedPart(part);
     setTuneOpen(part);
   };
-  // A part tapped on the canvas, outlined and offered reactions until the
-  // question moves on.
-  const [tapped, setTapped] = createSignal<string | null>(null);
-  // The part an answer just changed, outlined on stage for a moment so a pick
-  // never changes the screen out of sight. Armed by a pick or preview; the
-  // stage finds the part from the next parts report.
-  const [flash, setFlash] = createSignal<string | null>(null);
-  // "entry · skeleton" when the flashed part is a slot and the swap is known.
-  const [flashLabel, setFlashLabel] = createSignal<string | null>(null);
+  const [tapped, setTapped] = view.tapped;
+  // A pick never changes the screen out of sight: armed by a pick or preview, the flash
+  // outlines the part it changed, which the stage finds from the next parts report.
+  const [flash, setFlash] = view.flash;
+  const [flashLabel, setFlashLabel] = view.flashLabel;
   let flashArmedAt = 0;
   let flashTimer = 0;
   const armFlash = () => (flashArmedAt = Date.now());
@@ -268,7 +242,7 @@ export function createDesignScreen(
   // Instances (the side drawer), the bottom panel and the question card's
   // minimised tab.
   const [drawer, setDrawerSignal] = createSignal(false);
-  const [panel, setPanelSignal] = createSignal<PanelTab | null>(null);
+  const [panel, setPanelSignal] = view.panel;
   const [cardMin, setCardMin] = createSignal(false);
   // The question can't be seen, so it takes no keys and marks no part. Beside the
   // design Instances takes the question's place; on a phone it is a sheet over it.
@@ -315,7 +289,7 @@ export function createDesignScreen(
   // One canvas tool at a time. Mark (D11): a click on the stage leaves a
   // comment there. Try: taps, scrolls and motion go to the design itself, as a
   // prototype. Tune: the parts are outlined and a tap opens one's knobs.
-  const [tool, setTool] = createSignal<Tool | null>(null);
+  const [tool, setTool] = view.tool;
   const marking = () => tool() === "mark";
   const trying = () => tool() === "try";
   const tuning = () => tool() === "tune";
