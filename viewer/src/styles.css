@@ -5348,9 +5348,6 @@ html:has(.design-screen) {
   flex-direction: column;
   gap: 4px;
 }
-.qview {
-  margin-left: auto;
-}
 .qview button {
   padding: 3px 8px;
 }
@@ -6626,13 +6623,16 @@ html:has(.design-screen) {
 .rmargin.float {
   right: max(8px, env(safe-area-inset-right));
 }
+/* Its close's glyph, and the question's More answers under it, end on the content's
+   trailing edge: the button's own inset hangs past it. */
 .rm-head {
   display: flex;
   flex: none;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 6px 6px 2px 16px;
+  padding-block: 6px 2px;
+  padding-inline: 16px 8px;
 }
 /* Two versions 2-up: the picked one left of the divider, the one on stage right of it. */
 .cmp2 {
@@ -6836,9 +6836,20 @@ html:has(.design-screen) {
   background: none;
   box-shadow: none;
 }
+/* Beside the design: the panel's head, then the question a step below it (16px from the
+   head's text), its layout 8px under its words, then the answers. */
 .qcard.beside .qhd {
+  align-items: flex-start;
   margin: 0;
-  padding: 0 16px 10px;
+  padding: 8px 16px 8px;
+}
+.qcard.beside .qtools {
+  margin-block: -6px;
+  margin-inline-end: -8px;
+}
+.qlayout {
+  display: flex;
+  padding: 0 16px 12px;
 }
 .qcard.beside .qtext {
   padding-top: 0;
@@ -7000,7 +7011,8 @@ html:has(.design-screen) {
   .lm-close,
   .lm-hide,
   .cmt-x,
-  .rm-head .ib {
+  .rm-head .ib,
+  .qcard.beside .qtools .ib {
     width: 40px;
     height: 40px;
   }

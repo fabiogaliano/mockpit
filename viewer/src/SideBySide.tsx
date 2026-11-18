@@ -10,6 +10,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { Ask, AskOption, KnobValue } from "../../server/types.ts";
 import { surfaceUrl } from "./api.ts";
 import { answersLayout, rowAskFor, setAnswersLayout, setRowAskFor } from "./answersLayout.ts";
+import { answersView, setAnswersView } from "./answersView.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { answerIds, askState, draftKnobValues, frameKey, splitLabel } from "./logic.ts";
@@ -174,6 +175,52 @@ export function SideBySideToggle(props: { s: DesignScreenState; ask: Ask }) {
         <Icon name="columns" />
       </button>
     </Show>
+  );
+}
+
+type AnswersAsId = "list" | "grid" | "side";
+const ANSWERS_AS: { id: AnswersAsId; label: string; icon: "rows" | "grid" | "columns" }[] = [
+  { id: "list", label: "List", icon: "rows" },
+  { id: "grid", label: "Pictures", icon: "grid" },
+  { id: "side", label: "Side by side", icon: "columns" },
+];
+
+// How an open question's pictured answers are laid out, as the one choice it is: a list or
+// pictures in the panel, or side by side on the canvas. `listable`: enough of them for a
+// list (`listed` in Questions.tsx); else pictures or side by side.
+export function AnswersAs(props: { s: DesignScreenState; ask: Ask; listable: boolean }) {
+  const s = props.s;
+  const side = () => sideAsk(s)?.id === props.ask.id;
+  const offered = () => ANSWERS_AS.filter((o) => o.id !== "list" || props.listable);
+  const now = (): AnswersAsId => (side() ? "side" : props.listable ? answersView() : "grid");
+  const choose = (id: AnswersAsId) => {
+    const d = s.design()?.id;
+    if (!d || id === now()) return;
+    if (id === "side") {
+      s.setPreview(null);
+      setRowAskFor(d, props.ask.id);
+      setAnswersLayout(d, "side");
+      return;
+    }
+    if (side()) setAnswersLayout(d, "one");
+    if (props.listable) setAnswersView(id);
+  };
+  return (
+    <span class="vswitch qview" role="group" aria-label="Answers as">
+      <For each={offered()}>
+        {(o) => (
+          <button
+            type="button"
+            aria-label={o.label}
+            title={o.label}
+            aria-pressed={now() === o.id}
+            onClick={() => choose(o.id)}
+          >
+            <Icon name={o.icon} />
+          </button>
+        )}
+      </For>
+    </span>
   );
 }
 

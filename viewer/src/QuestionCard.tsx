@@ -11,11 +11,10 @@ import type { Ask } from "../../server/types.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { isBuiltinAsk, partLabel } from "./logic.ts";
-import { answersView, setAnswersView } from "./answersView.ts";
 import { AskBody, listed, MoreAnswersButton } from "./Questions.tsx";
 import { SendTo } from "./SendTo.tsx";
 import type { Shortlists } from "./shortlist.ts";
-import { sideAsk, SideBySideToggle } from "./SideBySide.tsx";
+import { AnswersAs, pictured, sideAsk } from "./SideBySide.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { questionDotted } from "./QuestionDot.tsx";
 
@@ -45,7 +44,6 @@ export function QuestionCard(props: {
   const asked = () => s.questions().filter((q) => q.kind === "ask" && !isBuiltinAsk(q.ask)).length;
   // No answer yet, yet comments or tuning to send: they go, and the question stays open.
   const sendsAnyway = () => !s.commitKind() && s.sendable();
-  const showsList = (a: Ask) => !!props.beside && listed(s, a);
   // A phone's sheet follows a finger down its grabber and goes away past SWIPE_AWAY; a tap
   // puts it away at once. Where it goes is the question dot (QuestionDot.tsx).
   let sheet: HTMLElement | undefined;
@@ -112,14 +110,7 @@ export function QuestionCard(props: {
                 </div>
                 <div class="qhd">
                   <div class="qtext">
-                    <Show
-                      when={
-                        showsList(ask()) ||
-                        s.askSlot(ask()) ||
-                        s.stageOffer(ask()) ||
-                        s.shownWith(ask())
-                      }
-                    >
+                    <Show when={s.askSlot(ask()) || s.stageOffer(ask()) || s.shownWith(ask())}>
                       <span class="qs">
                         <span class="qs-row">
                           <Show when={s.shownWith(ask())}>
@@ -165,28 +156,6 @@ export function QuestionCard(props: {
                               )
                             }
                           </Show>
-                          <Show when={showsList(ask())}>
-                            <span class="vswitch qview" role="group" aria-label="Show answers as">
-                              <button
-                                type="button"
-                                aria-label="List"
-                                title="List"
-                                aria-pressed={answersView() === "list"}
-                                onClick={() => setAnswersView("list")}
-                              >
-                                <Icon name="rows" />
-                              </button>
-                              <button
-                                type="button"
-                                aria-label="Pictures"
-                                title="Pictures"
-                                aria-pressed={answersView() === "grid"}
-                                onClick={() => setAnswersView("grid")}
-                              >
-                                <Icon name="grid" />
-                              </button>
-                            </span>
-                          </Show>
                         </span>
                         <Show when={s.askSlot(ask())}>
                           {(sl) => (
@@ -205,11 +174,14 @@ export function QuestionCard(props: {
                   </div>
                   <span class="qtools">
                     <MoreAnswersButton s={s} ask={ask()} />
-                    <Show when={props.beside}>
-                      <SideBySideToggle s={s} ask={ask()} />
-                    </Show>
                   </span>
                 </div>
+                {/* Under the question it lays out, on its leading edge. */}
+                <Show when={props.beside && pictured(s, ask())}>
+                  <div class="qlayout">
+                    <AnswersAs s={s} ask={ask()} listable={listed(s, ask())} />
+                  </div>
+                </Show>
                 <div class="qscroll">
                   <AskBody
                     s={s}

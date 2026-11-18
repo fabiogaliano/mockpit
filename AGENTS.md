@@ -342,7 +342,9 @@ Stances reversed knowingly, so nobody restores them by accident:
   askId → option id, delivered as an answered ask's `onAnswers`), so changing the pick never moves
   it. More answers is an icon in the question's head; `MoreAnswers` adds a `more` request to the draft, which goes with the next Send;
   `feedbackBatch.ts` resolves it to the question, its answers and what's settled around it, and
-  the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice.
+  the agent replies by asking the same id again. `answersView.ts` is the pictures or list choice,
+  one segmented control with Side by side under the question's words (`AnswersAs` in
+  `SideBySide.tsx`), there only for a pictured question beside the design.
 - One choice, one question (`server/alternativeQuestion.ts`, shared with the viewer): a Send
   answering an alternative question settles every live alternative in the states it chooses in, so an
   open question of the agent's that names some of a state's alternatives shows the rest as answers
@@ -536,7 +538,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     with a divider, and Compare with last seen opens it on the version `seen.ts` last had
     on screen. `SideBySide.tsx` lays the
     design as it stands and every answer of a pictured question in a row at full height
-    (an icon in the question's head, kept per design in `answersLayout.ts`): the pick is outlined
+    (the last of the question's List · Pictures · Side by side, or an answered card's icon,
+    kept per design in `answersLayout.ts`): the pick is outlined
     "Chosen", the rest dim, and after Send the kept ones stay beside it and the archived
     fold. `Stage.tsx` is the live canvas in the middle (frames, the part overlay, pins,
     hit-testing through the bridge, the design's other `widths` as picture-only
