@@ -45,6 +45,7 @@ import { OutlineRows } from "./Outlines.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered } from "./Questions.tsx";
 import { AlternativeActs, AlternativeList } from "./Alternatives.tsx";
+import { hasActs } from "./frameActions.ts";
 import { answeredRows } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
@@ -106,10 +107,10 @@ export function createMargins(
   const closed = () => !!s.design()?.archivedAt;
   // Only an open question opens the panel by itself. What else it holds (what this Send
   // carries, answered questions, an idea's alternative's actions) is there when opened.
-  const ideaActs = () =>
-    !readonly() &&
-    !s.product() &&
-    alternativesHere().some((v) => isLive(v.status) && v === s.activeAlternative());
+  const ideaActs = () => {
+    const v = s.activeAlternative();
+    return !!v && isLive(v.status) && hasActs(s, { v });
+  };
   const talkWants = () => !closed() && !!s.curAsk();
   const talkHas = () =>
     !closed() &&

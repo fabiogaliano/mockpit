@@ -30,6 +30,7 @@ import { frameMode, framePalette, palettePick } from "./systemRev.ts";
 import { host, readonly, root } from "./host.ts";
 import { useInspectGestures } from "./gestures.ts";
 import { JsonTree } from "./JsonTree.tsx";
+import { MarkPill } from "./MarkPill.tsx";
 import {
   BOARD_GAP,
   BOARD_PAD,
@@ -1088,6 +1089,9 @@ function AlternativeFrame(props: {
           pending={props.pending}
           setPending={props.setPending}
         />
+      </Show>
+      <Show when={props.active && !phoneLayout()}>
+        <MarkPill s={s} f={{ v: props.alternative }} />
       </Show>
     </div>
   );

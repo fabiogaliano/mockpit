@@ -6,6 +6,7 @@
 
 import { createSignal, For, Show } from "solid-js";
 import type { Ask, AskOption } from "../../server/types.ts";
+import { canDesign } from "./frameActions.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { answerIds, splitLabel } from "./logic.ts";
@@ -24,7 +25,7 @@ export interface KeptGroup {
 export function keptGroups(s: DesignScreenState): KeptGroup[] {
   return s.closedAsks("state").flatMap((ask) => {
     const chosen = answerIds(ask.answer);
-    const kept = ask.options.filter((o) => s.isKept(ask, o.id) && !chosen.includes(o.id));
+    const kept = ask.options.filter((o) => s.isPicked(ask, o.id) && !chosen.includes(o.id));
     if (!kept.length) return [];
     return [{ ask, kept, inUse: ask.options.filter((o) => chosen.includes(o.id)) }];
   });
@@ -74,7 +75,7 @@ function AnsweredLine(props: { s: DesignScreenState; ask: Ask }) {
       >
         <span class="ansline-q">{props.ask.text}</span>
         <span class="ansline-said" classList={{ dismissed: !!props.ask.dismissed }}>
-          {`${saidOf(props.ask)}${kept() ? ` · ${kept()} kept` : ""}`}
+          {`${saidOf(props.ask)}${kept() ? ` · ${kept()} picked` : ""}`}
         </span>
         <span class="ansline-chev" aria-hidden="true">
           ›
@@ -109,7 +110,7 @@ function AnsweredLine(props: { s: DesignScreenState; ask: Ask }) {
           </Show>
           <Show when={group()}>
             {(g) => (
-              <ul class="keptans" aria-label={`Kept for later: ${props.ask.text}`}>
+              <ul class="keptans" aria-label={`Picked: ${props.ask.text}`}>
                 <For each={g().kept}>{(o) => <KeptRow s={s} group={g()} option={o} />}</For>
               </ul>
             )}
@@ -168,7 +169,7 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
         <Show when={!readonly()}>
           <span class="keptrow-acts">
             {/* A screen or a component has no entry to choose: its newest is current. */}
-            <Show when={!(screen() && s.product())}>
+            <Show when={!screen() || canDesign(s, "use")}>
               <button
                 type="button"
                 class="btn"
@@ -191,11 +192,11 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
             <button
               type="button"
               class="optic optkeep on"
-              aria-label={`Remove ${o().label} from kept`}
-              title="Remove from kept"
-              onClick={() => s.toggleKept(ask(), o())}
+              aria-label={`Unpick ${o().label}`}
+              title="Picked"
+              onClick={() => s.togglePicked(ask(), o())}
             >
-              <Icon name="bookmark" />
+              <Icon name="check" />
             </button>
           </span>
           <Show when={screen()}>
@@ -262,7 +263,7 @@ export function AnswerPills(props: { s: DesignScreenState }) {
   );
   return (
     <Show when={groups().length}>
-      <div class="apills" role="group" aria-label="Kept answers: look without changing">
+      <div class="apills" role="group" aria-label="Picked answers: look without changing">
         <For each={groups()}>
           {(g) => (
             <span class="apills-row">
@@ -282,9 +283,6 @@ export function AnswerPills(props: { s: DesignScreenState }) {
             </span>
           )}
         </For>
-        <Show when={s.preview()}>
-          <span class="apills-note">Just looking, nothing changes</span>
-        </Show>
       </div>
     </Show>
   );

@@ -4,8 +4,11 @@
 
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import type { AlternativeView } from "./api.ts";
-import { host } from "./host.ts";
+import { subjectOf } from "./frameActions.ts";
+import { host, readonly } from "./host.ts";
+import { Icon } from "./icons.tsx";
 import { alternativeName } from "./logic.ts";
+import { MarkPill } from "./MarkPill.tsx";
 import { MAX_COLUMNS, type SheetColumn } from "./sheet.ts";
 import type { DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
@@ -84,6 +87,17 @@ export function Sheet(props: { s: DesignScreenState }) {
           <Show when={sh.total() > MAX_COLUMNS}>
             <span>{`${MAX_COLUMNS} of ${sh.total()}`}</span>
           </Show>
+          <Show when={sh.frames().length > 1 && !readonly()}>
+            <span>
+              <kbd>P</kbd> pick
+            </span>
+            <span>
+              <kbd>M</kbd> main
+            </span>
+            <span>
+              <kbd>X</kbd> archive
+            </span>
+          </Show>
           <span>
             <kbd>double-click</kbd> open
           </span>
@@ -104,8 +118,17 @@ export function Sheet(props: { s: DesignScreenState }) {
         <For each={sh.rows()}>
           {(v) => (
             <>
-              <div class="sheet-l" title={v.alternative}>
+              <div
+                class="sheet-l"
+                classList={{ main: s.frameMark(v.state, v.alternative) === "main" }}
+                title={v.alternative}
+              >
                 {alternativeName(v.alternative)}
+                <Show when={s.frameMark(v.state, v.alternative) === "main"}>
+                  <span class="sheet-star" title="Main">
+                    <Icon name="star" />
+                  </span>
+                </Show>
               </div>
               <For each={sh.columns()}>
                 {(col) => (
@@ -190,46 +213,75 @@ function SheetCellView(props: {
     const top = Math.max(50, Math.min(r.top - pr.top - 40, pr.height - PEEK_H));
     props.onPeek(left, top + sheet.scrollTop);
   };
+  const f = () => ({ v: props.v, col: props.col });
+  const mark = () => props.s.markOf(subjectOf(f()));
+  const point = (on: boolean) => {
+    if (on) sh.setPointed(f());
+    else if (sh.pointed()?.v === props.v && sh.pointed()?.col === props.col) sh.setPointed(null);
+  };
   return (
-    <button
-      type="button"
-      class="sheet-cell"
-      ref={(b) => (el = b)}
-      aria-label={`${alternativeName(props.v.alternative)} · ${props.col.label}`}
-      onPointerEnter={(e) => {
-        if (e.pointerType !== "mouse") return;
-        hold = host().window.setTimeout(peekAt, 250);
-      }}
-      onPointerLeave={() => {
-        host().window.clearTimeout(hold);
-        props.onPeek(null, 0);
-      }}
-      onDblClick={() => {
-        props.onPeek(null, 0);
-        sh.openCell(props.v, props.col);
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") sh.openCell(props.v, props.col);
+    <div
+      class="sheet-cellw"
+      classList={{ picked: !!mark(), main: mark() === "main" }}
+      onPointerEnter={() => point(true)}
+      onPointerLeave={() => point(false)}
+      onFocusIn={() => point(true)}
+      onFocusOut={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) point(false);
       }}
     >
-      <Show
-        when={!broken() && still()}
-        fallback={
-          <Show when={cell()}>
-            {(c) => <Thumb src={c().src} width={c().width} part={c().part} class="sheet-pic" fit />}
-          </Show>
-        }
+      <button
+        type="button"
+        class="sheet-cell"
+        ref={(b) => (el = b)}
+        aria-label={`${alternativeName(props.v.alternative)} · ${props.col.label}${
+          mark() === "main" ? ", Main" : mark() ? ", picked" : ""
+        }`}
+        onPointerEnter={(e) => {
+          if (e.pointerType !== "mouse") return;
+          hold = host().window.setTimeout(peekAt, 250);
+        }}
+        onPointerLeave={() => {
+          host().window.clearTimeout(hold);
+          props.onPeek(null, 0);
+        }}
+        onDblClick={() => {
+          props.onPeek(null, 0);
+          sh.openCell(props.v, props.col);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") sh.openCell(props.v, props.col);
+        }}
       >
-        {(src) => (
-          <img
-            src={src()}
-            alt=""
-            decoding="async"
-            draggable={false}
-            onError={() => setBroken(true)}
-          />
+        <Show
+          when={!broken() && still()}
+          fallback={
+            <Show when={cell()}>
+              {(c) => (
+                <Thumb src={c().src} width={c().width} part={c().part} class="sheet-pic" fit />
+              )}
+            </Show>
+          }
+        >
+          {(src) => (
+            <img
+              src={src()}
+              alt=""
+              decoding="async"
+              draggable={false}
+              onError={() => setBroken(true)}
+            />
+          )}
+        </Show>
+      </button>
+      <Show when={mark()}>
+        {(k) => (
+          <span class="sheet-badge" aria-hidden="true">
+            <Icon name={k() === "main" ? "star" : "check"} />
+          </span>
         )}
       </Show>
-    </button>
+      <MarkPill s={props.s} f={f()} small />
+    </div>
   );
 }

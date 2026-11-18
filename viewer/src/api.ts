@@ -9,6 +9,7 @@ import type {
   alternativeView,
 } from "../../server/apiViews.ts";
 import type { LookView } from "../../server/looks.ts";
+import type { MarkView } from "../../server/marks.ts";
 import type { StillCell, Stills } from "../../server/stills.ts";
 import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
@@ -119,7 +120,7 @@ export interface SendRecipients {
   default: string | null;
   recipients: SendRecipient[];
 }
-export type { FeedEvent, JumpHit, LookView, ProjectSummary };
+export type { FeedEvent, JumpHit, LookView, MarkView, ProjectSummary };
 
 // What the viewer edits: a Draft minus the server's timestamp.
 export interface DraftInput {
@@ -308,6 +309,18 @@ export const api = {
       json("POST", body),
     ),
   // The user's look, saved from the frame on screen, or removed.
+  // A frame picked, made Main or let go: as it is, or worn in a look or some values.
+  mark: (
+    id: string,
+    body: {
+      state: string | null;
+      alternative: string;
+      look?: string;
+      values?: Record<string, KnobValue>;
+      mark: "pick" | "main" | null;
+    },
+  ) =>
+    call<{ marks: MarkView[] }>(`/api/designs/${encodeURIComponent(id)}/marks`, json("POST", body)),
   saveLook: (
     id: string,
     body: { name: string } & ({ values: Record<string, KnobValue> } | { remove: true }),

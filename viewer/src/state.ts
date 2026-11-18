@@ -1383,6 +1383,7 @@ export function createDesignScreen(
     // version, Send would put a version nobody meant in use, on every screen including it.
     if (picked && boundVersion() !== null) viewNewVersion();
     const wasOpen = otherTicked(ask);
+    const before = answerIds(answerOf(ask));
     const typed = { text: otherOf(ask) ?? "", images: otherImagesOf(ask) };
     const kept = otherStash()[ask.id];
     let open = false;
@@ -1399,6 +1400,7 @@ export function createDesignScreen(
       return d;
     });
     setOtherOpen({ ...otherOpen(), [ask.id]: open });
+    marks.followAnswer(ask, before, answerIds(answerOf(ask)));
     if (wasOpen && !open && (typed.text.trim() || typed.images.length)) {
       setOtherStash({ ...otherStash(), [ask.id]: typed });
     } else if (!wasOpen && open && kept) {
@@ -1410,6 +1412,7 @@ export function createDesignScreen(
   // Taking a pick back leaves the question unanswered; picking it again would send it on.
   function unpick(ask: Ask, optionId: string) {
     if (readonly()) return;
+    marks.followAnswer(ask, [optionId], []);
     writeDraft((d) => {
       const left = answerIds(d.answers[ask.id]).filter((x) => x !== optionId);
       if (ask.multi && left.length) d.answers[ask.id] = left;
@@ -2191,17 +2194,7 @@ export function createDesignScreen(
       .flatMap((a) =>
         answerIds(a.answer).map((id) => a.options.find((o) => o.id === id)?.label ?? id),
       );
-  const {
-    standingFor,
-    isKept,
-    hiddenOf,
-    isCarried,
-    shownOptions,
-    hiddenOptions,
-    toggleKept,
-    hideAnswer,
-    unhideAnswer,
-  } = createMarks({
+  const marks = createMarks({
     design,
     setDesign,
     drafted,
@@ -2212,23 +2205,22 @@ export function createDesignScreen(
     optionKey,
     setToast,
     fail,
+    asks,
+    activeState,
+    frameIn: (state) => alternativeFor(state, false),
   });
-  // Answered, a kept answer can take over: the one in use waits in its place, and the
+  const { standingFor, isPicked, hiddenOf, isCarried, shownOptions, hiddenOptions } = marks;
+  // Answered, a picked answer can take over: the one in use waits in its place, and the
   // agent hears the change as a reply of its own, so nothing is drafted for it.
   async function useInstead(ask: Ask, o: AskOption): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
     const was = answerIds(ask.answer);
-    try {
+    if (!ask.multi) {
       for (const id of was) {
         const old = ask.options.find((x) => x.id === id);
-        if (old && !ask.multi && !isKept(ask, id)) {
-          await api.standing(m.id, { ask: ask.id, option: id, to: "kept" });
-        }
+        if (old && !(await marks.holdAnswer(ask, old))) return false;
       }
-    } catch (e) {
-      fail(e);
-      return false;
     }
     const name = (l: string) => splitLabel(l).name;
     const labels = was.map((id) => name(ask.options.find((x) => x.id === id)?.label ?? id));
@@ -2627,12 +2619,17 @@ export function createDesignScreen(
     standingFor,
     shownOptions,
     hiddenOptions,
-    isKept,
+    isPicked,
+    togglePicked: marks.togglePicked,
+    marks: marks.marks,
+    markOf: marks.markOf,
+    frameMark: marks.frameMark,
+    togglePick: marks.togglePick,
+    toggleMain: marks.toggleMain,
     hiddenOf,
     isCarried,
-    toggleKept,
-    hideAnswer,
-    unhideAnswer,
+    hideAnswer: marks.hideAnswer,
+    unhideAnswer: marks.unhideAnswer,
     useInstead,
     updateOnce,
     carryKept,

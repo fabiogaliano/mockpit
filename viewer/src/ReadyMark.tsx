@@ -6,6 +6,7 @@
 
 import { createMemo, Show } from "solid-js";
 import { readonly } from "./host.ts";
+import { canDesign } from "./frameActions.ts";
 import { Icon } from "./icons.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { phoneLayout } from "./viewport.ts";
@@ -13,7 +14,6 @@ import { phoneLayout } from "./viewport.ts";
 export function ReadyMark(props: { s: DesignScreenState }) {
   const s = props.s;
   const m = () => s.design();
-  const drawn = () => (m()?.alternatives.length ?? 0) > 0;
   const word = () => m()?.status ?? "In design";
   const set = () => word() !== "In design";
   // The components inside whose own mark isn't Ready, in the words their covers use.
@@ -32,7 +32,7 @@ export function ReadyMark(props: { s: DesignScreenState }) {
     return notReady().length ? `${what}. Not Ready inside: ${notReady().join(", ")}` : what;
   };
   return (
-    <Show when={s.product() && drawn()}>
+    <Show when={canDesign(s, "ready")}>
       <Show
         when={!readonly()}
         fallback={

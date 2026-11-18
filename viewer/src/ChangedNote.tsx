@@ -7,6 +7,7 @@
 // Ready; unmarked, the way back to the one shown before is in the version menu.
 
 import { createEffect, createMemo, createSignal, on, onCleanup, Show } from "solid-js";
+import { canDesign } from "./frameActions.ts";
 import { host, readonly, root } from "./host.ts";
 import { sameVersion, type VersionRef } from "./logic.ts";
 import { away } from "./notifyRules.ts";
@@ -20,8 +21,8 @@ const TICK_MS = 100;
 export function backFromChanged(s: DesignScreenState) {
   const c = s.changed();
   if (!c) return;
-  if (s.product()) s.followShown();
-  else s.showVersion(c.use);
+  if (canDesign(s, "use")) s.showVersion(c.use);
+  else s.followShown();
   s.stayOnUse();
 }
 
@@ -57,7 +58,7 @@ export function ChangedNote(props: { s: DesignScreenState }) {
 
   function tick(elapsed: number) {
     const c = s.changed();
-    if (!c || stopped() || s.product()) return;
+    if (!c || stopped() || !canDesign(s, "use")) return;
     const here = !away(root().visibilityState, root().hasFocus());
     if (!counting()) {
       // Gone to it from the version menu: looking closely, so no timer follows.
@@ -140,7 +141,7 @@ export function ChangedNote(props: { s: DesignScreenState }) {
   return (
     <Show
       when={
-        live() && (counting() || (looking() && (!s.product() || s.changed()?.marked)))
+        live() && (counting() || (looking() && (canDesign(s, "use") || s.changed()?.marked)))
           ? s.changed()
           : null
       }
@@ -167,7 +168,7 @@ export function ChangedNote(props: { s: DesignScreenState }) {
                 <button type="button" class="btn" onClick={goBack}>
                   <span class="changed-name">{`Back to ${name(c().use)}`}</span>
                 </button>
-                <Show when={!s.product()}>
+                <Show when={canDesign(s, "use")}>
                   <button type="button" class="btn go" onClick={() => void s.useThis(c().to)}>
                     <span class="changed-name">{`Use ${name(c().to)}`}</span>
                   </button>

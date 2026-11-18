@@ -10348,3 +10348,156 @@ button.bmc {
   background: var(--page);
   color: var(--t4);
 }
+
+/* The mark pill: pick, Main and archive, then more like this and comment, at the corner of
+   the frame or sheet cell the pointer is on. Nothing at rest. */
+.markpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow:
+    0 0 0 1px var(--line),
+    0 4px 14px #0008;
+}
+.markpill button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--t4);
+}
+.markpill button .icon {
+  width: 16px;
+  height: 16px;
+}
+.markpill button.on {
+  color: var(--keep-ink);
+}
+.markpill button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+@media (hover: hover) {
+  .markpill button:hover {
+    background: var(--row-hover);
+    color: var(--t1);
+  }
+  .markpill button.on:hover {
+    color: var(--keep-ink);
+  }
+}
+.markpill i {
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: var(--line);
+}
+.markpill.sm button {
+  width: 20px;
+  height: 18px;
+}
+.markpill.sm button .icon {
+  width: 12px;
+  height: 12px;
+}
+.markpill.inline {
+  box-shadow: 0 0 0 1px var(--line);
+}
+.frame > .markpill,
+.sheet-cellw > .markpill {
+  position: absolute;
+  z-index: 6;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ease);
+}
+.frame > .markpill {
+  top: 8px;
+  right: 8px;
+}
+.sheet-cellw > .markpill {
+  top: 3px;
+  right: 3px;
+}
+.frame:hover > .markpill,
+.frame > .markpill:focus-within,
+.sheet-cellw:hover > .markpill,
+.sheet-cellw:focus-within > .markpill {
+  opacity: 1;
+  pointer-events: auto;
+}
+.sheet-cellw {
+  position: relative;
+}
+.sheet-cellw.picked > .sheet-cell {
+  outline: 2.5px solid var(--keep);
+  outline-offset: 0;
+}
+.sheet-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--keep);
+  color: var(--on-keep);
+  pointer-events: none;
+}
+.sheet-badge .icon {
+  width: 11px;
+  height: 11px;
+  stroke-width: 2.4;
+}
+.sheet-cellw:hover > .sheet-badge,
+.sheet-cellw:focus-within > .sheet-badge {
+  opacity: 0;
+}
+.sheet-l .sheet-star,
+.lm-mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--keep-ink);
+}
+.sheet-l .sheet-star {
+  margin-left: 5px;
+  vertical-align: -2px;
+}
+.sheet-l .sheet-star .icon,
+.lm-mark .icon {
+  width: 14px;
+  height: 14px;
+}
+.lm-mark {
+  align-self: center;
+  margin-left: auto;
+}
+.lm-mark.main .icon {
+  fill: currentColor;
+}
+.altacts-row {
+  align-items: center;
+}
+.altacts-more {
+  position: relative;
+}
+.altacts-more .ib {
+  width: 30px;
+  height: 30px;
+}
+.altacts-more .optmenu {
+  top: 34px;
+  right: 0;
+}
+.markpill button.star.on .icon,
+.sheet-cellw.main .sheet-badge .icon,
+.sheet-l .sheet-star .icon {
+  fill: currentColor;
+}

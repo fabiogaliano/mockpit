@@ -8,7 +8,7 @@
 // Nothing here is stored: a cell is the frame's document with the values in its address
 // (`?k=`). Its picture is a still once one is made (stills.ts), else the frame drawn live.
 
-import { createEffect, createMemo } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import { choices } from "../../server/knobs.ts";
 import type { StillCell } from "../../server/stills.ts";
 import type { KnobValue } from "../../server/types.ts";
@@ -269,7 +269,13 @@ export function createSheet(d: SheetDeps) {
   // Spread: the frame on stage in every value of the knob.
   const spread = (path: string) =>
     open({ knob: path, one: d.activeAlternative()?.alternative ?? null });
-  const close = () => setView(null);
+  const close = () => {
+    setPointed(null);
+    setView(null);
+  };
+
+  // The cell under the pointer or the keyboard's focus, which P, M and X mark.
+  const [pointed, setPointed] = createSignal<{ v: AlternativeView; col: SheetColumn } | null>(null);
 
   // A double-click: the frame on stage, held in those values until let go.
   function openCell(v: AlternativeView, col: SheetColumn) {
@@ -302,6 +308,8 @@ export function createSheet(d: SheetDeps) {
     spread,
     close,
     openCell,
+    pointed,
+    setPointed,
     stills: d.stills,
   };
 }

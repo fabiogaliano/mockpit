@@ -16,7 +16,6 @@ import {
   answerIds,
   askState,
   draftKnobValues,
-  drawsAnswer,
   frameKey,
   isLookAsk,
   moreAllowed,
@@ -28,7 +27,8 @@ import { Reason } from "./Reason.tsx";
 import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 import { Icon } from "./icons.tsx";
-import { AnswerAlternativeTools, answerAlternative } from "./Alternatives.tsx";
+import { AnswerAlternativeTools, answerAlternative, answerFrame } from "./Alternatives.tsx";
+import { answerActions, FACE } from "./frameActions.ts";
 import type { Shortlists } from "./shortlist.ts";
 
 // Long enough that a pointer crossing the list on its way somewhere previews nothing.
@@ -39,7 +39,7 @@ const LIST_ABOVE = 4;
 export function ArchivedNote(props: { s: DesignScreenState }) {
   return (
     <div class="status-note" role="status">
-      <span>In the Archive. Questions still open wait here if you restore it.</span>
+      <span title="Open questions come back with it">Archived</span>
       <Reason value={props.s.design()?.archiveReason} onSave={props.s.saveEndReason} />
       <Show when={!readonly()}>
         <button type="button" class="secondary" onClick={() => void props.s.reopen()}>
@@ -242,9 +242,6 @@ export function AskBody(props: {
   const s = props.s;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
   let optsEl: HTMLDivElement | undefined;
-  // Keeping, hiding and more-like-this act on one answer; the built-in Which alternative?
-  // has no agent behind it to ask for more.
-  const acts = () => !readonly() && !dormant();
   const moveCards = (change: () => void, gone?: Element | null) => flipCards(optsEl, change, gone);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
   // Which answer's alternative Borrow or Move is open for.
@@ -253,32 +250,34 @@ export function AskBody(props: {
     borrowing: boolean;
     moving: HTMLElement | null;
   } | null>(null);
-  // An answer kept before it lost its design still shows the mark, read only.
-  const answerActions = (o: AskOption) => {
-    const kept = s.isKept(props.ask, o.id);
-    if (readonly()) return kept ? { kept } : undefined;
-    const curate = acts() && drawsAnswer(o);
-    const like = acts() && moreAllowed(props.ask);
-    const alt = answerAlternative(s, o.alternative);
+  // What the answer's row offers is its frame's action set, routed through the question
+  // (frameActions.ts). An answer picked before it lost its design still shows the mark.
+  const actionsOf = (o: AskOption) => {
+    const can = answerActions(s, props.ask, o, {
+      dormant: !!dormant(),
+      frame: answerFrame(s, o.alternative),
+    });
+    if (!can || !("curate" in can)) return can;
     return {
-      kept,
+      picked: can.picked,
       comment: {
         value: s.answerCommentOf(props.ask, o.id),
         onInput: (v: string) => s.setAnswerComment(props.ask, o.id, v),
       },
-      ...(curate && {
-        onKeep: () => moveCards(() => s.toggleKept(props.ask, o)),
+      ...(can.curate && {
+        onPick: () => moveCards(() => s.togglePicked(props.ask, o)),
         onHide: (card: Element | null, key: boolean) =>
           moveCards(() => s.hideAnswer(props.ask, o), key ? null : card),
       }),
-      ...(like && { onLike: () => void s.askMore(props.ask, "", o) }),
-      ...(alt && {
+      ...(can.like && { onLike: () => void s.askMore(props.ask, "", o) }),
+      ...(can.borrow && {
         onBorrow: () => setTool({ option: o.id, borrowing: true, moving: null }),
-        ...(props.sl && {
+      }),
+      ...(can.move &&
+        props.sl && {
           onMove: (anchor: HTMLElement) =>
             setTool({ option: o.id, borrowing: false, moving: anchor }),
         }),
-      }),
     };
   };
   const toolsFor = (o: AskOption) => {
@@ -408,7 +407,7 @@ export function AskBody(props: {
                 }
                 onChoose={() => s.choose(props.ask, o.id)}
                 compact={!props.beside}
-                actions={answerActions(o)}
+                actions={actionsOf(o)}
                 below={toolsFor(o)}
               />
             );
@@ -762,7 +761,8 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
   const [note, setNote] = createSignal("");
   const [sending, setSending] = createSignal(false);
   const around = () => s.answeredAround(props.ask);
-  const kept = () => props.ask.options.filter((o) => s.isKept(props.ask, o.id)).map((o) => o.label);
+  const kept = () =>
+    props.ask.options.filter((o) => s.isPicked(props.ask, o.id)).map((o) => o.label);
   async function ask() {
     setSending(true);
     const sent = await s.askMore(props.ask, note().trim());
@@ -787,10 +787,9 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
           aria-label="Ask for more answers"
           ref={(el) => host().window.setTimeout(() => el.scrollIntoView({ block: "nearest" }))}
         >
-          <h3>More answers to this question</h3>
           <dl>
             <Show when={around().length}>
-              <dt>Keeps</dt>
+              <dt>Given</dt>
               <dd>{around().join(" · ")}</dd>
             </Show>
             <Show when={kept().length}>
@@ -806,8 +805,8 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
                   .join(" · ")}
               </dd>
             </Show>
-            <dt>Skips</dt>
-            <dd>{`The ${props.ask.options.length} answers here`}</dd>
+            <dt>Excluding</dt>
+            <dd>{`These ${props.ask.options.length}`}</dd>
           </dl>
           <textarea
             aria-label="What to aim for"
@@ -852,12 +851,12 @@ function OptionCard(props: {
   onChoose: () => void;
   // Called once the pointer has rested on it; absent when the stage can't show it.
   onHold?: () => void;
-  // Comment, more like this, archive and a menu (keep, borrow, move) on its right. `kept`
+  // Comment, more like this, archive and a menu (pick, borrow, move) on its right. `picked`
   // alone, read only: the mark without the buttons.
   actions?: {
-    kept: boolean;
+    picked: boolean;
     comment?: { value: string | undefined; onInput: (v: string) => void };
-    onKeep?: () => void;
+    onPick?: () => void;
     onHide?: (card: Element | null, byKey: boolean) => void;
     onLike?: () => void;
     onBorrow?: () => void;
@@ -946,9 +945,9 @@ function OptionCard(props: {
           <Show when={props.pick && !props.picture}>
             <span class="pickdot" aria-hidden="true" />
           </Show>
-          <Show when={props.actions?.kept}>
+          <Show when={props.actions?.picked}>
             <span class="keptmark" aria-hidden="true">
-              <Icon name="bookmark" />
+              <Icon name="check" />
             </span>
           </Show>
         </span>
@@ -959,8 +958,8 @@ function OptionCard(props: {
       <Show when={props.pick}>
         <span class="sr-only">, suggested by the agent</span>
       </Show>
-      <Show when={props.actions?.kept}>
-        <span class="sr-only">, kept</span>
+      <Show when={props.actions?.picked}>
+        <span class="sr-only">, picked</span>
       </Show>
     </button>
   );
@@ -972,7 +971,7 @@ function OptionCard(props: {
   const commentShown = () => !!c && (writing() || !!c.value);
   const inMenu = () => props.compact;
   const hasMenu = () =>
-    !!(a.onKeep || a.onBorrow || a.onMove || (inMenu() && (a.onLike || a.onHide)));
+    !!(a.onPick || a.onBorrow || a.onMove || (inMenu() && (a.onLike || a.onHide)));
   const closeMenu = (refocus = false) => {
     setMenu(false);
     if (refocus) menuBtn?.focus();
@@ -1019,7 +1018,7 @@ function OptionCard(props: {
   return (
     <div
       class="optw"
-      classList={{ kept: a.kept, on: props.on, pillw: !props.picture, menuopen: menu() }}
+      classList={{ kept: a.picked, on: props.on, pillw: !props.picture, menuopen: menu() }}
       data-option-card={props.data}
     >
       {card}
@@ -1031,10 +1030,10 @@ function OptionCard(props: {
             classList={{ has: !!c?.value }}
             aria-label={`Comment on ${props.label}`}
             aria-expanded={commentShown()}
-            title="Comment"
+            title={FACE.comment.label}
             onClick={() => (c?.value ? commentEl?.focus() : setWriting(!writing()))}
           >
-            <Icon name="mark" />
+            <Icon name={FACE.comment.icon} />
           </button>
         </Show>
         <Show when={!inMenu() && a.onLike}>
@@ -1042,10 +1041,10 @@ function OptionCard(props: {
             type="button"
             class="optic"
             aria-label={`More like ${props.label}`}
-            title="More like this"
+            title={FACE.more.label}
             onClick={() => a.onLike?.()}
           >
-            <Icon name="spark" />
+            <Icon name={FACE.more.icon} />
           </button>
         </Show>
         <Show when={!inMenu() && a.onHide}>
@@ -1053,10 +1052,10 @@ function OptionCard(props: {
             type="button"
             class="optic"
             aria-label={`Archive ${props.label}`}
-            title="Archive"
+            title={FACE.archive.label}
             onClick={(e) => a.onHide?.(e.currentTarget.closest(".optw"), byKey(e))}
           >
-            <Icon name="archive" />
+            <Icon name={FACE.archive.icon} />
           </button>
         </Show>
         <Show when={hasMenu()}>
@@ -1084,20 +1083,25 @@ function OptionCard(props: {
         >
           <Show when={inMenu() && a.onLike}>
             <button type="button" role="menuitem" onClick={item(() => a.onLike?.())}>
-              <Icon name="spark" />
-              More like this
+              <Icon name={FACE.more.icon} />
+              {FACE.more.label}
             </button>
           </Show>
-          <Show when={a.onKeep}>
-            <button type="button" role="menuitem" onClick={item(() => a.onKeep?.())}>
-              <Icon name="bookmark" />
-              {a.kept ? "Kept · remove" : "Keep"}
+          <Show when={a.onPick}>
+            <button
+              type="button"
+              role="menuitem"
+              aria-pressed={a.picked}
+              onClick={item(() => a.onPick?.())}
+            >
+              <Icon name={FACE.pick.icon} />
+              {a.picked ? "Picked" : FACE.pick.label}
             </button>
           </Show>
           <Show when={a.onBorrow}>
             <button type="button" role="menuitem" onClick={item(() => a.onBorrow?.())}>
-              <Icon name="borrow" />
-              Borrow a part
+              <Icon name={FACE.borrow.icon} />
+              {FACE.borrow.label}
             </button>
           </Show>
           <Show when={a.onMove}>
@@ -1106,8 +1110,8 @@ function OptionCard(props: {
               role="menuitem"
               onClick={item(() => menuBtn && a.onMove?.(menuBtn))}
             >
-              <Icon name="move" />
-              Move to…
+              <Icon name={FACE.move.icon} />
+              {FACE.move.label}
             </button>
           </Show>
           <Show when={inMenu() && a.onHide}>
@@ -1119,8 +1123,8 @@ function OptionCard(props: {
                 item(() => a.onHide?.(at, byKey(e)))();
               }}
             >
-              <Icon name="archive" />
-              Archive
+              <Icon name={FACE.archive.icon} />
+              {FACE.archive.label}
             </button>
           </Show>
         </div>

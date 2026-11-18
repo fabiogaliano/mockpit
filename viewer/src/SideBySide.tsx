@@ -62,7 +62,7 @@ export function sideAsk(s: DesignScreenState): Ask | null {
 function sentOrder(s: DesignScreenState, ask: Ask): AskOption[] {
   const chosen = answerIds(s.answerOf(ask));
   const shown = s.shownOptions(ask);
-  const kept = (o: AskOption) => s.isKept(ask, o.id);
+  const kept = (o: AskOption) => s.isPicked(ask, o.id);
   return [
     ...shown.filter((o) => chosen.includes(o.id)),
     ...shown.filter((o) => !chosen.includes(o.id) && kept(o)),
@@ -139,7 +139,7 @@ function optionCell(s: DesignScreenState, ask: Ask, o: AskOption, archived: bool
     label: splitLabel(o.label).name,
     current: false,
     chosen: answerIds(s.answerOf(ask)).includes(o.id),
-    kept: s.isKept(ask, o.id),
+    kept: s.isPicked(ask, o.id),
     archived,
     option: o,
     picture: p ? { src: p.src, knobs: p.knobs } : null,
@@ -264,8 +264,8 @@ export function SideBySide(props: { s: DesignScreenState; ask: Ask }) {
                         <span class="sbs-tag on">Chosen</span>
                       </Show>
                       <Show when={c().kept}>
-                        <span class="sbs-kept" title="Kept">
-                          <Icon name="bookmark" />
+                        <span class="sbs-kept" title="Picked">
+                          <Icon name="check" />
                         </span>
                       </Show>
                       <span class="sbs-name">{c().label}</span>
@@ -278,7 +278,7 @@ export function SideBySide(props: { s: DesignScreenState; ask: Ask }) {
                       aria-label={
                         c().current
                           ? `Current${c().label ? `, ${c().label}` : ""}`
-                          : `${c().label}${c().kept ? ", kept" : ""}${c().archived ? ", archived" : ""}`
+                          : `${c().label}${c().kept ? ", picked" : ""}${c().archived ? ", archived" : ""}`
                       }
                       onClick={() => choose(c())}
                     >
@@ -355,7 +355,7 @@ export function AnsweredCard(props: { s: DesignScreenState; ask: Ask; bare?: boo
                   previewing: !!key() && s.preview()?.key === key(),
                 }}
                 aria-pressed={!!key() && s.heldPreview()?.key === key()}
-                aria-label={`${o.label}${on() ? ", chosen" : ""}${s.isKept(props.ask, o.id) ? ", kept" : ""}`}
+                aria-label={`${o.label}${on() ? ", chosen" : ""}${s.isPicked(props.ask, o.id) ? ", picked" : ""}`}
                 onPointerEnter={(e) =>
                   e.pointerType === "mouse" &&
                   !side() &&
@@ -379,9 +379,9 @@ export function AnsweredCard(props: { s: DesignScreenState; ask: Ask; bare?: boo
                   <Show when={on()}>
                     <span class="sbs-tag on">Chosen</span>
                   </Show>
-                  <Show when={s.isKept(props.ask, o.id)}>
-                    <span class="sbs-kept" title="Kept">
-                      <Icon name="bookmark" />
+                  <Show when={s.isPicked(props.ask, o.id)}>
+                    <span class="sbs-kept" title="Picked">
+                      <Icon name="check" />
                     </span>
                   </Show>
                   <span class="sbs-name">{splitLabel(o.label).name}</span>

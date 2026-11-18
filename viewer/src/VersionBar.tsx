@@ -7,6 +7,7 @@ import { createSignal, For, Show } from "solid-js";
 import { tunedCount } from "../../server/types.ts";
 import { backFromChanged } from "./ChangedNote.tsx";
 import { comparable } from "./Compare.tsx";
+import { canDesign } from "./frameActions.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
@@ -121,7 +122,7 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
   // An idea for a screen or a component changes it: the button says which.
   const into = () => s.design()?.target?.title;
   return (
-    <Show when={!readonly() && !questionOpen() && !noteHasIt() && !s.product()}>
+    <Show when={!readonly() && !questionOpen() && !noteHasIt() && canDesign(s, "use")}>
       <Show when={usedStep() && !inUse()}>
         <button
           type="button"
@@ -276,7 +277,7 @@ export function VersionMenu(props: {
   // which ChangedNote holds for the rest.
   const back = () => {
     const c = s.changed();
-    return c && s.product() && !c.marked && !readonly() && sameVersion(s.onStage(), c.to)
+    return c && !canDesign(s, "use") && !c.marked && !readonly() && sameVersion(s.onStage(), c.to)
       ? c.use
       : null;
   };

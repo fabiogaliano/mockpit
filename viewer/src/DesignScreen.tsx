@@ -59,6 +59,7 @@ import { PhoneBar, QuestionCard } from "./QuestionCard.tsx";
 import { QuestionDot, questionDotted } from "./QuestionDot.tsx";
 import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
+import { canDesign, canFrame, runFrameAction } from "./frameActions.ts";
 import { LooksStrip } from "./Looks.tsx";
 import { Sheet } from "./Sheet.tsx";
 import { Present } from "./Present.tsx";
@@ -173,6 +174,13 @@ const upClick = (e: MouseEvent, href: string) => {
     return;
   e.preventDefault();
   upToBoard(href);
+};
+
+// The pill's keys, on the frame on stage or the sheet cell under the pointer.
+const MARK_KEYS: Record<string, "pick" | "main" | "archive" | undefined> = {
+  p: "pick",
+  m: "main",
+  x: "archive",
 };
 
 export function DesignScreen(props: {
@@ -479,6 +487,20 @@ export function DesignScreen(props: {
         if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
         if (readonly() || reading() || !m.page()) return;
         s.toggleTool("mark");
+        e.preventDefault();
+        return;
+      }
+      const mark = MARK_KEYS[e.key.toLowerCase()];
+      if (mark) {
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || reading()) return;
+        // On the sheet, the cell the pointer is on; else the frame on stage.
+        const at = s.sheet.view()
+          ? s.sheet.pointed()
+          : !sideRow() && !comparing() && s.activeAlternative()
+            ? { v: s.activeAlternative()! }
+            : null;
+        if (!at || !canFrame(s, mark, at)) return;
+        runFrameAction(s, mark, at);
         e.preventDefault();
         return;
       }
@@ -1126,7 +1148,7 @@ function TopRow(props: {
                     <Icon name="copy" />
                     Copy name
                   </button>
-                  <Show when={s.product() && !readonly()}>
+                  <Show when={canDesign(s, "newIdea")}>
                     <button
                       type="button"
                       role="menuitem"
@@ -1217,7 +1239,11 @@ function SheetSwitch(props: { s: DesignScreenState }) {
         type="button"
         classList={{ on: on() }}
         aria-pressed={on()}
-        title={s.product() ? "Lay the frames out in an idea for this design" : undefined}
+        title={
+          canDesign(s, "exploreInIdea")
+            ? "Lay the frames out in an idea for this design"
+            : undefined
+        }
         onClick={() => !on() && s.sheet.open(s.sheet.defaultView())}
       >
         Sheet
