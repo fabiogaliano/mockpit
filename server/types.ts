@@ -486,6 +486,23 @@ export interface Look {
   at: string;
 }
 
+// The user's mark on a frame: picked, or picked and Main (one per state). A frame worn in
+// a look or in some knob values, as a sheet cell shows it, is marked apart from the frame
+// as it is. Saved on the click and stored with the design (marks.ts); nothing is sent.
+// Archived is a mark as `read` lists it, never stored here: an archived frame's record is
+// its alternative's status.
+export type MarkKind = "pick" | "main" | "archived";
+export interface Mark {
+  state: string | null;
+  alternative: string;
+  // A look's name, with the values it set when marked.
+  look?: string;
+  values?: Record<string, KnobValue>;
+  kind: "pick" | "main";
+  at: string;
+  by: Author;
+}
+
 // The state a version option names a version in: the ask's state, else the
 // design's first (`ask` accepts version options without a state only while the
 // design has one).
@@ -928,6 +945,8 @@ export interface Design {
   standings: Record<string, AnswerStanding>;
   // In the order they were made; one name each.
   looks: Look[];
+  // One per frame, look and values: the user's picks and Main.
+  marks: Mark[];
   createdAt: string;
   updatedAt: string;
 }
@@ -1295,6 +1314,7 @@ export interface UpdateDesignInput {
   stateOutlines?: Record<string, StateOutline>;
   answerAdditions?: AnswerAddition[];
   looks?: Look[];
+  marks?: Mark[];
   standings?: Record<string, AnswerStanding>;
 }
 

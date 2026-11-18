@@ -21,6 +21,7 @@ import {
   shownVersion,
 } from "./ready.ts";
 import type { LookView } from "./looks.ts";
+import { marksOf } from "./marks.ts";
 import {
   changedTo,
   draftedCount,
@@ -558,6 +559,8 @@ const detailOf = (
   // By alternative, where a frame was tuned apart: all of that frame's values.
   ...(opts.settledOn ? { settledOn: opts.settledOn } : {}),
   ...(opts.looks?.length ? { looks: opts.looks } : {}),
+  // The user's picks and Main, kept answers read as picks, and the archived frames.
+  ...((marks) => (marks.length ? { marks } : {}))(marksOf(design, posts)),
 });
 
 export const sessionRowView = (session: Session, postCount: number) => ({

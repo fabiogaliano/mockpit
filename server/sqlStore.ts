@@ -23,6 +23,7 @@ import {
   type Knobs,
   type KnobValue,
   type Look,
+  type Mark,
   MAX_WORKSPACE_ASSET_BYTES,
   type Design,
   type DesignReady,
@@ -1175,6 +1176,7 @@ export class SqlStore implements Store {
       // Inert: saved combinations of answers went, and looks cover knob values.
       sets: "TEXT NOT NULL DEFAULT '[]'",
       looks: "TEXT NOT NULL DEFAULT '[]'",
+      marks: "TEXT NOT NULL DEFAULT '[]'",
     });
     if (!specced) this.migrateNotesToSpec();
     this.migrateReadyStates();
@@ -1847,6 +1849,7 @@ export class SqlStore implements Store {
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
       looks: parseJson<Look[]>(r.looks, []),
+      marks: parseJson<Mark[]>(r.marks, []),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -2185,6 +2188,7 @@ export class SqlStore implements Store {
       answerAdditions: [],
       standings: {},
       looks: input.looks ?? [],
+      marks: [],
       createdAt: now,
       updatedAt: now,
     };
@@ -2248,10 +2252,11 @@ export class SqlStore implements Store {
       ...(patch.answerAdditions !== undefined && { answerAdditions: patch.answerAdditions }),
       ...(patch.standings !== undefined && { standings: patch.standings }),
       ...(patch.looks !== undefined && { looks: patch.looks }),
+      ...(patch.marks !== undefined && { marks: patch.marks }),
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, looks = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, looks = ?, marks = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
@@ -2273,6 +2278,7 @@ export class SqlStore implements Store {
       JSON.stringify(next.answerAdditions),
       JSON.stringify(next.standings),
       JSON.stringify(next.looks),
+      JSON.stringify(next.marks),
       next.updatedAt,
       id,
     );

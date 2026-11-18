@@ -307,8 +307,9 @@ mockpit read --area <name> [--project <name>]
   flow, plus pending, what the user is doing now, then the decisions. A slug: the
   design's spec (purpose: what it is for; behaviour: how it works; decisions: what was
   settled on it), states, alternatives, questions with answers, parts, knobs, looks
-  (named knob values, its own and those offered from designs with the same knobs) and
-  settled values, plus its pending and decisionLog (its own lines marked here), as JSON.
+  (named knob values, its own and those offered from designs with the same knobs), marks
+  (the user's picks and Main, saved without a question or a Send) and settled values,
+  plus its pending and decisionLog (its own lines marked here), as JSON.
   --area: one product area, read before drawing in it: what the project and the area
   are for, what's left in it (coverage: each design's states as Ready, In design,
   Planned or Missing, the map the Board's page card draws, and each flow's steps ready),

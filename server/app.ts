@@ -130,6 +130,7 @@ import {
 } from "./decisionLog.ts";
 import { chosenSwaps, decisionsFor, settledByAlternative, settledValues } from "./decisions.ts";
 import { checkLooks, looksFor, MAX_LOOK_NAME, withLooks } from "./looks.ts";
+import { heldAlternatives, mainOf, MAX_MARKS, marksOf, withMark } from "./marks.ts";
 import {
   checkAnswerSwap,
   checkAnswerStyle,
@@ -310,7 +311,6 @@ import { isViewerRequest } from "./viewerRequest.ts";
 import { jumpHits, recentHits } from "./jump.ts";
 import {
   isKeptAlternative,
-  keptAlternatives,
   MAX_WHY,
   remapStanding,
   reoffered,
@@ -5673,7 +5673,7 @@ export function createApp({
     const release = new Set<string>();
     // A screen's or a component's answers are recorded and change nothing in it.
     if (isProduct(design)) return { accept, archive, release };
-    const kept = keptAlternatives(design, posts);
+    const kept = heldAlternatives(design, posts);
     const settle = (inState: Post[], chosen: Set<string>, pins?: Map<string, number>) => {
       if (!inState.some((p) => chosen.has(p.alternative))) return;
       for (const p of inState) {
@@ -5827,15 +5827,18 @@ export function createApp({
     return { state: typeof raw?.state === "string" ? raw.state : null, alternative };
   }
 
-  // The frame whose tune a reply's design-wide `tuned` carries. Until frames have a Main
-  // mark: the alternative in use after this reply (on the state on screen first), else
-  // the one on screen, else the only one tuned.
+  // The frame whose tune a reply's design-wide `tuned` carries: the frame marked Main (on
+  // the state on screen first), else the alternative in use after this reply, else the one
+  // on screen, else the only one tuned.
   function mainFrame(
+    design: Design,
     posts: Post[],
     flips: { accept: Map<string, number>; archive: Set<string>; release: Set<string> },
     shown: { state: string | null; alternative: string } | null,
     tunedOn: TunedOn,
   ): string | null {
+    const main = mainOf(design, posts, shown?.state);
+    if (main) return main.alternative;
     const inUse = posts.filter(
       (p) =>
         flips.accept.has(p.id) ||
@@ -5935,7 +5938,13 @@ export function createApp({
       sentAsk(draft.answers[a.id] === undefined ? a : withAddedAnswers(a, design, posts), draft),
     );
     const flips = replyFlips(design, posts, draft.answers, verdict, draft.version);
-    const main = mainFrame(shipped(design, posts), flips, shownArg(body?.shown), draft.tunedOn);
+    const main = mainFrame(
+      design,
+      shipped(design, posts),
+      flips,
+      shownArg(body?.shown),
+      draft.tunedOn,
+    );
     if (main) payload.tuned = draft.tunedOn[main] ?? {};
     const usedHere = await useInTarget(
       design,
@@ -6297,7 +6306,7 @@ export function createApp({
     const { sessionId, routed } = target;
     const usedHere = await useInTarget(design, posts, [{ post: chosen, version }]);
     if (isResult(usedHere)) return usedHere;
-    const kept = keptAlternatives(design, posts);
+    const kept = heldAlternatives(design, posts);
     const siblings = posts.filter((p) => p.state === chosen.state && p.id !== chosen.id);
     const archive = siblings.filter((p) => isLive(p.status) && !isKeptAlternative(kept, p));
     const release = siblings.filter((p) => p.status === "accepted" && isKeptAlternative(kept, p));
@@ -7125,6 +7134,58 @@ export function createApp({
       if (!updated) return fail(404, "design not found");
       bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
       return ok({ looks: updated.looks.map((l) => ({ ...l, design: updated.slug })) });
+    });
+  }
+
+  // The user picks a frame, makes it Main, or takes the mark off: a frame as it is, or worn
+  // in a look or some values, as a sheet cell shows it. Saved now and sent to no one: the
+  // agent reads marks in `read`. A screen or a component holds what ships, so nothing on
+  // it is picked.
+  async function marksFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+    if (!ctx.viewer) return viewerOnly();
+    const found = await resolveDesign(ref);
+    if (isResult(found)) return found;
+    return serialDecision(found.id, async () => {
+      const design = await store.getDesign(found.id);
+      if (!design) return fail(404, "design not found");
+      if (isProduct(design)) {
+        return fail(409, `${design.slug} is a ${design.kind}: nothing on it is picked`);
+      }
+      const kind = body?.mark;
+      if (kind !== "pick" && kind !== "main" && kind !== null) {
+        return fail(400, '"mark" is "pick", "main" or null');
+      }
+      const state = stateArg(body?.state) ?? null;
+      const alternative = str(body?.alternative, MAX_LABEL);
+      if (!alternative) return fail(400, '"alternative" is required');
+      const posts = await store.listPosts({ designId: design.id });
+      const post = posts.find((p) => p.state === state && p.alternative === alternative);
+      if (!post)
+        return fail(404, `${design.slug} has no ${state ? `${state}/` : ""}${alternative}`);
+      if (kind !== null && !isLive(post.status)) {
+        return fail(409, `${alternative} is archived: restore it to pick it`);
+      }
+      const look = body?.look === undefined ? undefined : str(body.look, MAX_LOOK_NAME);
+      if (body?.look !== undefined && !look) return fail(400, '"look" is a look\'s name');
+      const values = checkKnobValues(
+        body?.values,
+        { knobs: { ...(await systemFor(design.project))?.knobs, ...design.knobs } },
+        [post],
+        "values",
+      );
+      if (!values.ok) return fail(400, values.error);
+      const subject = {
+        state,
+        alternative,
+        ...(look ? { look } : {}),
+        ...(Object.keys(values.value).length ? { values: values.value } : {}),
+      };
+      const marks = withMark(design.marks, subject, kind, "user", new Date().toISOString());
+      if (marks.length > MAX_MARKS) return fail(400, `a design holds at most ${MAX_MARKS} marks`);
+      const updated = await store.updateDesign(design.id, { marks });
+      if (!updated) return fail(404, "design not found");
+      bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
+      return ok({ marks: marksOf(updated, posts) });
     });
   }
 
@@ -9377,6 +9438,9 @@ export function createApp({
   );
   app.post("/api/designs/:id/standings", async (c) =>
     send(c, await standingFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
+  );
+  app.post("/api/designs/:id/marks", async (c) =>
+    send(c, await marksFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
   app.post("/api/designs/:id/looks", async (c) =>
     send(c, await looksFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),

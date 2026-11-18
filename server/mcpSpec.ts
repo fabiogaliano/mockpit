@@ -309,7 +309,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it and what's left (coverage); read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs, looks and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
+      "Read this first. Every form carries decisionLog: what the user already settled in this project; it stands unless they say otherwise. Without design: every design (slug, states, alternatives, open questions), flows, plus pending. With area: all settled in it and what's left (coverage); read it before drawing there. With design: its spec (purpose, behaviour, decisions; the user's edits stand), states, alternatives, questions with answers, parts, knobs, looks, marks (the user's picks and Main, made without a question too) and settled values (every answer's set and tuning sent so far), plus pending. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -716,6 +716,12 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       .array(bag)
       .optional()
       .describe("Named knob values {name, values, author, design}: its own, then offered"),
+    marks: z
+      .array(bag)
+      .optional()
+      .describe(
+        "The user's marks {kind: pick|main|archived, state, alternative, look?, values?, at}, saved without a Send",
+      ),
     tree: z.array(bag).optional(),
     spec: bag.optional(),
     ready: bag

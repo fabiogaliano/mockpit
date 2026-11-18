@@ -110,7 +110,7 @@ export function reoffered(s: AnswerStanding, ask: Ask): HiddenAnswer[] {
   return s.hidden.filter((h) => ask.options.some((o) => o.id === h.id));
 }
 
-const alternativeKey = (state: string | null, alternative: string) =>
+export const alternativeKey = (state: string | null, alternative: string) =>
   `${state ?? ""}\n${alternative}`;
 
 // Every alternative some question keeps, by state and name: Send leaves them out of the
