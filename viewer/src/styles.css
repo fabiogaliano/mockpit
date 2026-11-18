@@ -5098,6 +5098,7 @@ html:has(.design-screen) {
 .sheet-cell {
   position: relative;
   display: block;
+  width: 100%;
   aspect-ratio: 1.12;
   overflow: hidden;
   border-radius: 5px;
@@ -10495,32 +10496,56 @@ button.bmc {
   margin: 0 2px;
   background: var(--line);
 }
-.markpill.sm button {
-  width: 20px;
-  height: 18px;
-}
-.markpill.sm button .icon {
-  width: 12px;
-  height: 12px;
-}
 .markpill.inline {
   box-shadow: 0 0 0 1px var(--line);
+}
+/* On a frame or a cell the pill is sized by what it sits on: a button about a fourteenth of
+   its width, from a finger's least on a small cell to the top bar's size on a large one or
+   the stage. A cell is a size container for it; a frame says its width (--frame-w) instead,
+   since containment would make it a stacking context for the part overlay. Under 200px a
+   cell keeps the marks alone. */
+.sheet-cellw {
+  container-type: inline-size;
+}
+.sheet-cellw > .markpill {
+  --mp: clamp(20px, 7cqi, 36px);
+}
+.frame > .markpill {
+  --mp: clamp(20px, var(--frame-w, 0px) * 0.07, 36px);
 }
 .frame > .markpill,
 .sheet-cellw > .markpill {
   position: absolute;
+  top: calc(var(--mp) / 4);
+  right: calc(var(--mp) / 4);
   z-index: 6;
+  gap: calc(var(--mp) / 16);
+  padding: calc(var(--mp) / 10);
+  border-radius: calc(var(--mp) / 2.6);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--ease);
 }
-.frame > .markpill {
-  top: 8px;
-  right: 8px;
+.frame > .markpill button,
+.sheet-cellw > .markpill button {
+  width: var(--mp);
+  height: var(--mp);
+  border-radius: calc(var(--mp) / 3.6);
 }
-.sheet-cellw > .markpill {
-  top: 3px;
-  right: 3px;
+.frame > .markpill button .icon,
+.sheet-cellw > .markpill button .icon {
+  width: calc(var(--mp) * 0.56);
+  height: calc(var(--mp) * 0.56);
+}
+.frame > .markpill i,
+.sheet-cellw > .markpill i {
+  height: calc(var(--mp) * 0.56);
+}
+@container (max-width: 200px) {
+  .sheet-cellw > .markpill .mp-ask,
+  .sheet-cellw > .markpill i {
+    display: none;
+  }
 }
 .frame:hover > .markpill,
 .frame > .markpill:focus-within,
@@ -10529,8 +10554,13 @@ button.bmc {
   opacity: 1;
   pointer-events: auto;
 }
+/* A cell is its column's width up to its still's (STILL_MAX_W in bin/poster.js), past which
+   a still only blurs; centred under its heading, so the pill sits on its corner. */
 .sheet-cellw {
   position: relative;
+  justify-self: center;
+  width: 100%;
+  max-width: 480px;
 }
 .sheet-cellw.picked > .sheet-cell {
   outline: 2.5px solid var(--keep);

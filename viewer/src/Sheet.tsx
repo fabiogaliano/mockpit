@@ -281,7 +281,7 @@ function SheetCellView(props: {
           </span>
         )}
       </Show>
-      <MarkPill s={props.s} f={f()} small />
+      <MarkPill s={props.s} f={f()} />
     </div>
   );
 }

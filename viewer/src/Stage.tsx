@@ -994,6 +994,7 @@ function AlternativeFrame(props: {
       style={{
         height: `${props.height * props.scale}px`,
         width: `${props.frameW * props.scale}px`,
+        "--frame-w": `${props.frameW * props.scale}px`,
       }}
       data-state={props.alternative.state ?? ""}
       data-alternative={props.alternative.alternative}

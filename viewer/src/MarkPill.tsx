@@ -12,7 +12,6 @@ const MARKS = new Set(["pick", "main", "archive"]);
 export function MarkPill(props: {
   s: DesignScreenState;
   f: FrameRef;
-  small?: boolean;
   // In the panel's row, always shown.
   inline?: boolean;
 }) {
@@ -22,7 +21,7 @@ export function MarkPill(props: {
   const button = (a: FrameAction) => (
     <button
       type="button"
-      classList={{ on: !!a.on, star: a.id === "main" }}
+      classList={{ on: !!a.on, star: a.id === "main", "mp-ask": !MARKS.has(a.id) }}
       aria-pressed={a.id === "pick" || a.id === "main" ? !!a.on : undefined}
       aria-label={a.label}
       title={a.key ? `${a.label} (${a.key})` : a.label}
@@ -40,7 +39,7 @@ export function MarkPill(props: {
     <Show when={marks().length}>
       <span
         class="markpill"
-        classList={{ sm: !!props.small, inline: !!props.inline }}
+        classList={{ inline: !!props.inline }}
         role="toolbar"
         aria-label={`Mark ${props.f.v.alternative}`}
       >
