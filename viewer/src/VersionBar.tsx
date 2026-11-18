@@ -4,49 +4,34 @@
 // behind one menu (VersionMenu).
 
 import { createSignal, For, Show } from "solid-js";
+import { framePicks } from "../../server/marks.ts";
 import { tunedCount } from "../../server/types.ts";
 import { backFromChanged } from "./ChangedNote.tsx";
 import { comparable } from "./Compare.tsx";
 import { canDesign } from "./frameActions.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import {
-  draftCarried,
-  neighbourStep,
-  sameVersion,
-  stepFor,
-  type VersionRef,
-  type VersionStep,
-} from "./logic.ts";
+import { neighbourStep, sameVersion, stepFor, type VersionRef, type VersionStep } from "./logic.ts";
 import { usePopover } from "./popover.ts";
+import { SendButton } from "./SendList.tsx";
 import type { DesignScreenState } from "./state.ts";
 
-// One click sends, so it says what goes with it.
+// Asks for a new version of the one on stage; the request waits in Send.
 export function NewVersionButton(props: { s: DesignScreenState; item?: boolean }) {
   const s = props.s;
-  const carried = () => draftCarried(s.draft());
-  // With an answer picked, what comes next is Send. A second way to send it, in the
-  // words of versions, only suggests that answering makes one.
-  const answering = () => Object.keys(s.draft()?.answers ?? {}).length > 0;
-  const said = () => (carried() ? `Ask for a new version (sends ${carried()})` : "");
   return (
-    <Show when={!answering()}>
-      <button
-        type="button"
-        class={props.item ? "vnew" : "btn vnew"}
-        role={props.item ? "menuitem" : undefined}
-        aria-label={said() || "New version"}
-        title={said() || "Ask for a new version"}
-        disabled={s.sending() || !s.onStage()}
-        onClick={() => s.askNew()}
-      >
-        <Icon name="plus" />
-        <span class="lbl">
-          New version
-          <Show when={carried()}>{(c) => <span class="vnew-carried"> · {c()}</span>}</Show>
-        </span>
-      </button>
-    </Show>
+    <button
+      type="button"
+      class={props.item ? "vnew" : "btn vnew"}
+      role={props.item ? "menuitem" : undefined}
+      aria-label="New version"
+      title="Ask for a new version"
+      disabled={!s.onStage()}
+      onClick={() => s.askNew()}
+    >
+      <Icon name="plus" />
+      <span class="lbl">New version</span>
+    </button>
   );
 }
 
@@ -108,11 +93,13 @@ export function VersionStepper(props: {
   );
 }
 
-// Use this, and the way back to the version in use. The question is the decision
-// while it is open: no Use this beside it. A screen or a component has nothing to put
-// in use: its newest version is current, and Ready is its mark.
-export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
+// Use: the picks go into the design the idea is for, Main first, and the way back to the
+// version in use. With nothing picked it takes the frame on screen, and the question is the
+// decision while it is open: no Use beside it. A screen or a component has nothing to put in
+// use: its newest version is current, and Ready is its mark.
+export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
   const s = props.s;
+  const picks = () => framePicks(s.marks());
   const inUse = () => sameVersion(s.onStage(), s.inUse());
   const usedStep = () => stepFor(s.steps(), s.inUse());
   const questionOpen = () => !!s.curAsk() && !s.questionHidden();
@@ -121,48 +108,73 @@ export function UseThis(props: { s: DesignScreenState; primary?: boolean }) {
     !s.design()?.archivedAt && !!s.changed() && sameVersion(s.onStage(), s.changed()?.to);
   // An idea for a screen or a component changes it: the button says which.
   const into = () => s.design()?.target?.title;
+  // Used as they stand: nothing to take again until a pick moves.
+  const pickedUsed = () => !!s.lastUse() && !s.changedSinceUse();
+  const usedLabel = () => (into() ? `In use in ${into()}` : "In use");
+  const usedButton = () => (
+    <button type="button" class="btn use on" disabled aria-label={usedLabel()}>
+      <Icon name="check" />
+      <span class="lbl">{usedLabel()}</span>
+    </button>
+  );
   return (
-    <Show when={!readonly() && !questionOpen() && !noteHasIt() && canDesign(s, "use")}>
-      <Show when={usedStep() && !inUse()}>
-        <button
-          type="button"
-          class="away"
-          aria-label={`Back to ${s.nameOf(usedStep()!)} (in use)`}
-          title={`Back to ${s.nameOf(usedStep()!)} (in use)`}
-          onClick={() => s.showVersion(s.inUse()!)}
-        >
-          <Icon name="undo" />
-          {s.nameOf(usedStep()!)}
-        </button>
-      </Show>
+    <Show when={!readonly() && canDesign(s, "use")}>
       <Show
-        when={inUse()}
+        when={picks().length}
         fallback={
+          <Show when={!questionOpen() && !noteHasIt()}>
+            <Show when={usedStep() && !inUse()}>
+              <button
+                type="button"
+                class="away"
+                aria-label={`Back to ${s.nameOf(usedStep()!)} (in use)`}
+                title={`Back to ${s.nameOf(usedStep()!)} (in use)`}
+                onClick={() => s.showVersion(s.inUse()!)}
+              >
+                <Icon name="undo" />
+                {s.nameOf(usedStep()!)}
+              </button>
+            </Show>
+            <Show when={inUse()} fallback={useOne()}>
+              {usedButton()}
+            </Show>
+          </Show>
+        }
+      >
+        <Show when={!pickedUsed()} fallback={usedButton()}>
+          <Show when={s.changedSinceUse()}>
+            <span class="usechanged">Changed since Use</span>
+          </Show>
           <button
             type="button"
             class="btn use"
             classList={{ go: props.primary }}
-            aria-label={into() ? `Use this version in ${into()}` : "Use this version"}
-            disabled={!s.onStage()}
-            onClick={() => void s.useThis()}
+            aria-label={`Use ${picks().length} picked${into() ? ` in ${into()}` : ""}`}
+            title={into() ? `Into ${into()}` : undefined}
+            onClick={() => void s.use()}
           >
-            <span class="lbl">{into() ? `Use in ${into()}` : "Use this"}</span>
+            <span class="lbl">{`Use · ${picks().length}`}</span>
             <span class="sh">Use</span>
           </button>
-        }
-      >
-        <button
-          type="button"
-          class="btn use on"
-          disabled
-          aria-label={into() ? `In use in ${into()}` : "In use"}
-        >
-          <Icon name="check" />
-          <span class="lbl">{into() ? `In use in ${into()}` : "In use"}</span>
-        </button>
+        </Show>
       </Show>
     </Show>
   );
+  function useOne() {
+    return (
+      <button
+        type="button"
+        class="btn use"
+        classList={{ go: props.primary }}
+        aria-label={into() ? `Use this version in ${into()}` : "Use this version"}
+        disabled={!s.onStage()}
+        onClick={() => void s.use()}
+      >
+        <span class="lbl">{into() ? `Use in ${into()}` : "Use"}</span>
+        <span class="sh">Use</span>
+      </button>
+    );
+  }
 }
 
 // Try and Comment need a page to hand taps to or pin on; Tune needs something to tune.
@@ -212,11 +224,12 @@ export function VersionBar(props: { s: DesignScreenState; reading?: boolean }) {
       />
       {/* A document is read and answered, not put in use, and has no page to try. */}
       <Show when={!props.reading}>
-        <UseThis s={s} />
+        <UseButton s={s} />
         <span class="vsep" />
         <div class="tools">
           <CanvasTools s={s} page />
         </div>
+        <SendButton s={s} />
       </Show>
     </div>
   );

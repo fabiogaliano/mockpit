@@ -30,6 +30,7 @@ import {
   untrack,
 } from "solid-js";
 import { type Cell, CELLS, coverageSummary, flowLine } from "../../server/coverage.ts";
+import { requestKey } from "../../server/sendLines.ts";
 import { api, type BoardFrame, type BoardPage, subscribe, type TreeNode } from "./api.ts";
 import { sectionOf, sidebarOf } from "./albums.ts";
 import { cellShown, gridOf } from "./boardGrid.ts";
@@ -1163,30 +1164,34 @@ export function Board(props: {
   // The standard states a screen lacks, offered in its header rather than drawn.
   const suggestedOf = (slug: string) =>
     data()?.coverage.designs.find((r) => r.slug === slug)?.suggested ?? [];
-  // Asking for a state is a reply like Focus's: it goes now and leaves the draft as it was.
+  // Asking for a state joins that design's Send, as it does in Focus: it waits there with
+  // whatever else is drafted, and goes when the user sends it.
   const askState = async (slug: string, name: string) => {
     const id = nodes().get(slug)?.id;
     if (!id) return;
     try {
-      const { draft: kept } = await api.draft(id);
-      // Version 0: the server binds it to the newest.
-      await api.reply(id, { ...emptyDraft(0), text: `New state, please: ${name}.` });
-      if (kept)
-        await api.putDraft(id, {
-          ...emptyDraft(kept.version),
-          ...kept,
-          others: kept.others ?? {},
-          askComments: kept.askComments ?? {},
-          otherImages: kept.otherImages ?? {},
-          askCommentImages: kept.askCommentImages ?? {},
-          answerComments: kept.answerComments ?? {},
-        });
-      await api.stateOutline(id, { state: name, to: "requested" });
+      const { draft: d } = await api.draft(id);
+      const ask = { kind: "state" as const, name };
+      const requests = (d?.requests ?? []).filter((r) => requestKey(r) !== requestKey(ask));
+      await api.putDraft(id, {
+        // Version 0: the server binds it to the newest.
+        ...emptyDraft(d?.version ?? 0),
+        ...d,
+        others: d?.others ?? {},
+        askComments: d?.askComments ?? {},
+        otherImages: d?.otherImages ?? {},
+        askCommentImages: d?.askCommentImages ?? {},
+        answerComments: d?.answerComments ?? {},
+        requests: [...requests, ask],
+      });
+      setAsked({ slug, name });
       refetchSoon(false);
     } catch (e) {
       setAskError(e instanceof Error ? e.message : String(e));
     }
   };
+  // The state last asked for here, until it is sent or put away.
+  const [asked, setAsked] = createSignal<{ slug: string; name: string } | null>(null);
   const dropSuggested = async (slug: string) => {
     const id = nodes().get(slug)?.id;
     if (!id) return;
@@ -1494,10 +1499,35 @@ export function Board(props: {
               </div>
             )}
           </Show>
+          <Show when={asked()}>
+            {(a) => (
+              <p class="bask-err" role="status">
+                {`${a().name}, in Send`}
+                <button
+                  type="button"
+                  class="btn"
+                  onClick={() => {
+                    setAsked(null);
+                    navigate(designPath(project()!, a().slug), { focus: true });
+                  }}
+                >
+                  Open
+                </button>
+                <button
+                  type="button"
+                  class="ib bhint-got"
+                  aria-label="Dismiss"
+                  onClick={() => setAsked(null)}
+                >
+                  <Icon name="close" />
+                </button>
+              </p>
+            )}
+          </Show>
           <Show when={askError()}>
             {(e) => (
               <p class="bask-err" role="alert">
-                {`Couldn't send that: ${e()}`}
+                {`Couldn't add that: ${e()}`}
                 <button
                   type="button"
                   class="ib bhint-got"

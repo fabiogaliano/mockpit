@@ -34,7 +34,6 @@ import { MarkPill } from "./MarkPill.tsx";
 import {
   BOARD_GAP,
   BOARD_PAD,
-  draftCarried,
   boardWidths,
   changedPart,
   clampZoom,
@@ -144,7 +143,6 @@ const LABEL_AT = 14;
 const LABEL_ROOM_ONE_VERSION = 360;
 const LABEL_ROOM_VERSIONS = 480;
 const LABEL_ROOM_ARRIVED = 180;
-const LABEL_ROOM_CARRIED = 100;
 // Under a finger a pin keeps its size and takes a 44px tap area around it;
 // pins step apart far enough that those areas never overlap.
 const PIN = 22;
@@ -541,8 +539,7 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
     const edge = win().w - canvasBox().right - canvasBox().over - 8;
     const needs =
       (s.steps().length > 1 ? LABEL_ROOM_VERSIONS : LABEL_ROOM_ONE_VERSION) +
-      (s.boundVersion() !== null ? LABEL_ROOM_ARRIVED : 0) +
-      (draftCarried(s.draft()) ? LABEL_ROOM_CARRIED : 0);
+      (s.boundVersion() !== null ? LABEL_ROOM_ARRIVED : 0);
     return Math.min(right, edge) - (right - w) >= needs;
   };
   // Room under the artboards to pan them up past a card resting at the bottom;

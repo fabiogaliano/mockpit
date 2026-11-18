@@ -180,13 +180,11 @@ export function runFrameAction(s: DesignScreenState, id: FrameActionId, f: Frame
     }
     case "more": {
       const version = s.frameVersionOf(v);
-      return void s.steer({ alternative: v.alternative, version, reaction: "more" }).then(
-        (ok) =>
-          ok &&
-          s.setToast({
-            text: `More like ${s.nameOf({ alternative: v.alternative, version })}, sent`,
-          }),
-      );
+      if (s.steer({ alternative: v.alternative, version, reaction: "more" }))
+        s.setToast({
+          text: `More like ${s.nameOf({ alternative: v.alternative, version })}, in Send`,
+        });
+      return;
     }
     case "comment":
       // A cell is commented on as the frame it is, on stage.

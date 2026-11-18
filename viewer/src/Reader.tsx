@@ -1,5 +1,5 @@
 // A document: written content as one column on one page scroll, with no device
-// frame, no width and no Use this. Each surface stays in its own sandboxed frame,
+// frame, no width and no Use. Each surface stays in its own sandboxed frame,
 // sized to its whole height, so a stack reads as one text with nothing nested to
 // scroll. A click or tap on a block comes out of the frame as data (a number, then
 // the text from the frame's own report), and the comment goes in the draft like any

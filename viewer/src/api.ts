@@ -24,6 +24,7 @@ import type {
   LiveCopy,
   UsedIn,
   Draft,
+  DraftRequest,
   FlowStep,
   KnobValue,
   TunedOn,
@@ -33,6 +34,7 @@ import type {
   ProjectSummary,
   ReplyVerdict,
   SpecLine,
+  UsedPick,
 } from "../../server/types.ts";
 import { basePath, host, renderRev, root } from "./host.ts";
 import {
@@ -135,6 +137,9 @@ export interface DraftInput {
   askCommentImages: Record<string, string[]>;
   // askId → option id → a comment on that one answer, picked or not.
   answerComments: Record<string, Record<string, string>>;
+  // What the user asked the agent for, and their message, waiting for Send.
+  requests: DraftRequest[];
+  text?: string;
 }
 
 export interface Shortlist {
@@ -355,15 +360,23 @@ export const api = {
       `/api/designs/${encodeURIComponent(id)}/alternatives/${encodeURIComponent(postId)}/alternatives/restore`,
       json("POST", { version }),
     ),
-  // Use this: one exact version goes in use; the agent hears it as a reply.
+  // Use: the picks go in use, or one exact version; the agent hears it as a reply.
   use: (
     id: string,
-    body: { state: string | null; alternative: string; version: number; to?: string },
+    body:
+      | { state: string | null; alternative: string; version: number; to?: string }
+      | {
+          // The versions on screen of the frames picked.
+          frames: { state: string | null; alternative: string; version: number }[];
+          to?: string;
+        },
   ) =>
-    call<{ reply: CommentRow | null; usedIn?: UsedIn; followUps?: FollowUps }>(
-      `/api/designs/${encodeURIComponent(id)}/use`,
-      json("POST", body),
-    ),
+    call<{
+      reply: CommentRow | null;
+      picks?: UsedPick[];
+      usedIn?: UsedIn;
+      followUps?: FollowUps;
+    }>(`/api/designs/${encodeURIComponent(id)}/use`, json("POST", body)),
   // Hide a version from the history, or bring it back.
   hide: (
     id: string,

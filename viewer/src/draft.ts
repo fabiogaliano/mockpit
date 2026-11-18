@@ -3,7 +3,8 @@
 // design screen (state.ts) shapes what a Send carries; this holds it and sends it.
 
 import { batch, createMemo, createSignal, onCleanup } from "solid-js";
-import type { AskAnswer } from "../../server/types.ts";
+import { requestKey } from "../../server/sendLines.ts";
+import type { DraftRequest } from "../../server/types.ts";
 import {
   api,
   type CommentRow,
@@ -79,6 +80,7 @@ export function createDraft(deps: DraftDeps) {
       otherImages: { ...base.otherImages },
       askCommentImages: { ...base.askCommentImages },
       answerComments: { ...base.answerComments },
+      requests: [...base.requests],
     });
     batch(() => {
       setDraft(next);
@@ -114,6 +116,8 @@ export function createDraft(deps: DraftDeps) {
             otherImages: d.otherImages ?? {},
             askCommentImages: d.askCommentImages ?? {},
             answerComments: d.answerComments ?? {},
+            requests: d.requests ?? [],
+            ...(d.text ? { text: d.text } : {}),
           }
         : null,
     );
@@ -229,54 +233,15 @@ export function createDraft(deps: DraftDeps) {
     }
   }
 
-  // A steer (more like this, a borrow) has no Send to wait for: it is a reply of its
-  // own. It goes alone — never with the answers, tuning or notes the user is still
-  // composing, which a steer must not decide — and that draft is left as it was.
-  // True once the reply is stored, so a "sent" never shows for one that wasn't.
-  async function sendAlone(body: {
-    comments?: DraftInput["comments"];
-    text?: string;
-    more?: { ask: string; note?: string; like?: string };
-    answers?: Record<string, AskAnswer>;
-    update?: { ask: string; option: string };
-  }): Promise<boolean> {
-    const m = design();
-    if (!m || readonly()) return false;
-    await flush();
-    const keep = draft();
-    try {
-      const { reply } = await api.reply(m.id, {
-        ...emptyDraft(boundVersion() ?? latest()),
-        comments: body.comments ?? [],
-        ...(body.answers ? { answers: body.answers } : {}),
-        ...(body.text ? { text: body.text } : {}),
-        ...(body.more ? { more: body.more } : {}),
-        ...(body.update ? { update: body.update } : {}),
-        ...toField(),
-      });
-      // Every reply clears the stored draft; put the user's back before the
-      // design is fetched again, so the screen never shows it gone. What this reply
-      // answered is settled, so its drafted picks don't come back.
-      if (keep) {
-        const left = { ...keep, answers: { ...keep.answers } };
-        for (const id of Object.keys(body.answers ?? {})) delete left.answers[id];
-        await api.putDraft(m.id, left);
-      }
-      const [next] = await Promise.all([
-        api.design(m.id).catch(() => null),
-        loadComments().catch(() => {}),
-      ]);
-      batch(() => {
-        if (next) setDesign(next);
-        setSent(true);
-        setSentId(reply.id);
-      });
-      armBeat();
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    }
+  // A request joins the draft like anything else and goes with the next Send. Asked
+  // again, it replaces the first.
+  function ask(r: DraftRequest) {
+    writeDraft((d) => {
+      const at = d.requests.findIndex((x) => requestKey(x) === requestKey(r));
+      if (at >= 0) d.requests[at] = r;
+      else d.requests.push(r);
+      return d;
+    });
   }
 
   return {
@@ -300,6 +265,6 @@ export function createDraft(deps: DraftDeps) {
     sending,
     landed,
     submit,
-    sendAlone,
+    ask,
   };
 }

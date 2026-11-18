@@ -297,7 +297,7 @@ export function AnswerAlternativeTools(props: {
 }
 
 // What to borrow into the alternative on stage, from which of its neighbours, aimed at a
-// part when the pages declare any; sent as its own reply.
+// part when the pages declare any; it goes with the next Send.
 function BorrowBox(props: { s: DesignScreenState; to: VersionStep; onDone: () => void }) {
   const s = props.s;
   const others = () =>
@@ -324,14 +324,13 @@ function BorrowBox(props: { s: DesignScreenState; to: VersionStep; onDone: () =>
   const send = () => {
     const f = from();
     if (!f) return;
-    void s
-      .steer({
-        alternative: props.to.alternative,
-        version: props.to.version,
-        text: text().trim(),
-        borrow: { from: f, ...(part() ? { part: part()! } : {}) },
-      })
-      .then((ok) => ok && s.setToast({ text: `Borrow into ${s.nameOf(props.to)}, sent` }));
+    const ok = s.steer({
+      alternative: props.to.alternative,
+      version: props.to.version,
+      text: text().trim(),
+      borrow: { from: f, ...(part() ? { part: part()! } : {}) },
+    });
+    if (ok) s.setToast({ text: `Borrow into ${s.nameOf(props.to)}, in Send` });
     props.onDone();
   };
   return (

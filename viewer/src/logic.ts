@@ -44,6 +44,7 @@ export const emptyDraft = (version: number): DraftInput => ({
   otherImages: {},
   askCommentImages: {},
   answerComments: {},
+  requests: [],
 });
 
 // The asks a draft says something about: a pick, a write-in, a note or a comment on an
@@ -61,17 +62,12 @@ export const draftIsEmpty = (d: DraftInput | null): boolean => !d || sendCount(d
 // Everything one Send carries, as the count on the button. A question counts
 // once however it was answered (pick, write-in, note, or a pick with a note).
 export const sendCount = (d: DraftInput): number =>
-  draftAsks(d).size + Object.keys(d.borrowed).length + tunedCount(d.tunedOn) + d.comments.length;
-
-// What a draft adds to a reply sent some other way than Send, in the fewest words:
-// comments by name, since those are what say what to change.
-export function draftCarried(d: DraftInput | null): string | null {
-  if (!d) return null;
-  const n = sendCount(d);
-  if (n === 0) return null;
-  const noun = n === d.comments.length ? "comment" : "change";
-  return `${n} ${noun}${n === 1 ? "" : "s"}`;
-}
+  draftAsks(d).size +
+  Object.keys(d.borrowed).length +
+  tunedCount(d.tunedOn) +
+  d.comments.length +
+  d.requests.length +
+  (d.text?.trim() ? 1 : 0);
 
 export const answerIds = (a: AskAnswer | undefined): string[] =>
   a === undefined ? [] : Array.isArray(a) ? a : [a];
@@ -623,6 +619,10 @@ export function carryOver(
       otherImages: known(draft.otherImages),
       askCommentImages: known(draft.askCommentImages),
       answerComments: known(draft.answerComments ?? {}),
+      // What was asked for and said stands whatever version came; the server drops a
+      // request whose question has gone.
+      requests: draft.requests,
+      ...(draft.text ? { text: draft.text } : {}),
     },
     flagged,
   };
@@ -1565,7 +1565,7 @@ export function designStatus(node: StatusNode, now: number): DesignStatus | null
   // The agent moved on from what the user chose, and they haven't said whether to
   // take the new one or stay.
   if (node.alternatives.some((v) => v.changedTo !== undefined)) return { kind: "changed" };
-  // Ahead of In use: a Use this the agent hasn't heard is still on its way.
+  // Ahead of In use: a Use the agent hasn't heard is still on its way.
   if (node.lastSend && !node.lastSend.delivered) return { kind: "unseen" };
   // The user spoke last and nothing has been published since: the agent's turn.
   const reply = node.lastReplyAt;
@@ -1767,7 +1767,7 @@ export const zoomScroll = (scroll: number, mid: number, z0: number, z1: number):
 
 // --- versions as the user counts them ---
 
-// One exact version of one alternative: what the stage shows, what Use this puts
+// One exact version of one alternative: what the stage shows, what Use puts
 // in use.
 export interface VersionRef {
   alternative: string;

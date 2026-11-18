@@ -95,7 +95,7 @@ export function ChangedNote(props: { s: DesignScreenState }) {
     setCounting(false);
     // Stopped first: if the write fails the note stays as a choice instead of retrying.
     setStopped(true);
-    void s.useThis(c.to);
+    void s.use(c.to);
   }
 
   // A memo, since `changed` is a new object on every reload of the design and only a
@@ -169,7 +169,7 @@ export function ChangedNote(props: { s: DesignScreenState }) {
                   <span class="changed-name">{`Back to ${name(c().use)}`}</span>
                 </button>
                 <Show when={canDesign(s, "use")}>
-                  <button type="button" class="btn go" onClick={() => void s.useThis(c().to)}>
+                  <button type="button" class="btn go" onClick={() => void s.use(c().to)}>
                     <span class="changed-name">{`Use ${name(c().to)}`}</span>
                   </button>
                 </Show>

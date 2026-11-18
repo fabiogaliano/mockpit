@@ -7,7 +7,7 @@
 // the design: it is one frame a swipe walks through the states, named in tabs above with a
 // counter. Its foot is a bar of Question and Spec, each a sheet over the design's lower
 // part, the question's open by itself while one waits; above it one bar floats (New
-// version, the versions, Use this, Try / Mark / Tune) while no sheet is up, and the version
+// version, the versions, Use, Try / Mark / Tune) while no sheet is up, and the version
 // label opens the history and the activity as a bottom panel.
 
 import type { DesignDetail, Shortlist } from "./api.ts";
@@ -89,7 +89,8 @@ import { createDesignScreen, type DesignScreenState } from "./state.ts";
 import { Thumb } from "./Thumb.tsx";
 import { WakeLine } from "./Thread.tsx";
 import { createTune } from "./tune.ts";
-import { CanvasTools, UseThis, VersionBar, VersionMenu } from "./VersionBar.tsx";
+import { SendButton } from "./SendList.tsx";
+import { CanvasTools, UseButton, VersionBar, VersionMenu } from "./VersionBar.tsx";
 import { draftIsEmpty } from "./logic.ts";
 import {
   canvasBox,
@@ -806,9 +807,29 @@ export function DesignScreen(props: {
 function VersionCaption(props: { s: DesignScreenState; reading: boolean }) {
   const s = props.s;
   const holding = () => s.heldPreview()?.key === s.preview()?.key;
+  // A product design's entry used from an idea links back to it.
+  const fromIdea = () => {
+    const id = s.activeAlternative()?.copiedFrom?.design;
+    return id ? s.design()?.usedFrom?.find((u) => u.id === id) : undefined;
+  };
   return (
     <div class="vcap" classList={{ inline: props.reading }} role="group" aria-label="This version">
       <AnswerPills s={s} />
+      <Show when={fromIdea()}>
+        {(u) => (
+          <a
+            class="fromidea"
+            href={designPath(s.project, u().slug)}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+              e.preventDefault();
+              navigate(designPath(s.project, u().slug), { focus: true });
+            }}
+          >
+            {`From idea: ${u().title}`}
+          </a>
+        )}
+      </Show>
       <div class="mact">
         <Show when={s.preview()?.label}>
           {(label) => (
@@ -877,19 +898,11 @@ function FocusBar(props: {
           onCompare={props.sideRow || props.reading ? undefined : props.onCompare}
         />
       </Show>
-      <Show when={page()}>
-        <UseThis s={s} />
+      {/* The sheet is where picks are made, so Use stays with it. */}
+      <Show when={props.drawn && !props.reading}>
+        <UseButton s={s} />
       </Show>
-      <Show when={!readonly()}>
-        <button
-          type="button"
-          class="btn go fsend"
-          disabled={!s.sendable() || s.sending()}
-          onClick={() => s.sendDraft()}
-        >
-          Send
-        </button>
-      </Show>
+      <SendButton s={s} />
     </div>
   );
 }

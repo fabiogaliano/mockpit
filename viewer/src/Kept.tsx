@@ -184,7 +184,7 @@ function KeptRow(props: { s: DesignScreenState; group: KeptGroup; option: AskOpt
                 type="button"
                 class="btn"
                 disabled={busy()}
-                onClick={() => void run(() => s.updateOnce(ask(), o()))}
+                onClick={() => void run(async () => s.updateOnce(ask(), o()))}
               >
                 Update now
               </button>

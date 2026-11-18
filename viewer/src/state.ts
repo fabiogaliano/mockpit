@@ -11,6 +11,8 @@ import {
   type AskAnswer,
   type AskOption,
   askAnswered,
+  type DraftRequest,
+  type PartComment,
   isLive,
   recommendedAlternative,
   type KnobValue,
@@ -88,8 +90,10 @@ import {
   shortLabel,
   splitLabel,
 } from "./logic.ts";
+import { type LineOf, type SendAsk, type SendLine, sendLines } from "../../server/sendLines.ts";
 import { createDesignData } from "./designData.ts";
 import { createDraft } from "./draft.ts";
+import { changedSinceUse, framePicks } from "../../server/marks.ts";
 import { createMarks } from "./marks.ts";
 import { createOnScreen, type PanelTab, type Preview, type Tool } from "./onScreen.ts";
 import { createSheet } from "./sheet.ts";
@@ -1623,6 +1627,11 @@ export function createDesignScreen(
     );
     const keep = <T>(rec: Record<string, T>) =>
       Object.fromEntries(Object.entries(rec).filter(([id]) => !asleep.has(id)));
+    // What each question offered when more answers went out, to tell the new ones by.
+    const asking = (draft()?.requests ?? []).flatMap((r) => {
+      const a = r.kind === "more" ? asks().find((x) => x.id === r.ask) : undefined;
+      return a ? [[a.id, a.options.map((o) => o.id)] as const] : [];
+    });
     const went = await outbox.submit(
       (d) => ({
         ...d,
@@ -1640,6 +1649,7 @@ export function createDesignScreen(
       },
     );
     if (!went) return;
+    if (asking.length) setAskedMore((all) => ({ ...all, ...Object.fromEntries(asking) }));
     setMixTouched(false);
     setMixDropped([]);
     setOtherOpen({});
@@ -1647,6 +1657,98 @@ export function createDesignScreen(
     setFoldedSignal({});
     setRevising({});
     record();
+  }
+
+  // What the next Send carries, in the words the agent will read (server/sendLines.ts),
+  // shaped as send() shapes it.
+  const sendList = createMemo((): SendLine[] => {
+    const d = draft();
+    if (!d) return [];
+    const byId = new Map(asks().map((a) => [a.id, a]));
+    const ids = [
+      ...new Set([
+        ...Object.keys(d.answers),
+        ...Object.keys(d.others),
+        ...Object.keys(d.askComments),
+        ...Object.keys(d.answerComments),
+      ]),
+    ].filter((id) => !(byId.get(id) && dormantOf(byId.get(id)!)));
+    const label = (askId: string, option: string) =>
+      byId.get(askId)?.options.find((o) => o.id === option)?.label;
+    const said: SendAsk[] = ids.map((id) => ({
+      id,
+      text: byId.get(id)?.text ?? "",
+      chosen: [
+        ...answerIds(d.answers[id]).map((o) => label(id, o) ?? o),
+        ...(d.others[id] !== undefined ? [d.others[id]] : []),
+      ],
+      ...(d.askComments[id] !== undefined ? { comment: d.askComments[id] } : {}),
+      ...(d.answerComments[id]
+        ? {
+            onAnswers: Object.entries(d.answerComments[id]).map(([o, comment]) => ({
+              label: label(id, o) ?? o,
+              comment,
+            })),
+          }
+        : {}),
+    }));
+    return sendLines(
+      {
+        asks: said,
+        borrowed: allowedMix(d.borrowed),
+        tunedOn: d.tunedOn,
+        comments: d.comments,
+        requests: d.requests,
+        ...(d.text ? { text: d.text } : {}),
+      },
+      { askText: (id) => byId.get(id)?.text, optionLabel: label },
+    );
+  });
+  // A line of the Send list taken back before it goes.
+  function undoLine(of: LineOf) {
+    if (of.kind === "ask") {
+      const { [of.ask]: _, ...open } = otherOpen();
+      setOtherOpen(open);
+    }
+    writeDraft((d) => {
+      switch (of.kind) {
+        case "ask":
+          for (const rec of [
+            d.answers,
+            d.others,
+            d.askComments,
+            d.answerComments,
+            d.otherImages,
+            d.askCommentImages,
+          ] as Record<string, unknown>[])
+            delete rec[of.ask];
+          break;
+        case "borrowed":
+          delete d.borrowed[of.part];
+          break;
+        case "tune":
+          delete d.tunedOn[of.alternative];
+          break;
+        case "comment":
+          d.comments.splice(of.index, 1);
+          break;
+        case "request":
+          d.requests.splice(of.index, 1);
+          break;
+        case "message":
+          delete d.text;
+          break;
+      }
+      return d;
+    });
+  }
+  // The message that goes with the Send as a whole.
+  function setMessage(text: string) {
+    writeDraft((d) => {
+      if (text.trim()) d.text = text;
+      else delete d.text;
+      return d;
+    });
   }
 
   // --- the flow: question → Send → the next design ---
@@ -1825,16 +1927,33 @@ export function createDesignScreen(
     if (to) showVersion(to);
   }
   const fail = (e: unknown) => setError(e instanceof Error ? e.message : String(e));
-  // Use this: the version on stage goes in use, and the agent hears it once.
-  async function useThis(ref = onStage()) {
+  // Use: the picks go in use, Main first, and into the design the idea is for; with nothing
+  // picked, or a version named (a newer one taking over), that one version. The agent hears
+  // it once, as a reply of its own; the draft stays for the next Send.
+  async function use(ref: VersionRef | null = null) {
     const m = design();
-    if (!m || !ref || readonly()) return;
+    if (!m || readonly()) return;
+    const picked = ref ? [] : framePicks(marks.marks());
+    const one = ref ?? onStage();
+    if (!picked.length && !one) return;
     try {
-      const used = await api.use(m.id, { state: activeState(), ...ref, ...outbox.toField() });
+      const frames = picked.flatMap((p) => {
+        const v = alternatives().find(
+          (x) => x.state === p.state && x.alternative === p.alternative,
+        );
+        return v ? [{ state: p.state, alternative: p.alternative, version: versionOf(v) }] : [];
+      });
+      const used = picked.length
+        ? await api.use(m.id, { frames, ...outbox.toField() })
+        : await api.use(m.id, { state: activeState(), ...one!, ...outbox.toField() });
       await Promise.all([loadDesign(), loadComments()]);
-      showVersion(ref);
+      if (used.reply) outbox.landed(used.reply.id);
+      if (!picked.length) showVersion(one!);
       const target = design()?.target?.title ?? used.usedIn?.target;
-      setToast({ text: target ? `Using ${nameOf(ref)} in ${target}` : `Using ${nameOf(ref)}` });
+      const what = picked.length
+        ? `${picked.length} pick${picked.length === 1 ? "" : "s"}`
+        : nameOf(one!);
+      setToast({ text: target ? `Using ${what} in ${target}` : `Using ${what}` });
     } catch (e) {
       fail(e);
     }
@@ -1964,17 +2083,20 @@ export function createDesignScreen(
       return undefined;
     }
   }
-  const sendAlone = outbox.sendAlone;
+  // A request waits in the draft for Send, like everything else the user does here.
+  function request(r: DraftRequest, said: string) {
+    if (readonly() || !design()) return false;
+    outbox.ask(r);
+    setToast({ text: `${said}, in Send` });
+    return true;
+  }
   // What each question offered when more answers were asked for, to tell the new ones.
   const [askedMore, setAskedMore] = createSignal<Record<string, string[]>>({});
-  async function askMore(ask: Ask, note: string, like?: AskOption): Promise<boolean> {
-    const known = ask.options.map((o) => o.id);
-    const sent = await sendAlone({
-      text: like ? `More like ${splitLabel(like.label).name}` : `More answers to: ${ask.text}`,
-      more: { ask: ask.id, ...(note ? { note } : {}), ...(like ? { like: like.id } : {}) },
-    });
-    if (sent) setAskedMore((all) => ({ ...all, [ask.id]: known }));
-    return sent;
+  function askMore(ask: Ask, note: string, like?: AskOption): boolean {
+    return request(
+      { kind: "more", ask: ask.id, ...(note ? { note } : {}), ...(like ? { like: like.id } : {}) },
+      like ? `More like ${splitLabel(like.label).name}` : "More answers",
+    );
   }
   const isNewOption = (ask: Ask, id: string) => {
     const known = askedMore()[ask.id];
@@ -1982,6 +2104,9 @@ export function createDesignScreen(
   };
   const moreWaiting = (ask: Ask) =>
     !!askedMore()[ask.id] && !ask.options.some((o) => isNewOption(ask, o.id));
+  // More answers asked for here and not sent yet.
+  const moreDrafted = (ask: Ask) =>
+    !!draft()?.requests.some((r) => r.kind === "more" && r.ask === ask.id);
   // What the agent will keep to: what's been answered on the design, this question aside.
   const answeredAround = (ask: Ask) =>
     (design()?.asks ?? [])
@@ -2005,8 +2130,22 @@ export function createDesignScreen(
     frameIn: (state) => alternativeFor(state, false),
   });
   const { standingFor, isPicked, hiddenOf, isCarried, shownOptions, hiddenOptions } = marks;
+  // The last Use of picks here, read from the replies as the Thread lists them.
+  const lastUse = createMemo(() => {
+    const list = comments();
+    for (let i = list.length - 1; i >= 0; i--) {
+      const v = list[i].kind === "reply" ? list[i].payload?.verdict : undefined;
+      if (v?.kind === "use" && v.picks) return { at: list[i].createdAt, picks: v.picks };
+    }
+    return null;
+  });
+  // The picks moved since the last Use: nothing has gone anywhere, and Use takes them again.
+  const changedUse = () => {
+    const u = lastUse();
+    return !!u && changedSinceUse(u.picks, marks.marks());
+  };
   // Answered, a picked answer can take over: the one in use waits in its place, and the
-  // agent hears the change as a reply of its own, so nothing is drafted for it.
+  // new answer goes with the next Send.
   async function useInstead(ask: Ask, o: AskOption): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
@@ -2017,38 +2156,31 @@ export function createDesignScreen(
         if (old && !(await marks.holdAnswer(ask, old))) return false;
       }
     }
-    const name = (l: string) => splitLabel(l).name;
-    const labels = was.map((id) => name(ask.options.find((x) => x.id === id)?.label ?? id));
-    const sent = await sendAlone({
-      answers: { [ask.id]: ask.multi ? [...was, o.id] : o.id },
-      text: ask.multi
-        ? `${name(o.label)} too`
-        : `${name(o.label)} instead${labels.length ? ` of ${labels.join(", ")}` : ""}`,
-    });
-    if (sent) setPreview(null);
-    return sent;
+    writeDraft((d) => ({
+      ...d,
+      answers: { ...d.answers, [ask.id]: ask.multi ? [...was, o.id] : o.id },
+    }));
+    setPreview(null);
+    setToast({ text: `${splitLabel(o.label).name}, in Send` });
+    return true;
   }
   // A kept screen doesn't follow the one in use by itself: brought up to date once,
   // or changed along with it from now on.
   const updateOnce = (ask: Ask, o: AskOption) =>
-    sendAlone({
-      update: { ask: ask.id, option: o.id },
-      text: `Bring ${splitLabel(o.label).name} up to date`,
-    });
+    request(
+      { kind: "update", ask: ask.id, option: o.id },
+      `${splitLabel(o.label).name} up to date`,
+    );
+  // Saved at once; the agent reads it with the next Send, as every standing.
   async function carryKept(ask: Ask, o: AskOption, carried: boolean) {
     const m = design();
     if (!m || readonly()) return;
     try {
       await api.standing(m.id, { ask: ask.id, option: o.id, carried });
+      await loadDesign();
     } catch (e) {
       fail(e);
-      return;
     }
-    await sendAlone({
-      text: carried
-        ? `Change ${splitLabel(o.label).name} along with the one in use, from now on`
-        : `Leave ${splitLabel(o.label).name} as it is`,
-    });
   }
   // --- looks ---
 
@@ -2113,26 +2245,32 @@ export function createDesignScreen(
     });
   }
 
-  // A steer names the version it is about.
-  function steer(c: SteerNote) {
-    return sendAlone({
-      comments: [c].map((c) => ({
-        part: c.part ?? null,
-        state: activeState(),
-        text: c.text ?? "",
-        alternative: c.alternative,
-        version: c.version,
-        ...(c.reaction ? { reaction: c.reaction } : {}),
-        ...(c.borrow
-          ? {
-              borrow: {
-                from: `${c.borrow.from.alternative}@${c.borrow.from.version}`,
-                ...(c.borrow.part ? { part: c.borrow.part } : {}),
-              },
-            }
-          : {}),
-      })),
+  // A steer (more like this, a borrow) names the version it is about, and waits in the
+  // draft for Send. The same steer twice is one.
+  function steer(c: SteerNote): boolean {
+    if (readonly() || !design()) return false;
+    const note: PartComment = {
+      part: c.part ?? null,
+      state: activeState(),
+      text: c.text ?? "",
+      alternative: c.alternative,
+      version: c.version,
+      ...(c.reaction ? { reaction: c.reaction } : {}),
+      ...(c.borrow
+        ? {
+            borrow: {
+              from: `${c.borrow.from.alternative}@${c.borrow.from.version}`,
+              ...(c.borrow.part ? { part: c.borrow.part } : {}),
+            },
+          }
+        : {}),
+    };
+    const same = JSON.stringify(note);
+    writeDraft((d) => {
+      if (!d.comments.some((x) => JSON.stringify(x) === same)) d.comments.push(note);
+      return d;
     });
+    return true;
   }
   const liveIn = (state: string | null) =>
     alternatives().some((v) => v.state === state && isLive(v.status));
@@ -2254,23 +2392,18 @@ export function createDesignScreen(
     if (left !== undefined) showState(left);
     setToast({ text: `${name} isn't needed` });
   }
-  // A request is a reply like any other: it goes out now, whatever the draft holds, and
-  // nothing waits on it. The outline stays, marked, until a state of that name arrives.
-  async function askForState(name: string, detail: string) {
+  // A state asked for waits in Send with everything else; once it goes, the outline is
+  // marked asked for until a state of that name arrives.
+  function askForState(name: string, detail: string) {
     const said = detail.trim();
-    const sent = await sendAlone({
-      text: `New state, please: ${name}.${said ? ` ${said}` : ""}`,
-    });
-    if (!sent) return false;
+    if (!request({ kind: "state", name, ...(said ? { detail: said } : {}) }, `New state ${name}`))
+      return false;
     setAskingState(null);
-    await setOutline(name, "requested");
     return true;
   }
   function askToDraw() {
-    const m = design();
-    if (!m) return Promise.resolve(false);
     const state = activeState();
-    return sendAlone({ text: `Please draw ${m.title}${state ? `, ${state}` : ""}.` });
+    return request({ kind: "draw", state }, state ? `Draw ${state}` : "Draw it");
   }
   // What's being written stays while the panel shuts or another opens: one section of
   // the spec at a time, each its own edit.
@@ -2290,15 +2423,15 @@ export function createDesignScreen(
       },
     );
   }
-  // New version: ask the agent for another version of the one on stage, as a reply
-  // (with whatever the draft holds), so it arrives through the same cursor.
+  // New version: ask the agent for another version of the one on stage. It goes with the
+  // next Send, as every request does.
   function askNew() {
     const ref = onStage();
     if (!ref) return;
-    void send({
-      verdict: { kind: "revise", state: activeState(), alternative: ref.alternative },
-      text: `New version, please, from ${nameOf(ref)}.`,
-    });
+    request(
+      { kind: "revise", state: activeState(), alternative: ref.alternative, version: ref.version },
+      `New version of ${nameOf(ref)}`,
+    );
   }
   // The newer version a draft-bound stage is holding back.
   function viewNewVersion() {
@@ -2411,6 +2544,7 @@ export function createDesignScreen(
     heldPreview,
     setHeldPreview,
     askMore,
+    moreDrafted,
     standingFor,
     shownOptions,
     hiddenOptions,
@@ -2483,7 +2617,9 @@ export function createDesignScreen(
     showVersion,
     listed,
     stepVersion,
-    useThis,
+    use,
+    lastUse,
+    changedSinceUse: changedUse,
     product,
     markReady,
     hideVersion,
@@ -2533,6 +2669,9 @@ export function createDesignScreen(
     removeComment,
     sendable,
     sendDraft,
+    sendList,
+    undoLine,
+    setMessage,
     react,
     reactionOn,
     reactStatus,

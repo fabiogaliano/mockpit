@@ -4405,6 +4405,100 @@ html:has(.design-screen) {
 .fsend:disabled {
   opacity: 0.45;
 }
+/* Send with what is in it (SendList.tsx): the count, and the list it opens. */
+.fbar > .sendat {
+  margin-inline-start: 6px;
+}
+.sendat {
+  position: relative;
+  flex: none;
+}
+.fsend.quiet {
+  background: var(--panel);
+  color: var(--t3);
+}
+.sendpop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 45;
+  display: grid;
+  gap: 8px;
+  width: min(380px, 90vw);
+  padding: 10px;
+  border: 1px solid var(--edge);
+  border-radius: 12px;
+  background: var(--panel);
+  box-shadow: var(--dd-shadow);
+}
+.vbar .sendpop {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+.sendlines {
+  display: grid;
+  gap: 2px;
+  max-height: min(50dvh, 360px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.sendlines li {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 4px 2px 4px 8px;
+  border-radius: 8px;
+  color: var(--t2);
+  overflow-wrap: anywhere;
+}
+.sendlines li:hover {
+  background: var(--row);
+}
+.sendlines li > span {
+  flex: 1;
+  min-width: 0;
+  padding-top: 6px;
+}
+.sendlines .ib {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+.sendnone {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--t4);
+}
+.sendpop textarea {
+  width: 100%;
+  min-height: 56px;
+  resize: vertical;
+}
+.sendpop > .btn.go {
+  justify-self: end;
+}
+.usechanged {
+  margin-inline-start: 6px;
+  color: var(--t3);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.fromidea {
+  display: inline-flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 11px;
+  background: var(--panel);
+  color: var(--t3);
+  text-decoration: none;
+}
+.fromidea:hover {
+  color: var(--t1);
+}
 .vmenu-at {
   position: relative;
   flex: none;
@@ -6219,10 +6313,6 @@ html:has(.design-screen) {
 .mact .ib {
   width: 36px;
   height: 36px;
-}
-.vnew-carried {
-  color: var(--t3);
-  font-variant-numeric: tabular-nums;
 }
 .mtabs {
   display: flex;

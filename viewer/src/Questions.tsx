@@ -752,8 +752,8 @@ export function MoreAnswersButton(props: { s: DesignScreenState; ask: Ask }) {
   );
 }
 
-// None of the answers fit: ask for more without answering. The request goes on its own,
-// so whatever else is drafted stays a draft.
+// None of the answers fit: ask for more without answering. The request waits in Send
+// with whatever else is drafted.
 function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
   const s = props.s;
   const open = () => moreFor() === props.ask.id;
@@ -773,10 +773,10 @@ function MoreAnswers(props: { s: DesignScreenState; ask: Ask }) {
   }
   return (
     <Show
-      when={!s.moreWaiting(props.ask)}
+      when={!s.moreWaiting(props.ask) && !s.moreDrafted(props.ask)}
       fallback={
         <p class="morewait" role="status">
-          More answers on the way
+          {s.moreDrafted(props.ask) ? "More answers, in Send" : "More answers on the way"}
         </p>
       }
     >
