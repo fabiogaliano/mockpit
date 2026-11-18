@@ -873,7 +873,7 @@ export function Board(props: {
       } else if (e.key === "Enter" && selected() && !onControl) {
         e.preventDefault();
         open(selected());
-      } else if (e.key === "?" && keysKnown() && !onControl) {
+      } else if (e.key === "?" && !onControl) {
         e.preventDefault();
         setKeysOpen(!keysOpen());
       } else if (e.key === "Escape" && (keysOpen() || mapOpen())) {
@@ -973,7 +973,7 @@ export function Board(props: {
     byFinger = e.pointerType === "touch";
     if (byFinger) return fingerDown(e);
     const target = e.target as Element;
-    if (target.closest(".bcard, .bselbar, .bhint, .bmappop, .bkeys, button, a, input")) return;
+    if (target.closest(".bcard, .bselbar, .bmappop, .bkeys, button, a, input")) return;
     const onFrame = !!target.closest(".bf");
     if (!(space() || e.button === 1 || (e.button === 0 && !onFrame))) return;
     e.preventDefault();
@@ -1003,7 +1003,7 @@ export function Board(props: {
       return;
     }
     const target = e.target as Element;
-    if (target.closest(".bcard, .bselbar, .bhint, .bmappop, .bkeys, button, a, input")) return;
+    if (target.closest(".bcard, .bselbar, .bmappop, .bkeys, button, a, input")) return;
     const el = target.closest<HTMLElement>(".bf");
     if (space()) return;
     if (!el) {
@@ -1063,26 +1063,26 @@ export function Board(props: {
     const d = data();
     if (!d) return props.page ?? "";
     if (d.area !== null) return d.area;
-    return d.pages.length ? "No area" : (d.project.split("/").pop() ?? d.project);
+    return d.pages.length ? "Unsorted" : (d.project.split("/").pop() ?? d.project);
   };
   // The page's coverage map, open under the summary until the user folds it, which holds
   // for every page.
   // The map is a popover from the page's line: closed until asked for.
   const [mapOpen, setMapOpen] = createSignal(false);
-  // Shortcuts are a bar until the user says they've got them, then a "?" (KEYS_KEY).
+  // Shortcuts are behind a "?", which says what it is until it has been opened once
+  // (KEYS_KEY).
   const [keysKnown, setKeysKnown] = createSignal(host().storage?.getItem(KEYS_KEY) === "known");
   const [keysOpen, setKeysOpen] = createSignal(false);
-  const gotKeys = () => {
+  createEffect(() => {
+    if (!keysOpen() || keysKnown()) return;
     setKeysKnown(true);
     host().storage?.setItem(KEYS_KEY, "known");
-  };
+  });
   const foldMap = () => setMapOpen(!mapOpen());
 
   const sinceLine = () => {
     const t = tour();
-    return t
-      ? `Since you were here: ${t.at + 1} of ${t.keys.length} ›`
-      : `Since you were here: ${changedFrames().length} changed ›`;
+    return t ? `${t.at + 1} of ${t.keys.length} ›` : `${changedFrames().length} changed ›`;
   };
 
   const ideaAsks = () => sections().reduce((n, s) => n + (s.kind === "grid" ? s.grid.open : 0), 0);
@@ -1328,36 +1328,30 @@ export function Board(props: {
     );
   };
 
-  // Over the canvas, one line: the page, how far along it is, what changed, and the map on
-  // demand. What waits on you is the pill above the canvas, not a count here.
+  // Over the canvas, one line: the page and what's new on it. How far along it is is the
+  // rail's count; the page's name opens its map. What waits on you is the pill above the
+  // canvas, not a count here.
   const pageLine = () => (
     <Show when={!ideasPage() && data()?.coverage} fallback={pageHead(false)}>
       {(c) => (
         <div class="bline">
-          <h2 title={data()?.description ?? undefined}>{pageName()}</h2>
-          <span class="bline-n">
-            <b>{c().ready}</b>
-            {` of ${c().of} ready`}
-          </span>
-          <Show when={tour() || changedFrames().length}>
-            <button
-              type="button"
-              class="bsince"
-              title="Fit to each frame changed since you last had it on screen"
-              onClick={step}
-            >
-              {sinceLine()}
-            </button>
+          <Show when={c().states.length} fallback={<h2>{pageName()}</h2>}>
+            <h2>
+              <button
+                type="button"
+                class="bline-map"
+                title={data()?.description ?? "Map"}
+                aria-expanded={mapOpen()}
+                aria-controls="board-map"
+                onClick={() => setMapOpen(!mapOpen())}
+              >
+                {pageName()}
+              </button>
+            </h2>
           </Show>
-          <Show when={c().states.length}>
-            <button
-              type="button"
-              class="bline-map"
-              aria-expanded={mapOpen()}
-              aria-controls="board-map"
-              onClick={() => setMapOpen(!mapOpen())}
-            >
-              Map
+          <Show when={tour() || changedFrames().length}>
+            <button type="button" class="bsince" title="Show changes" onClick={step}>
+              {sinceLine()}
             </button>
           </Show>
         </div>
@@ -1374,7 +1368,6 @@ export function Board(props: {
         when={ideasPage()}
         fallback={<Show when={data()?.description}>{(t) => <p>{t()}</p>}</Show>}
       >
-        <p>Explorations, each for a product design or what it would become.</p>
         <div class="bcov">
           <span>
             <b>{sections().length}</b>
@@ -1421,12 +1414,7 @@ export function Board(props: {
                 )}
               </For>
               <Show when={tour() || changedFrames().length}>
-                <button
-                  type="button"
-                  class="bsince"
-                  title="Fit to each frame changed since you last had it on screen"
-                  onClick={step}
-                >
+                <button type="button" class="bsince" title="Show changes" onClick={step}>
                   {sinceLine()}
                 </button>
               </Show>
@@ -1510,8 +1498,13 @@ export function Board(props: {
             {(e) => (
               <p class="bask-err" role="alert">
                 {`Couldn't send that: ${e()}`}
-                <button type="button" class="bhint-got" onClick={() => setAskError(null)}>
-                  OK
+                <button
+                  type="button"
+                  class="ib bhint-got"
+                  aria-label="Dismiss"
+                  onClick={() => setAskError(null)}
+                >
+                  <Icon name="close" />
                 </button>
               </p>
             )}
@@ -1544,89 +1537,68 @@ export function Board(props: {
               </button>
             </div>
           </Show>
-          <Show
-            when={!keysKnown()}
-            fallback={
-              <Show when={!coarse()}>
-                <button
-                  type="button"
-                  class="bkeys-btn"
-                  aria-label="Shortcuts"
-                  aria-expanded={keysOpen()}
-                  aria-controls="board-keys"
-                  title="Shortcuts (?)"
-                  onClick={() => setKeysOpen(!keysOpen())}
-                >
-                  ?
-                </button>
-                <Show when={keysOpen()}>
-                  <div class="bkeys" id="board-keys" role="dialog" aria-label="Shortcuts">
-                    <dl>
-                      <dt>
-                        <kbd>↵</kbd>
-                      </dt>
-                      <dd>Open, or double-click</dd>
-                      <dt>
-                        <kbd>⇧1</kbd>
-                      </dt>
-                      <dd>Fit the page</dd>
-                      <dt>
-                        <kbd>⇧2</kbd>
-                      </dt>
-                      <dd>Fit the selection</dd>
-                      <dt>
-                        <kbd>Space</kbd>
-                      </dt>
-                      <dd>Drag to pan, or scroll</dd>
-                      <dt>
-                        <kbd>⌘</kbd> scroll
-                      </dt>
-                      <dd>Zoom, or pinch</dd>
-                      <dt>
-                        <kbd>⌘/</kbd>
-                      </dt>
-                      <dd>Hide the interface</dd>
-                    </dl>
-                  </div>
-                </Show>
-              </Show>
-            }
+          <button
+            type="button"
+            class="bkeys-btn"
+            classList={{ first: !keysKnown() }}
+            aria-label="Shortcuts"
+            aria-expanded={keysOpen()}
+            aria-controls="board-keys"
+            title="Shortcuts (?)"
+            onClick={() => setKeysOpen(!keysOpen())}
           >
-            <Show
-              when={!coarse()}
-              fallback={
-                <div class="bhint touch">
-                  <span>Pinch to zoom · drag to pan · double-tap a frame to open</span>
-                  <button type="button" class="bhint-got" onClick={gotKeys}>
-                    Got it
-                  </button>
-                </div>
-              }
-            >
-              <div class="bhint">
-                <span>
-                  <kbd>dbl-click</kbd>/<kbd>↵</kbd> open
-                </span>
-                <span>
-                  <kbd>⇧1</kbd> fit page
-                </span>
-                <span>
-                  <kbd>⇧2</kbd> fit selection
-                </span>
-                <span>
-                  <kbd>Space</kbd>+drag or scroll to pan
-                </span>
-                <span>
-                  <kbd>⌘</kbd>+scroll or pinch to zoom
-                </span>
-                <span>
-                  <kbd>⌘/</kbd> hide UI
-                </span>
-                <button type="button" class="bhint-got" onClick={gotKeys}>
-                  Got it
-                </button>
-              </div>
+            ?
+            <Show when={!keysKnown()}>
+              <span>shortcuts</span>
             </Show>
+          </button>
+          <Show when={keysOpen()}>
+            <div class="bkeys" id="board-keys" role="dialog" aria-label="Shortcuts">
+              <Show
+                when={!coarse()}
+                fallback={
+                  <dl>
+                    <dt>Pinch</dt>
+                    <dd>Zoom</dd>
+                    <dt>Drag</dt>
+                    <dd>Pan</dd>
+                    <dt>Double-tap</dt>
+                    <dd>Open</dd>
+                  </dl>
+                }
+              >
+                <dl>
+                  <dt>
+                    <kbd>↵</kbd>
+                  </dt>
+                  <dd>Open, or double-click</dd>
+                  <dt>
+                    <kbd>⇧1</kbd>
+                  </dt>
+                  <dd>Fit the page</dd>
+                  <dt>
+                    <kbd>⇧2</kbd>
+                  </dt>
+                  <dd>Fit the selection</dd>
+                  <dt>
+                    <kbd>Space</kbd>
+                  </dt>
+                  <dd>Drag to pan, or scroll</dd>
+                  <dt>
+                    <kbd>⌘</kbd> scroll
+                  </dt>
+                  <dd>Zoom, or pinch</dd>
+                  <dt>
+                    <kbd>⌘/</kbd>
+                  </dt>
+                  <dd>Hide the interface</dd>
+                  <dt>
+                    <kbd>P</kbd>
+                  </dt>
+                  <dd>Present a flow: → ← walk it, R starts over, Esc ends</dd>
+                </dl>
+              </Show>
+            </div>
           </Show>
         </Show>
       </div>

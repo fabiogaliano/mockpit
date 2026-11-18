@@ -86,7 +86,7 @@ function SectionHead(props: { c: SectionCtx; s: () => Section }) {
               <button
                 type="button"
                 class="bchip bplay"
-                title="Present this flow (P): → and ← walk it, R starts over, Esc ends"
+                title="Present (P)"
                 onClick={() => c.present(f())}
               >
                 ▶ Present
@@ -107,7 +107,7 @@ function SectionHead(props: { c: SectionCtx; s: () => Section }) {
                     {(name) => (
                       <button
                         type="button"
-                        title={`Ask the agent to draw ${name}`}
+                        title="Ask to draw"
                         onClick={() => void c.askState(sc().slug, name)}
                       >
                         {name}
@@ -180,7 +180,7 @@ function SectionHead(props: { c: SectionCtx; s: () => Section }) {
                 <input
                   class="bfilter"
                   type="search"
-                  placeholder="Filter by name or description"
+                  placeholder="Filter"
                   aria-label={`Filter ${g().grid.title}`}
                   value={c.filters()[g().id] ?? ""}
                   onInput={(e) => c.setFilters({ ...c.filters(), [g().id]: e.currentTarget.value })}
@@ -192,7 +192,6 @@ function SectionHead(props: { c: SectionCtx; s: () => Section }) {
         <Match when={asKind(s(), "components")}>
           {(x) => chip(() => String(x().frames.length))}
         </Match>
-        <Match when={s().kind === "planned"}>{chip(() => "not drawn yet")}</Match>
       </Switch>
       <Show when={c.sectionAsks(s())}>
         {(n) => (

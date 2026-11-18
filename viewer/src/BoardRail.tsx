@@ -250,7 +250,7 @@ export function BoardRail(props: {
                     () => boardPath(props.project, { unsorted: true }),
                     () => props.onUnsorted,
                     <>
-                      {named(null, props.pages.length ? "No area" : "Screens")}
+                      {named(null, props.pages.length ? "Unsorted" : "Screens")}
                       {readyOf(c())}
                     </>,
                   )}

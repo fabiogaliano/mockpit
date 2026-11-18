@@ -1,8 +1,8 @@
 // The System page of the Library: what every render of the project wears, a tab per
 // family. Palettes are swatch rows with Default, Keep and Hide; the scales are one
 // sandboxed specimen (it needs the project's fonts); revisions have Restore. Every
-// change here is one revision and one reply to the project's agent, so the toast
-// says so and Undo sends the reverse. Values are data: swatches are element styles,
+// change here is one revision and one reply to the project's agent, so Undo on the
+// toast sends the reverse. Values are data: swatches are element styles,
 // names and notes text nodes.
 
 import { createMemo, createResource, createSignal, For, onCleanup, Show } from "solid-js";
@@ -94,7 +94,7 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
       await refetch();
       if (r.changes.length) {
         props.toast({
-          text: r.told ? `${words}. The agent will hear it.` : words,
+          text: words,
           ...(undo ? { undo } : {}),
         });
       }
@@ -110,8 +110,8 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
     const was = page()?.color.palettes.find((x) => x.status === "default");
     const undo =
       status === "default"
-        ? was && (() => void decide({ palette: was.id, status: "default" }, undefined, "Put back"))
-        : () => void decide({ palette: p.id, status: p.status }, undefined, "Put back");
+        ? was && (() => void decide({ palette: was.id, status: "default" }, undefined, "Restore"))
+        : () => void decide({ palette: p.id, status: p.status }, undefined, "Restore");
     const name = p.label || p.id;
     void decide(
       { palette: p.id, status },
@@ -126,8 +126,8 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
     const now = page()?.rev;
     void decide(
       { restore: rev },
-      now ? () => void decide({ restore: now }, undefined, `Back to r${now}`) : undefined,
-      `Restored r${rev}`,
+      now ? () => void decide({ restore: now }, undefined, `Back to v${now}`) : undefined,
+      `Restored v${rev}`,
     );
   }
   const toldOf = (rev: number) => page()?.told?.find((t) => t.rev === rev);
@@ -212,7 +212,7 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
       { id: "tokens", label: "Tokens", n: tokens().length, q: 0 },
       { id: "classes", label: "Classes", n: s.sheet?.classes.length ?? 0, q: sheetChecks().length },
       { id: "components", label: "Components", n: s.components.length, q: 0 },
-      { id: "revisions", label: "Revisions", n: s.revisions.length, q: 0 },
+      { id: "revisions", label: "Versions", n: s.revisions.length, q: 0 },
     ];
   };
 
@@ -224,14 +224,8 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
             <h1>System</h1>
           </div>
           <div class="home-lead">
-            <span>Every render in this project wears it</span>
             <Show when={s().revisions[0]}>
-              {(r) => (
-                <>
-                  <span class="sep">·</span>
-                  <span>Changed {timeAgo(r().at).toLowerCase()}</span>
-                </>
-              )}
+              {(r) => <span>Changed {timeAgo(r().at).toLowerCase()}</span>}
             </Show>
           </div>
           <div class="sys-tabs" role="tablist" aria-label="System">
@@ -371,7 +365,6 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
                   </p>
                 }
               >
-                <p class="sys-sub">From the sheet. Every render loads it.</p>
                 <div class="sys-cls">
                   <For each={s().sheet?.classes ?? []}>
                     {(c) => (
@@ -425,7 +418,7 @@ export function SystemPlace(props: { project: string; toast: (t: ToastLine) => v
               <For each={s().revisions}>
                 {(r, i) => (
                   <div class="sys-rev">
-                    <span class="r">r{r.rev}</span>
+                    <span class="r">v{r.rev}</span>
                     <span class="s">{r.summary.replace(/^by the user: /, "")}</span>
                     <Show
                       when={i() > 0 && !readonly()}

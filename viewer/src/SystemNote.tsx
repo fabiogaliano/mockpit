@@ -1,7 +1,7 @@
 // An agent changed the project's system while this design was on screen: every frame
-// already wears it, so the note names the change and offers the way back. See before
-// only looks (frames peek at the older revision through `sys`); Restore is the user's
-// own change, a new revision the agent hears.
+// already wears it, so the note is one line with the way back. What changed is a click
+// away, and the click only looks (frames peek at the older revision through `sys`); Undo
+// is the user's own change, a new revision the agent hears.
 
 import { createSignal, Show } from "solid-js";
 import { api } from "./api.ts";
@@ -32,8 +32,8 @@ export function SystemNote(props: { s: DesignScreenState }) {
       const meanwhile = agentChangesBetween(project, answering, done.rev);
       props.s.setToast({
         text: meanwhile.length
-          ? `Restored the system to r${rev}, which also undid what the agent changed meanwhile: ${meanwhile.join("; ")}.`
-          : `Restored the system to r${rev}. The agent will hear it.`,
+          ? `Restored v${rev} (also undid: ${meanwhile.join("; ")})`
+          : `Restored v${rev}`,
       });
     } catch (err) {
       props.s.setToast({ text: err instanceof Error ? err.message : "Couldn't restore it" });
@@ -49,33 +49,32 @@ export function SystemNote(props: { s: DesignScreenState }) {
             when={c().from > 0 && peekRev() === c().from}
             fallback={
               <>
-                <Show
-                  when={c().from > 0}
-                  fallback={
-                    <span class="changed-see">
-                      <i class="dot sys" />
-                      <span>{`System added: ${c().summary}`}</span>
-                    </span>
-                  }
+                <button
+                  type="button"
+                  class="changed-see"
+                  title={c().from > 0 ? `${c().summary} · See before` : c().summary}
+                  disabled={c().from === 0}
+                  onClick={() => setPeek(c().from)}
                 >
-                  <button type="button" class="changed-see" onClick={() => setPeek(c().from)}>
-                    <i class="dot sys" />
-                    <span>{`System changed: ${c().summary} · See before ›`}</span>
-                  </button>
+                  <i class="dot sys" />
+                  <span>System updated</span>
+                </button>
+                <Show when={c().from > 0}>
                   <button
                     type="button"
                     class="btn"
+                    title={`Back to v${c().from}`}
                     disabled={busy()}
                     onClick={() => void restore(c().project, c().from)}
                   >
-                    <span class="changed-name">{`Restore r${c().from}`}</span>
+                    <span class="changed-name">Undo</span>
                   </button>
                 </Show>
                 <button
                   type="button"
                   class="ib"
-                  aria-label="Keep the change"
-                  title="Keep the change"
+                  aria-label="Dismiss"
+                  title="Dismiss"
                   onClick={dismissSystemChange}
                 >
                   <Icon name="close" />
@@ -83,7 +82,7 @@ export function SystemNote(props: { s: DesignScreenState }) {
               </>
             }
           >
-            <span class="changed-name changed-text">{`Seeing r${c().from}, before the change`}</span>
+            <span class="changed-name changed-text">{`Seeing v${c().from}`}</span>
             <button type="button" class="btn" onClick={() => setPeek(null)}>
               <span class="changed-name">Back to now</span>
             </button>
@@ -93,7 +92,7 @@ export function SystemNote(props: { s: DesignScreenState }) {
               disabled={busy()}
               onClick={() => void restore(c().project, c().from)}
             >
-              <span class="changed-name">{`Restore r${c().from}`}</span>
+              <span class="changed-name">Undo</span>
             </button>
           </Show>
         </div>

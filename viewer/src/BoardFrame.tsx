@@ -186,7 +186,7 @@ export function FrameView(props: { c: FrameCtx; f: Frame }) {
           <Match when={f.missing || f.planned}>
             <span class="bf-ph">
               <span>{f.name}</span>
-              <small>{f.missing ? "Asked for" : "Planned"}</small>
+              <small>Planned</small>
             </span>
           </Match>
           <Match when={f.poster}>
@@ -243,7 +243,7 @@ export function TileView(props: { c: FrameCtx; f: Frame; label?: JSX.Element }) 
         >
           <Match when={f.missing || f.planned}>
             <span class="bf-ph">
-              <small>{f.missing ? "Asked for" : "Planned"}</small>
+              <small>Planned</small>
             </span>
           </Match>
           <Match when={f.poster}>

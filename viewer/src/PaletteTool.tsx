@@ -100,9 +100,6 @@ export function PaletteTool(props: { s: DesignScreenState }) {
                     )}
                   </For>
                 </div>
-                <Show when={c().oneMode}>
-                  <div class="pmenu-note">This palette has one mode.</div>
-                </Show>
                 <Show when={visible().length > 1}>
                   <span class="wpop-sep" />
                 </Show>
@@ -130,7 +127,7 @@ export function PaletteTool(props: { s: DesignScreenState }) {
                   )}
                 </For>
                 <span class="wpop-sep" />
-                <div class="pmenu-note">Only changes what you see here. Nothing is sent.</div>
+                <div class="pmenu-note">Preview only</div>
               </div>
             </div>
           </Show>
