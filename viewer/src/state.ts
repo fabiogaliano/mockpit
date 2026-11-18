@@ -1,6 +1,6 @@
 // The design screen's state: the design as the server last sent it, the user's
-// draft, and the view (state and version on stage, question, canvas tool,
-// selection, preview, drawers; what is on screen is one store, onScreen.ts). Components
+// draft (held and sent by draft.ts), and the view (state and version on stage, question,
+// canvas tool, selection, preview, drawers; what is on screen is one store, onScreen.ts). Components
 // read signals from here and call its actions; nothing else talks to the API for this screen.
 
 import type { ToastLine } from "./toast.tsx";
@@ -27,10 +27,8 @@ import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
 import {
   api,
   type CommentRow,
-  type DraftInput,
   type DesignDetail,
   type LookView,
-  type SendRecipients,
   subscribe,
   type AlternativeView,
   watchDesign,
@@ -49,7 +47,6 @@ import {
   defaultDeviceWidth,
   DESKTOP_W,
   draftIsEmpty,
-  emptyDraft,
   frameKey,
   frameVersion,
   type KnobContext,
@@ -92,6 +89,7 @@ import {
   splitLabel,
 } from "./logic.ts";
 import { createDesignData } from "./designData.ts";
+import { createDraft } from "./draft.ts";
 import { createMarks } from "./marks.ts";
 import { createOnScreen, type PanelTab, type Preview, type Tool } from "./onScreen.ts";
 import { createSheet } from "./sheet.ts";
@@ -99,8 +97,6 @@ import { createStills } from "./stills.ts";
 import { cameFrom, designPath, navigate, type ScreenOpen } from "./route.ts";
 import { setTheme } from "./theme.ts";
 import { coarse, phoneLayout, win } from "./viewport.ts";
-
-const RECIPIENTS_MS = 10_000;
 
 export type { PanelTab, Preview, Tool } from "./onScreen.ts";
 export type AskField = "other" | "comment";
@@ -127,11 +123,6 @@ export interface Stop {
   state: string | null;
   to: number;
 }
-
-const SAVE_MS = 300;
-// How long a Send gets to reach a live agent before the user is offered a way to
-// wake it. A held watch takes it in moments; this only has to outlast a slow network.
-const BEAT_MS = 4000;
 
 // Where this browser last left a design. Versions stay out: a revision that
 // arrives while you are away must be what you come back to.
@@ -179,7 +170,6 @@ export function createDesignScreen(
     writeLook,
   } = createDesignData();
   const [comments, setComments] = createSignal<CommentRow[]>([]);
-  const [draft, setDraftSignal] = createSignal<DraftInput | null>(null);
   const view = createOnScreen();
   const [activeState, setActiveState] = view.state;
   const [chosenAlternative, setChosenAlternative] = view.chosen;
@@ -252,12 +242,6 @@ export function createDesignScreen(
     toastGoesTo = to;
     showToast(null);
   };
-  const [sent, setSent] = createSignal(false);
-  // The reply the last Send stored, and whether a beat has passed since: an
-  // undelivered reply after that beat, with no watcher, earns the line to wake the agent.
-  const [sentId, setSentId] = createSignal<string | null>(null);
-  const [beat, setBeat] = createSignal(false);
-  const [sending, setSending] = createSignal(false);
   const [flagged, setFlagged] = createSignal<string[]>([]);
   // askId → "Other…" ticked; a write-in counts once it has text, so until then
   // the tick lives only here.
@@ -281,6 +265,16 @@ export function createDesignScreen(
   const [attachStatus, setAttachStatus] = createSignal("");
   // The last reaction tap, for a polite live region.
   const [reactStatus, setReactStatus] = createSignal("");
+  const outbox = createDraft({
+    design,
+    setDesign,
+    latest,
+    designId: () => designId,
+    comments,
+    loadComments,
+    setError,
+  });
+  const { draft, writeDraft, boundVersion, sending, sent } = outbox;
   // One canvas tool at a time. Mark (D11): a click on the stage leaves a
   // comment there. Try: taps, scrolls and motion go to the design itself, as a
   // prototype. Tune: the parts are outlined and a tap opens one's knobs.
@@ -318,12 +312,6 @@ export function createDesignScreen(
   // The stage frames' latest parts reports, keyed by frameKey(state, alternative).
   const [reports, setReports] = createStore<Record<string, PartsReport | undefined>>({});
 
-  // Q6: a draft made on an older version keeps the stage on that version until
-  // the user chooses to view the new one.
-  const boundVersion = createMemo(() => {
-    const d = draft();
-    return d && !draftIsEmpty(d) && d.version < latest() ? d.version : null;
-  });
   const stageVersion = createMemo(() => boundVersion() ?? latest());
   // The agent's asks plus the built-in "Which alternative?" where the agent left a
   // choice between alternatives unasked; everything below reads asks from here.
@@ -754,48 +742,6 @@ export function createDesignScreen(
     writeDraft((d) => ({ ...d, borrowed: kept }));
   });
 
-  // --- draft writes: local at once, server after a short pause ---
-
-  let saveTimer = 0;
-  let lastLocalWrite = 0;
-  let pending: DraftInput | null = null;
-  async function flush() {
-    const m = design();
-    const d = pending;
-    pending = null;
-    host().window.clearTimeout(saveTimer);
-    if (!m || !d) return;
-    try {
-      await api.putDraft(m.id, d);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-  function writeDraft(fn: (d: DraftInput) => DraftInput) {
-    const base = draft() ?? emptyDraft(boundVersion() ?? latest());
-    const next = fn({
-      ...base,
-      answers: { ...base.answers },
-      borrowed: { ...base.borrowed },
-      tunedOn: Object.fromEntries(Object.entries(base.tunedOn).map(([k, v]) => [k, { ...v }])),
-      comments: [...base.comments],
-      others: { ...base.others },
-      askComments: { ...base.askComments },
-      otherImages: { ...base.otherImages },
-      askCommentImages: { ...base.askCommentImages },
-      answerComments: { ...base.answerComments },
-    });
-    batch(() => {
-      setDraftSignal(next);
-      setSent(false);
-      setError(null);
-    });
-    pending = next;
-    lastLocalWrite = Date.now();
-    host().window.clearTimeout(saveTimer);
-    saveTimer = host().window.setTimeout(flush, SAVE_MS);
-  }
-
   // --- loading and the live feed ---
 
   let designId: string | null = null;
@@ -874,28 +820,6 @@ export function createDesignScreen(
       }
     });
   }
-  async function loadDraft() {
-    const id = designId;
-    if (!id) return;
-    const { draft: d } = await api.draft(id).catch(() => ({ draft: null }));
-    if (Date.now() - lastLocalWrite < 1500 || pending) return;
-    setDraftSignal(
-      d
-        ? {
-            version: d.version,
-            answers: d.answers,
-            borrowed: d.borrowed,
-            tunedOn: d.tunedOn ?? {},
-            comments: d.comments,
-            others: d.others ?? {},
-            askComments: d.askComments ?? {},
-            otherImages: d.otherImages ?? {},
-            askCommentImages: d.askCommentImages ?? {},
-            answerComments: d.answerComments ?? {},
-          }
-        : null,
-    );
-  }
   async function loadComments() {
     const id = designId;
     if (!id) return;
@@ -905,14 +829,14 @@ export function createDesignScreen(
 
   async function start() {
     await loadDesign();
-    await Promise.all([loadDraft(), loadComments(), loadRecipients()]);
+    await Promise.all([outbox.loadDraft(), loadComments(), outbox.loadRecipients()]);
     const m = design();
     if (!m) return;
     // Open on the first question still owed, on the state it is about; a draft
     // that already answers everything resumes on its first answer, one tap
     // from Send.
     // A pick made while this loaded keeps the user where they made it.
-    if (lastLocalWrite) return;
+    if (outbox.wroteHere()) return;
     if (question && openQuestion(question, true)) return;
     // Only an agent's question outranks the memory; a link is never overruled.
     const asked = firstOwed((a) => !isBuiltinAsk(a));
@@ -929,7 +853,11 @@ export function createDesignScreen(
     goQuestion(at?.to ?? 0, { quiet: true, ...(at ? { state: at.state } : {}) });
   }
 
-  const refetch = coalesce({ design: loadDesign, draft: loadDraft, comments: loadComments });
+  const refetch = coalesce({
+    design: loadDesign,
+    draft: outbox.loadDraft,
+    comments: loadComments,
+  });
   const stop = subscribe(
     (e) => {
       const id = designId;
@@ -958,7 +886,7 @@ export function createDesignScreen(
           break;
         case "agent-called":
           // Only matters to a Send it could be working on.
-          if (lastSend()?.sessionId === e.sessionId) refetch("comments");
+          if (outbox.lastSend()?.sessionId === e.sessionId) refetch("comments");
           break;
         case "comment-deleted":
         case "comment-delivered":
@@ -991,7 +919,6 @@ export function createDesignScreen(
     disposed = true;
     stop();
     unwatch();
-    if (pending) void flush();
   });
 
   // --- navigation inside the screen ---
@@ -1666,71 +1593,9 @@ export function createDesignScreen(
     });
   }
 
-  const sentReply = createMemo(() => {
-    const id = sentId();
-    return (sent() && id && comments().find((c) => c.id === id)) || null;
-  });
-  // Whether an agent has the last Send yet; null when nothing was sent here.
-  const sentDelivered = () => (sent() && sentId() ? (sentReply()?.delivered ?? false) : null);
-  const beatPassed = () => beat() && sentDelivered() === false;
-  const agentListening = () => !!sentReply()?.listening;
-
-  // Who else could hear a Send, while the agent that asked can't. A watcher opening
-  // or closing sends no event, so this is read on a timer.
-  const [recipients, setRecipients] = createSignal<SendRecipients>({
-    default: null,
-    recipients: [],
-  });
-  const [pickedTo, setPickedTo] = createSignal<string | null>(null);
-  const sendTo = createMemo(() => {
-    const { default: fallback, recipients: list } = recipients();
-    return list.find((r) => r.id === pickedTo()) ?? list.find((r) => r.id === fallback) ?? null;
-  });
-  // Only a pick still on offer is sent; otherwise the server applies the rule the row showed.
-  const toField = () => {
-    const to = pickedTo();
-    return to && recipients().recipients.some((r) => r.id === to) ? { to } : {};
-  };
-  async function loadRecipients() {
-    const id = designId;
-    if (!id || readonly() || host().window.document.hidden) return;
-    const next = await api.recipients(id).catch(() => null);
-    if (next && id === designId) setRecipients(next);
-  }
-  const recipientsTimer = host().window.setInterval(() => void loadRecipients(), RECIPIENTS_MS);
-  onCleanup(() => host().window.clearInterval(recipientsTimer));
-  let beatTimer = 0;
-  onCleanup(() => host().window.clearTimeout(beatTimer));
-  // Read again at the beat: what was read straight after the Send may have caught a
-  // watcher between two polls, or one that has since gone.
-  function armBeat() {
-    setBeat(false);
-    host().window.clearTimeout(beatTimer);
-    beatTimer = host().window.setTimeout(() => {
-      setBeat(true);
-      void loadComments().catch(() => {});
-    }, BEAT_MS);
-  }
-  // The last thing the user sent that an agent owes an answer to, read from the same
-  // comments as the Thread, so the word and the Thread can't disagree. A move from
-  // a cover's menu or a close isn't one.
-  const lastSend = createMemo(() => {
-    const list = comments();
-    for (let i = list.length - 1; i >= 0; i--) {
-      const c = list[i];
-      if (c.kind !== "reply" || !c.payload || c.payload.edited || c.payload.archived) continue;
-      return {
-        sessionId: c.sessionId,
-        at: c.createdAt,
-        delivered: c.delivered,
-        ...(c.calledAt ? { calledAt: c.calledAt } : {}),
-      };
-    }
-    return null;
-  });
   // The newest version published since the Send, in any state.
   const sinceSend = createMemo(() => {
-    const since = sentReply()?.createdAt;
+    const since = outbox.sentReply()?.createdAt;
     if (!since) return null;
     let newest: (VersionStep & { state: string | null }) | null = null;
     for (const state of states()) {
@@ -1750,60 +1615,38 @@ export function createDesignScreen(
   }
 
   async function send(extra: { verdict?: ReplyVerdict; text?: string } = {}) {
-    const m = design();
-    if (!m || sending()) return;
-    await flush();
-    const d = draft() ?? emptyDraft(stageVersion());
-    setSending(true);
-    try {
-      // A question inside a swap that isn't chosen doesn't apply: its answer stays out.
-      const asleep = new Set(
-        asks()
-          .filter((a) => dormantOf(a))
-          .map((a) => a.id),
-      );
-      const keep = <T>(rec: Record<string, T>) =>
-        Object.fromEntries(Object.entries(rec).filter(([id]) => !asleep.has(id)));
-      const { reply } = await api.reply(m.id, {
+    // A question inside a swap that isn't chosen doesn't apply: its answer stays out.
+    const asleep = new Set(
+      asks()
+        .filter((a) => dormantOf(a))
+        .map((a) => a.id),
+    );
+    const keep = <T>(rec: Record<string, T>) =>
+      Object.fromEntries(Object.entries(rec).filter(([id]) => !asleep.has(id)));
+    const went = await outbox.submit(
+      (d) => ({
         ...d,
         answers: keep(d.answers),
         others: keep(d.others),
         borrowed: allowedMix(d.borrowed),
         ...extra,
-        ...toField(),
         ...(activeAlternative()
           ? { shown: { state: activeState(), alternative: activeAlternative()!.alternative } }
           : {}),
-      });
-      // The draft holds the picks until the design carrying them as sent answers
-      // arrives: dropping it first would put the stage on another alternative for
-      // one fetch (a flash of a different frame fading in, then back).
-      const [next] = await Promise.all([
-        api.design(m.id).catch(() => null),
-        loadComments().catch(() => {}),
-      ]);
-      batch(() => {
-        if (next) setDesign(next);
-        setDraftSignal(null);
-        setSent(true);
-        setSentId(reply.id);
+      }),
+      () => {
         setPreview(null);
         setTapped(null);
-      });
-      setMixTouched(false);
-      setMixDropped([]);
-      setOtherOpen({});
-      setOtherStash({});
-      setFoldedSignal({});
-      setRevising({});
-      record();
-      armBeat();
-      void loadRecipients();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSending(false);
-    }
+      },
+    );
+    if (!went) return;
+    setMixTouched(false);
+    setMixDropped([]);
+    setOtherOpen({});
+    setOtherStash({});
+    setFoldedSignal({});
+    setRevising({});
+    record();
   }
 
   // --- the flow: question → Send → the next design ---
@@ -1987,7 +1830,7 @@ export function createDesignScreen(
     const m = design();
     if (!m || !ref || readonly()) return;
     try {
-      const used = await api.use(m.id, { state: activeState(), ...ref, ...toField() });
+      const used = await api.use(m.id, { state: activeState(), ...ref, ...outbox.toField() });
       await Promise.all([loadDesign(), loadComments()]);
       showVersion(ref);
       const target = design()?.target?.title ?? used.usedIn?.target;
@@ -2121,55 +1964,7 @@ export function createDesignScreen(
       return undefined;
     }
   }
-  // A steer (more like this, a borrow) has no Send to wait for: it is a reply of its
-  // own. It goes alone — never with the answers, tuning or notes the user is still
-  // composing, which a steer must not decide — and that draft is left as it was.
-  // True once the reply is stored, so a "sent" never shows for one that wasn't.
-  async function sendAlone(body: {
-    comments?: DraftInput["comments"];
-    text?: string;
-    more?: { ask: string; note?: string; like?: string };
-    answers?: Record<string, AskAnswer>;
-    update?: { ask: string; option: string };
-  }): Promise<boolean> {
-    const m = design();
-    if (!m || readonly()) return false;
-    await flush();
-    const keep = draft();
-    try {
-      const { reply } = await api.reply(m.id, {
-        ...emptyDraft(boundVersion() ?? latest()),
-        comments: body.comments ?? [],
-        ...(body.answers ? { answers: body.answers } : {}),
-        ...(body.text ? { text: body.text } : {}),
-        ...(body.more ? { more: body.more } : {}),
-        ...(body.update ? { update: body.update } : {}),
-        ...toField(),
-      });
-      // Every reply clears the stored draft; put the user's back before the
-      // design is fetched again, so the screen never shows it gone. What this reply
-      // answered is settled, so its drafted picks don't come back.
-      if (keep) {
-        const left = { ...keep, answers: { ...keep.answers } };
-        for (const id of Object.keys(body.answers ?? {})) delete left.answers[id];
-        await api.putDraft(m.id, left);
-      }
-      const [next] = await Promise.all([
-        api.design(m.id).catch(() => null),
-        loadComments().catch(() => {}),
-      ]);
-      batch(() => {
-        if (next) setDesign(next);
-        setSent(true);
-        setSentId(reply.id);
-      });
-      armBeat();
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    }
-  }
+  const sendAlone = outbox.sendAlone;
   // What each question offered when more answers were asked for, to tell the new ones.
   const [askedMore, setAskedMore] = createSignal<Record<string, string[]>>({});
   async function askMore(ask: Ask, note: string, like?: AskOption): Promise<boolean> {
@@ -2716,14 +2511,14 @@ export function createDesignScreen(
     cardMin,
     setCardMin,
     sent,
-    sentReply,
-    sentDelivered,
-    beatPassed,
-    agentListening,
-    recipients,
-    sendTo,
-    setPickedTo,
-    lastSend,
+    sentReply: outbox.sentReply,
+    sentDelivered: outbox.sentDelivered,
+    beatPassed: outbox.beatPassed,
+    agentListening: outbox.agentListening,
+    recipients: outbox.recipients,
+    sendTo: outbox.sendTo,
+    setPickedTo: outbox.setPickedTo,
+    lastSend: outbox.lastSend,
     sinceSend,
     seeSinceSend,
     sending,
