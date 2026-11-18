@@ -93,8 +93,8 @@ export function QuestionCard(props: {
                   <button
                     type="button"
                     class="qgrab"
-                    aria-label="Hide the question"
-                    title="Hide the question to see the design; swipe down"
+                    aria-label="Hide question"
+                    title="Hide question"
                     onPointerDown={grabDown}
                     onPointerMove={grabMove}
                     onPointerUp={grabUp}
@@ -194,10 +194,10 @@ export function QuestionCard(props: {
                           )}
                         </Show>
                         <Show when={s.dormantOf(ask())}>
-                          <span class="flag">inactive</span>
+                          <span class="flag">Inactive</span>
                         </Show>
                         <Show when={s.flagged().includes(ask().id)}>
-                          <span class="flag">{`your pick is gone in ${s.arrived()?.name ?? "the new version"}`}</span>
+                          <span class="flag">{`Answer gone in ${s.arrived()?.name ?? "the new version"}`}</span>
                         </Show>
                       </span>
                     </Show>
@@ -296,10 +296,10 @@ export function PhoneBar(props: { s: DesignScreenState; ref?: (el: HTMLElement) 
           classList={{ q: waiting(), on: up() }}
           aria-pressed={up()}
           disabled={!waiting() && !up()}
-          title={waiting() || up() ? undefined : "Nothing waits on you here"}
+          title={waiting() || up() ? undefined : "Nothing to answer"}
           onClick={() => (up() ? s.setCardMin(true) : s.goOwed())}
         >
-          <Show when={n()} fallback={waiting() ? "Pick one" : "Question"}>
+          <Show when={n()} fallback="Question">
             {(k) => `Question · ${k()}`}
           </Show>
         </button>

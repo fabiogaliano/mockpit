@@ -230,9 +230,7 @@ export function AddCandidates(props: {
             </p>
           </Show>
           <Show when={tree.error}>
-            <p class="slpick-none">
-              Couldn't load this project's designs. Close this and try again.
-            </p>
+            <p class="slpick-none">Couldn't load. Try again.</p>
           </Show>
           <div class="slpick-grid">
             <For each={cards()}>
@@ -248,9 +246,7 @@ export function AddCandidates(props: {
             </For>
           </div>
           <Show when={query() && matches().length > MATCHES_SHOWN}>
-            <p class="slpick-none">
-              {`Showing ${MATCHES_SHOWN} of ${matches().length}. Type more of the name to narrow it.`}
-            </p>
+            <p class="slpick-none">{`${MATCHES_SHOWN} of ${matches().length} shown`}</p>
           </Show>
         </div>
       </div>

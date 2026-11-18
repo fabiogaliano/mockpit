@@ -251,7 +251,7 @@ function JumpBox(props: { onClose: () => void }) {
             aria-activedescendant={hits()?.length ? `jump-${active()}` : undefined}
             aria-autocomplete="list"
             aria-label="Search titles, states, alternatives, descriptions, questions and areas"
-            placeholder="Titles, states, alternatives, descriptions, questions"
+            placeholder="Search"
             autocomplete="off"
             spellcheck={false}
             value={q()}
@@ -315,7 +315,7 @@ function JumpBox(props: { onClose: () => void }) {
           </For>
           <Show when={nothing()}>
             <div class="jump-none">
-              <p>{`Nothing called “${q().trim()}”, in any project.`}</p>
+              <p>No matches</p>
               <button type="button" class="btn" onClick={copyPhrase}>
                 {copied() === "yes"
                   ? "Copied"

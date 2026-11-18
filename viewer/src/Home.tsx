@@ -633,7 +633,7 @@ function Fold(props: {
 
 type Heading = "h2" | "h3" | "h4";
 
-// Rows under their area headings, the unnamed under "No area"; with no area named,
+// Rows under their area headings, the unnamed under "Unsorted"; with no area named,
 // just the rows, as if areas didn't exist.
 function Areas<T>(props: {
   groups: AreaGroup<T>[];
@@ -661,7 +661,7 @@ function Areas<T>(props: {
                 component={`h${props.level}` as Heading}
                 class={props.class ? `${props.class}-hd` : "home-area-hd"}
               >
-                {area ?? props.rest ?? "No area"}
+                {area ?? props.rest ?? "Unsorted"}
               </Dynamic>
               <Show when={area !== null && props.describe?.(area)}>
                 {(line) => <p class="home-area-desc">{line()}</p>}

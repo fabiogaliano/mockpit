@@ -109,8 +109,8 @@ export function Recent(props: {
         </nav>
       </Show>
       <Show when={props.show === "decisions"}>
-        <p class="decisions-lead">
-          Written from what you sent. Agents read this first, and treat it as settled.
+        <p class="decisions-lead" title="Agents read this first, and treat it as settled.">
+          Written from what you sent
         </p>
       </Show>
       <For each={days()}>

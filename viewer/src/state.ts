@@ -14,7 +14,6 @@ import {
   type AskOption,
   askAnswered,
   type HiddenAnswer,
-  isFlowIdea,
   isLive,
   recommendedAlternative,
   type KnobValue,
@@ -1948,7 +1947,7 @@ export function createDesignScreen(
     (was) => keepSame(was, versionSteps(alternatives(), activeState()), stepKey),
     [],
   );
-  // "Dark #2", or "#2" while the state on stage has one alternative.
+  // "Dark v2", or "v2" while the state on stage has one alternative.
   const nameOf = (ref: VersionRef) =>
     versionName(ref, alternatives().filter((v) => v.state === activeState()).length > 1);
   // The exact version on stage.
@@ -2010,21 +2009,7 @@ export function createDesignScreen(
       await Promise.all([loadDesign(), loadComments()]);
       showVersion(ref);
       const target = design()?.target?.title ?? used.usedIn?.target;
-      const apply = used.followUps?.apply;
-      const lacks = apply?.states.missing.map((x) => x ?? m.title).join(", ");
-      setToast({
-        text: used.usedIn?.created
-          ? `${nameOf(ref)} is in use, and made ${target}`
-          : used.usedIn?.copies.some((c) => c.added)
-            ? `${nameOf(ref)} is in use, added to ${target} beside what it had`
-            : used.usedIn
-              ? `${nameOf(ref)} is in use in ${target}`
-              : apply
-                ? `${nameOf(ref)} is in use. ${target} has no ${lacks}, so the agent brings it over`
-                : isFlowIdea(m)
-                  ? `${nameOf(ref)} is in use. The agent places the flow on screens`
-                  : `${nameOf(ref)} is in use`,
-      });
+      setToast({ text: target ? `Using ${nameOf(ref)} in ${target}` : `Using ${nameOf(ref)}` });
     } catch (e) {
       fail(e);
     }

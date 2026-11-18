@@ -171,7 +171,7 @@ export function FullView(props: {
             <button
               type="button"
               class="full-zoom"
-              aria-label={`Zoomed to ${percent()}%. Fit to screen`}
+              aria-label={`${percent()}% · Fit`}
               onClick={() => setZoom(null)}
             >
               {`${percent()}%`}

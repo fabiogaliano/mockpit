@@ -42,7 +42,7 @@ export function createDecisionEdits(
   async function remove(line: DecisionLine) {
     if (await change({ id: line.id, removed: true }, "Couldn't remove it")) {
       setToast({
-        text: "Line removed. Agents won't read it.",
+        text: "Line removed",
         undo: () => {
           setToast(null);
           void change({ id: line.id, reset: true }, "Couldn't bring it back");
@@ -250,7 +250,7 @@ function Editor(props: {
         </button>
         <Show when={props.edited}>
           <button type="button" class="decisions-reset" onClick={props.onReset}>
-            Back to mockpit's wording
+            Reset wording
           </button>
         </Show>
       </div>

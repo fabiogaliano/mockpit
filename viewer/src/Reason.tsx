@@ -47,7 +47,7 @@ export function Reason(props: {
         class="reason-in"
         type="text"
         maxLength={280}
-        placeholder="Why? One line, if you like"
+        placeholder="Why? (optional)"
         aria-label="Why"
         value={said() ?? ""}
         ref={(el) => queueMicrotask(() => el.focus())}

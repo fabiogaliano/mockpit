@@ -134,7 +134,7 @@ export function albumInside(node: TreeNode): string {
 export type TurnKind = DesignStatus["kind"] | "idle" | "inDesign";
 
 const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
-  draft: "Draft to send",
+  draft: "Unsent",
   changed: "New version",
   unseen: "Not seen yet",
   working: "Agent working",
@@ -142,7 +142,7 @@ const TURN_TEXT: Record<Exclude<TurnKind, "open">, string> = {
   // Delivered, with no call from the agent since: all that can honestly be said.
   sent: "Sent",
   exploring: "Exploring",
-  idle: "Nothing waiting",
+  idle: "Nothing to answer",
   inDesign: "In design",
 };
 

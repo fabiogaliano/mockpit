@@ -325,10 +325,7 @@ function BorrowBox(props: { s: DesignScreenState; to: VersionStep; onDone: () =>
     props.onDone();
   };
   return (
-    <Show
-      when={others().length}
-      fallback={<p class="altacts-none">There is no other alternative here to borrow from.</p>}
-    >
+    <Show when={others().length} fallback={<p class="altacts-none">Nothing to borrow from</p>}>
       <form
         class="borrowbox"
         onSubmit={(e) => {
@@ -367,7 +364,7 @@ function BorrowBox(props: { s: DesignScreenState; to: VersionStep; onDone: () =>
           ref={(el) => (input = el)}
           value={text()}
           onInput={(e) => setText(e.currentTarget.value)}
-          placeholder="What should it take? e.g. the face"
+          placeholder="Which part?"
           aria-label={`What ${s.nameOf(props.to)} should take`}
           autocomplete="off"
         />

@@ -133,7 +133,7 @@ export function BuiltFrom(props: {
           <h3>Parts</h3>
           <Show when={tuned()}>
             <div class="tunedbar" role="status">
-              <span>{`${tuned()} tuned · goes with your next answer`}</span>
+              <span>{`${tuned()} tuned`}</span>
               <button type="button" onClick={s.resetTuned}>
                 Reset
               </button>

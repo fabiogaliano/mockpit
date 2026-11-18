@@ -12,7 +12,7 @@ import type { DesignScreenState } from "./state.ts";
 const FOLDED = 2;
 
 function subline(r: SendRecipient): string {
-  if (r.asked) return "Asked this · hears it on its next call";
+  if (r.asked) return "Asked this";
   if (r.designs.length === 0) return "No designs yet";
   const more = r.designs.length - FOLDED;
   return `On ${r.designs.slice(0, FOLDED).join(", ")}${more > 0 ? ` and ${more} more` : ""}`;

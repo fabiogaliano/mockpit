@@ -98,7 +98,7 @@ export function QuestionDot(props: { s: DesignScreenState }) {
       type="button"
       class={`qdot ${spot().side} ${spot().at}`}
       aria-label={n() === 1 ? "Show the question" : `Show the questions, ${n()} waiting`}
-      title="Show the question; drag to move"
+      title="Show question"
       ref={(x) => (el = x)}
       onPointerDown={onDown}
       onPointerMove={onMove}

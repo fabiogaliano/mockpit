@@ -150,7 +150,7 @@ export function CardMenu(props: {
           </For>
           <Show when={area() !== null}>
             <button type="button" role="menuitem" onClick={() => void edit({ area: null })}>
-              No area
+              Unsorted
             </button>
           </Show>
           <form

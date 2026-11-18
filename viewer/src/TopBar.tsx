@@ -48,9 +48,9 @@ function BellIcon(props: { bell: Bell }) {
 
 const bellTitle: Record<Bell, string> = {
   hidden: "",
-  off: "Notify me when the agent needs me",
-  on: "Notifications on. Click to turn off",
-  blocked: "Notifications are blocked for this site. Allow them in the browser's site settings",
+  off: "Notify me",
+  on: "Notifications on",
+  blocked: "Blocked in browser settings",
 };
 
 // The bell and the theme switch, wherever the screen keeps its chrome.

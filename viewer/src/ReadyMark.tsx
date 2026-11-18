@@ -25,10 +25,10 @@ export function ReadyMark(props: { s: DesignScreenState }) {
   const title = () => {
     const what =
       word() === "Changed"
-        ? "Changed since it was marked Ready. Mark what shows now Ready"
+        ? "Changed since Ready. Click to mark Ready"
         : word() === "Ready"
-          ? "Ready: this is the version. Take the mark off"
-          : "Mark Ready: this is the version";
+          ? "Ready. Click to unmark"
+          : "Mark Ready";
     return notReady().length ? `${what}. Not Ready inside: ${notReady().join(", ")}` : what;
   };
   return (

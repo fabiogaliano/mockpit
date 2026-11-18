@@ -325,7 +325,7 @@ export function SaveMenu(props: {
           <p class="save-none">Loading designs…</p>
         </Show>
         <Show when={tree() === null}>
-          <p class="save-none">Couldn't load the other designs. Close this and try again.</p>
+          <p class="save-none">Couldn't load. Try again.</p>
         </Show>
         <Show when={tree() && q() && !designs().length && !shortlists().length}>
           <p class="save-none">{`Nothing called "${query().trim()}"`}</p>
