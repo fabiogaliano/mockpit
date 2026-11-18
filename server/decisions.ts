@@ -166,12 +166,14 @@ export function decisionsFor(
   posts: Post[],
   reply: Pick<Reply, "answers" | "tuned" | "tunedOn" | "borrowed">,
 ): Decisions | null {
-  const values = replyValues(reply, design);
   const states: Record<string, StateDecision> = {};
   const slotPaths = new Set<string>();
+  // The knobs beside the states are the first decided frame's, as the states name it.
+  let values: Record<string, KnobValue> | null = null;
   for (const state of design.states.length ? design.states : [null]) {
     const post = postForState(posts, state, design);
     if (!post) continue;
+    values ??= replyValues(reply, design, post.alternative);
     const slots = slotsInSurfaces(post.surfaces);
     for (const s of slots) slotPaths.add(s.part);
     states[state ?? ""] = {
@@ -184,7 +186,9 @@ export function decisionsFor(
       ),
     };
   }
-  const knobs = Object.fromEntries(Object.entries(values).filter(([p]) => !slotPaths.has(p)));
+  const knobs = Object.fromEntries(
+    Object.entries(values ?? replyValues(reply, design)).filter(([p]) => !slotPaths.has(p)),
+  );
   if (!slotPaths.size && !Object.keys(knobs).length) return null;
   return { states, knobs };
 }
