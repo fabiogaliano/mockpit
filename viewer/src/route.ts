@@ -66,9 +66,9 @@ export type Route =
       flow: string | null;
       // A question Needs you named, until Focus has gone to it.
       question: string | null;
-      // Open on the sheet (sheet.ts): the knob across, null for the looks, and the one
-      // frame down if not all of them.
-      sheet: { knob: string | null; one: string | null } | null;
+      // Open on the sheet (sheet.ts): the knob across, null for the looks, the one
+      // frame down if not all of them, and the focused value when inspecting a cell.
+      sheet: { knob: string | null; one: string | null; value: string | null } | null;
     }
   | { screen: "missing" };
 
@@ -137,6 +137,7 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
           ? {
               knob: [SHEET_LOOKS, ""].includes(q.get("sheet")!) ? null : q.get("sheet"),
               one: q.get("one") || null,
+              value: q.get("value") || null,
             }
           : null,
       };
@@ -274,6 +275,15 @@ export function dropSelection(path: string) {
 // The current entry's address changes with no step in history.
 export function replaceUrl(path: string) {
   host().history.replaceState(host().history.state, "", path);
+  setRoute(read());
+}
+
+// Push a step within Focus (One ↔ Sheet, knob tab switches, Sheet ↔ Cell), keeping
+// Focus's history state (`focus: true` and `from`) so Back/Forward stays in Focus.
+export function pushUrl(path: string) {
+  const st = host().history.state;
+  const entry = st && typeof st === "object" ? { ...st } : { focus: true, ...cameFrom() };
+  host().history.pushState(entry, "", path);
   setRoute(read());
 }
 

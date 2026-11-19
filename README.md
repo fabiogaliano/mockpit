@@ -43,16 +43,21 @@ mockpit feedback
 
 ## What you can do with a design
 
-- **Spread** a knob: every frame in every value, on one sheet.
-- **Pick** as many frames as you like and star one **Main**. Picks save at once; nothing is
-  sent.
-- **Archive** what you don't want, with a reason if you like. The agent won't offer it again.
+- **Spread** a knob: every frame in every value, on one sheet. Click any cell to inspect it
+  full-size beside a live choice panel or **Side by side** finalist grid that shrinks as you
+  cull options.
+- **Main, Bookmark & Delete**: star a **Main** (`M`) per frame and knob (each frame remembers
+  its combo across knobs), **Bookmark** (`K`) runners-up, and **Delete** (`X`) options you
+  don't want — they vanish at once (with Undo) and stay silently ruled out for the agent.
+- **Pick one or Keep all (Sets)**: flip any idea between picking one winner or keeping all
+  items as a Set (like a collection of hero illustrations that all ship), each styled with its
+  own `★ Main` per knob.
 - **Save a look**, the knob values you tuned, and give it to another frame or design with one
   click.
 - **Tune** the knobs the agent declared, **borrow** a part from another alternative,
   **comment** on any part, and ask for **more like this**. All of it waits in Send's list.
-- **Use** your picks: they go into the product design, Main first, and the agent hears "put
-  this in the code".
+- **Use** your decisions: picks (or every live item in a Set, wearing its `★ Main` values) go
+  into the product design, and the agent hears "put this in the code".
 - **Answer** the agent's questions from pictures, side by side at full height.
 
 Two places. The **Board** lays a project out like a designer's file: a page per area, a section

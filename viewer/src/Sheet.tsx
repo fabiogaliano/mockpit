@@ -11,8 +11,8 @@ import type { DesignScreenState } from "./state.ts";
 import { peekRev } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 
-const PEEK_W = 416;
 const LIVE_LIMIT = 8;
+const LIFT_KEY = "mockpit.sheet.hoverLift";
 
 interface Picture {
   url: string;
@@ -31,14 +31,18 @@ interface SheetItem {
 export function Sheet(props: { s: DesignScreenState }) {
   const s = props.s;
   const sh = s.sheet;
-  const [peek, setPeek] = createSignal<{
-    element: HTMLButtonElement;
-    picture: () => Picture | null;
-    label: () => string;
-  } | null>(null);
-  const [layout, relayout] = createSignal(0);
   const [items, setItems] = createSignal<SheetItem[]>([]);
   const [visible, setVisible] = createSignal<Set<HTMLButtonElement>>(new Set());
+  const [liftOn, setLiftOn] = createSignal(host().storage?.getItem(LIFT_KEY) !== "0");
+  const toggleLift = () => {
+    const next = !liftOn();
+    setLiftOn(next);
+    try {
+      host().storage?.setItem(LIFT_KEY, next ? "1" : "0");
+    } catch {
+      // Storage can be read-only in locked-down contexts.
+    }
+  };
   let region: HTMLDivElement | undefined;
   let bar: HTMLDivElement | undefined;
   let observer: IntersectionObserver | undefined;
@@ -71,13 +75,11 @@ export function Sheet(props: { s: DesignScreenState }) {
         next.delete(item.element);
         return next;
       });
-      if (peek()?.element === item.element) setPeek(null);
     };
   }
   onMount(() => {
     let inset = -1;
     const measure = () => {
-      relayout((n) => n + 1);
       const height = Math.ceil(bar?.getBoundingClientRect().height ?? 0);
       if (inset === height) return;
       inset = height;
@@ -114,43 +116,16 @@ export function Sheet(props: { s: DesignScreenState }) {
     });
   });
 
-  const preview = createMemo(() => {
-    const held = peek();
-    const picture = held?.picture();
-    if (!held || !picture || !region || !visible().has(held.element)) return null;
-    void layout();
-    const bounds = region.getBoundingClientRect();
-    const cell = held.element.getBoundingClientRect();
-    const left = Math.max(0, bounds.left) + 8;
-    const right = Math.min(host().window.innerWidth, bounds.left + region.clientWidth) - 8;
-    const top = Math.max(0, bounds.top, bar?.getBoundingClientRect().bottom ?? 0) + 8;
-    const bottom = Math.min(host().window.innerHeight, bounds.top + region.clientHeight) - 8;
-    if (right <= left || bottom - top < 40) return null;
-    const width = Math.min(PEEK_W, right - left);
-    const height = Math.min(bottom - top - 26, width / picture.ratio);
-    const x = cell.right + 8 + width <= right ? cell.right + 8 : cell.left - 8 - width;
-    return {
-      picture,
-      label: held.label(),
-      width,
-      height,
-      x: Math.max(left, Math.min(x, right - width)),
-      y: Math.max(top, Math.min(cell.top, bottom - height - 26)),
-    };
-  });
   const at = () => sh.view();
   const pick = (knob: string | null) => sh.open({ knob, one: at()?.one ?? null });
   const one = () => sh.rows().length === 1 && at()?.one !== null;
-  const rowMain = (v: AlternativeView) => s.frameMark(v.state, v.alternative) === "main";
+  const rowMain = (v: AlternativeView) =>
+    s.frameKnobMark(v.state, v.alternative, at()?.knob ?? null) === "main";
+  const setStarred = () => sh.frames().filter(rowMain).length;
   const columns = createMemo(() => sh.columns().map((col) => col.key));
+  const rowIds = createMemo(() => sh.rows().map((v) => v.postId));
   return (
-    <div
-      class="sheet"
-      ref={(el) => (region = el)}
-      onScroll={() => relayout((n) => n + 1)}
-      role="region"
-      aria-label="Sheet"
-    >
+    <div class="sheet" ref={(el) => (region = el)} role="region" aria-label="Sheet">
       <div class="sheet-bar" ref={(el) => (bar = el)} role="toolbar" aria-label="Sheet">
         <div class="fchips" role="group" aria-label="Across">
           <For each={sh.choiceKnobs()}>
@@ -203,6 +178,22 @@ export function Sheet(props: { s: DesignScreenState }) {
             {`All ${sh.frames().length}`}
           </button>
         </div>
+        <span class="sheet-sep" />
+        <button
+          type="button"
+          class="fchip"
+          classList={{ on: liftOn() }}
+          aria-pressed={liftOn()}
+          title="Expand cells on hover"
+          onClick={toggleLift}
+        >
+          Hover zoom
+        </button>
+        <Show when={s.design()?.set && sh.frames().length}>
+          <span class="sheet-progress num" title="Items with a Main choice on this knob">
+            {`${setStarred()}/${sh.frames().length} ★`}
+          </span>
+        </Show>
         {/* Its keys are behind Focus's "?". */}
         <Show when={sh.total() > MAX_COLUMNS}>
           <span class="sheet-keys">{`${MAX_COLUMNS} of ${sh.total()}`}</span>
@@ -222,6 +213,7 @@ export function Sheet(props: { s: DesignScreenState }) {
 
       <div
         class="sheet-grid"
+        classList={{ "lift-on": liftOn() }}
         style={{ "grid-template-columns": `150px repeat(${columns().length}, minmax(0, 1fr))` }}
       >
         <div />
@@ -229,18 +221,26 @@ export function Sheet(props: { s: DesignScreenState }) {
           {(key) => {
             const col = () => sh.column(key);
             return (
-              <div class="sheet-h" classList={{ mine: !!col()?.mine }} title={col()?.label}>
+              <div
+                class="sheet-h"
+                classList={{ mine: !!col()?.mine, hot: sh.pointedKey()?.column === key }}
+                title={col()?.label}
+              >
                 {col()?.label}
               </div>
             );
           }}
         </For>
-        <For each={sh.rows().map((v) => v.postId)}>
-          {(id) => (
+        <For each={rowIds()}>
+          {(id, rowIndex) => (
             <Show when={sh.row(id)}>
               {(v) => (
                 <>
-                  <div class="sheet-l" classList={{ main: rowMain(v()) }} title={v().alternative}>
+                  <div
+                    class="sheet-l"
+                    classList={{ main: rowMain(v()), hot: sh.pointedKey()?.post === v().postId }}
+                    title={v().alternative}
+                  >
                     {alternativeName(v().alternative)}
                     <Show when={rowMain(v())}>
                       <span class="sheet-star" title="Main">
@@ -249,18 +249,30 @@ export function Sheet(props: { s: DesignScreenState }) {
                     </Show>
                   </div>
                   <For each={columns()}>
-                    {(key) => (
+                    {(key, colIndex) => (
                       <Show when={sh.column(key)}>
                         {(col) => (
                           <SheetCellView
                             s={s}
                             v={v()}
                             col={col()}
+                            ox={() => {
+                              const n = columns().length;
+                              if (n <= 1) return "50%";
+                              if (colIndex() === 0) return "0%";
+                              if (colIndex() === n - 1) return "100%";
+                              return "50%";
+                            }}
+                            oy={() => {
+                              const n = rowIds().length;
+                              if (n <= 1 || rowIndex() === 0) return "0%";
+                              if (rowIndex() === n - 1) return "100%";
+                              return "50%";
+                            }}
                             register={register}
                             seen={(el) => visible().has(el)}
                             live={(el) => slots().has(el)}
                             capture={() => !live() && sh.stills.capability() === "capture"}
-                            onPeek={setPeek}
                           />
                         )}
                       </Show>
@@ -272,18 +284,6 @@ export function Sheet(props: { s: DesignScreenState }) {
           )}
         </For>
       </div>
-      <Show when={preview()}>
-        {(p) => (
-          <div
-            class="sheet-peek"
-            style={{ left: `${p().x}px`, top: `${p().y}px`, width: `${p().width}px` }}
-            aria-hidden="true"
-          >
-            <img src={p().picture.url} alt="" style={{ height: `${p().height}px` }} />
-            <div>{p().label}</div>
-          </div>
-        )}
-      </Show>
     </div>
   );
 }
@@ -292,13 +292,12 @@ function SheetCellView(props: {
   s: DesignScreenState;
   v: AlternativeView;
   col: SheetColumn;
+  ox: () => string;
+  oy: () => string;
   register: (item: SheetItem) => () => void;
   seen: (el: HTMLButtonElement) => boolean;
   live: (el: HTMLButtonElement) => boolean;
   capture: () => boolean;
-  onPeek: (
-    peek: { element: HTMLButtonElement; picture: () => Picture | null; label: () => string } | null,
-  ) => void;
 }) {
   const sh = props.s.sheet;
   const cell = createMemo(() => sh.cell(props.v, props.col));
@@ -316,6 +315,7 @@ function SheetCellView(props: {
   };
   const f = () => ({ v: props.v, col: props.col });
   const mark = createMemo(() => props.s.markOf(subjectOf(f())));
+  const deleted = createMemo(() => mark() === "deleted");
   const label = () => `${alternativeName(props.v.alternative)} · ${props.col.label}`;
   const showLive = () => {
     const el = element();
@@ -332,7 +332,7 @@ function SheetCellView(props: {
   };
   createEffect(() => {
     const el = element();
-    if (!el) return;
+    if (!el || deleted()) return;
     onCleanup(
       props.register({
         element: el,
@@ -348,12 +348,12 @@ function SheetCellView(props: {
   createEffect(() => {
     const c = exact();
     const el = element();
-    if (c && el && props.capture() && props.seen(el)) sh.stills.want(c);
+    if (c && el && !deleted() && props.capture() && props.seen(el)) sh.stills.want(c);
   });
   const source = createMemo(
     () => {
       const c = exact();
-      if (!c) return null;
+      if (!c || deleted()) return null;
       const shot = sh.stills.picture(c);
       return shot ? { key: shot.key, asset: shot.asset, compatible: stillCompatibility(c) } : null;
     },
@@ -408,88 +408,92 @@ function SheetCellView(props: {
     el.focus({ preventScroll: true });
     point(true);
   });
-  let hold = 0;
-  const stopPeek = () => {
-    host().window.clearTimeout(hold);
-    props.onPeek(null);
-  };
-  onCleanup(() => host().window.clearTimeout(hold));
-
   return (
-    <div
-      class="sheet-cellw"
-      classList={{ main: mark() === "main", picked: !!mark() }}
-      onPointerEnter={(e) => {
-        point(true);
-        const el = element();
-        if (e.pointerType !== "mouse" || !el) return;
-        hold = host().window.setTimeout(
-          () => props.onPeek({ element: el, picture: painted, label }),
-          250,
-        );
-      }}
-      onPointerLeave={() => {
-        stopPeek();
-        point(focused());
-      }}
-      onFocusIn={() => {
-        setFocused(true);
-        point(true);
-      }}
-      onFocusOut={(e) => {
-        if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
-        setFocused(false);
-        point(e.currentTarget.matches(":hover"));
-      }}
+    <Show
+      when={!deleted()}
+      fallback={
+        <div class="sheet-cellw deleted" aria-label={`${label()}, deleted`}>
+          <button
+            type="button"
+            class="sheet-restore"
+            onClick={() => void props.s.setMark(subjectOf(f()), null)}
+          >
+            Restore
+          </button>
+        </div>
+      }
     >
-      <button
-        type="button"
-        class="sheet-cell"
-        ref={setElement}
-        aria-label={`${label()}${mark() === "main" ? ", Main" : mark() === "pick" ? ", picked" : ""}`}
-        onDblClick={() => {
-          stopPeek();
-          sh.openCell(props.v, props.col);
+      <div
+        class="sheet-cellw"
+        classList={{ main: mark() === "main", keep: mark() === "keep" }}
+        style={{ "--ox": props.ox(), "--oy": props.oy() }}
+        onPointerEnter={() => point(true)}
+        onPointerLeave={() => point(focused())}
+        onFocusIn={() => {
+          setFocused(true);
+          point(true);
         }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") sh.openCell(props.v, props.col);
+        onFocusOut={(e) => {
+          if (e.relatedTarget instanceof Node && e.currentTarget.contains(e.relatedTarget)) return;
+          setFocused(false);
+          point(e.currentTarget.matches(":hover"));
         }}
       >
-        <Show
-          when={painted()}
-          fallback={
-            <Show when={showLive()}>
-              {(c) => (
-                <Thumb src={c().src} width={c().width} part={c().part} class="sheet-pic" sheet />
-              )}
+        <div class="sheet-card">
+          <div class="sheet-frame" aria-hidden="true" />
+          <button
+            type="button"
+            class="sheet-cell"
+            ref={setElement}
+            aria-label={`${label()}${mark() === "main" ? ", Main" : mark() === "keep" ? ", Bookmarked" : ""}`}
+            onClick={() => sh.openCell(props.v, props.col)}
+          >
+            <Show
+              when={painted()}
+              fallback={
+                <Show when={showLive()}>
+                  {(c) => (
+                    <Thumb
+                      src={c().src}
+                      width={c().width}
+                      part={c().part}
+                      class="sheet-pic"
+                      sheet
+                    />
+                  )}
+                </Show>
+              }
+            >
+              {(picture) => <img src={picture().url} alt="" draggable={false} />}
             </Show>
-          }
-        >
-          {(picture) => <img src={picture().url} alt="" draggable={false} />}
-        </Show>
-        <Show when={older()}>
-          <span class="sheet-updating" title="Updating picture" aria-label="Updating picture" />
-        </Show>
-      </button>
-      <Show when={failed()}>
-        <button
-          type="button"
-          class="sheet-retry"
-          aria-label={`Retry ${label()} picture`}
-          onClick={() => {
-            const c = exact();
-            if (c) sh.stills.want(c, true);
-          }}
-        >
-          Retry
-        </button>
-      </Show>
-      <Show when={mark() === "main" || mark() === "pick"}>
-        <span class="sheet-badge" aria-hidden="true">
-          <Icon name={mark() === "main" ? "star" : "check"} />
-        </span>
-      </Show>
-      <MarkPill s={props.s} f={f()} />
-    </div>
+            <Show when={older()}>
+              <span class="sheet-updating" title="Updating picture" aria-label="Updating picture" />
+            </Show>
+          </button>
+          <Show when={failed()}>
+            <button
+              type="button"
+              class="sheet-retry"
+              aria-label={`Retry ${label()} picture`}
+              onClick={() => {
+                const c = exact();
+                if (c) sh.stills.want(c, true);
+              }}
+            >
+              Retry
+            </button>
+          </Show>
+          <Show when={mark() === "main" || mark() === "keep"}>
+            <span class="sheet-badge" aria-hidden="true">
+              <Icon name={mark() === "main" ? "star" : "bookmark"} />
+            </span>
+          </Show>
+          <div class="sheet-top">
+            <span class="sheet-top-label">{label()}</span>
+            <MarkPill s={props.s} f={f()} />
+          </div>
+        </div>
+      </div>
+    </Show>
   );
 }

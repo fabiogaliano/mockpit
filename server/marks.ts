@@ -1,11 +1,8 @@
-// Marks: the user's picks and Main on a design's frames, saved on the click and stored with
-// the design. A frame on a sheet wears a look or a knob's value, and that cell is marked
-// apart from the frame as it is. Nothing is sent: an agent reads them in `read`.
+// Marks: the user's Main, Keep (bookmarked backup), and Deleted (tombstone) marks on a
+// design's frames and sheet cells, saved on the click and stored with the design. A frame
+// on a sheet wears a look or a knob's value, and that cell is marked apart from the frame
+// as it is. Nothing is sent: an agent reads them in `read`.
 // Runtime-agnostic, shared with the viewer.
-//
-// Two older stores still say the same kind of thing: a question's kept answers
-// (standings.ts) and an alternative's archived status. Until they fold in, they are read
-// beside the stored marks, and a new mark is written only here.
 
 import { type AlternativeRow, optionStates, withAddedAnswers } from "./alternativeQuestion.ts";
 import {
@@ -18,12 +15,43 @@ import {
   type Mark,
   type MarkKind,
   type Post,
+  type StoredMarkKind,
 } from "./types.ts";
 
 export const MAX_MARKS = 400;
 
 // What a mark is on: a frame, as it is or in a look or in some knob values.
 export type MarkSubject = Pick<Mark, "state" | "alternative" | "look" | "values">;
+
+// Legacy workspaces stored "pick" before the Main/Keep/Delete lifecycle; normalize cleanly.
+export function normalizeMarkKind(kind: unknown): StoredMarkKind | null {
+  if (kind === "main" || kind === "keep" || kind === "deleted") return kind;
+  if (kind === "pick") return "keep";
+  return null;
+}
+
+export function normalizeMarks(raw: unknown): Mark[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Mark[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const m = item as Record<string, unknown>;
+    const kind = normalizeMarkKind(m.kind);
+    if (!kind || typeof m.alternative !== "string") continue;
+    out.push({
+      state: typeof m.state === "string" ? m.state : null,
+      alternative: m.alternative,
+      ...(typeof m.look === "string" && m.look ? { look: m.look } : {}),
+      ...(m.values && typeof m.values === "object" && Object.keys(m.values).length
+        ? { values: m.values as Record<string, KnobValue> }
+        : {}),
+      kind,
+      at: typeof m.at === "string" ? m.at : "",
+      by: m.by === "agent" ? "agent" : "user",
+    });
+  }
+  return out;
+}
 
 const sortedValues = (values: Record<string, KnobValue> | undefined) =>
   values && Object.keys(values).length
@@ -35,28 +63,43 @@ const sortedValues = (values: Record<string, KnobValue> | undefined) =>
 export const subjectKey = (m: MarkSubject): string =>
   JSON.stringify([m.state, m.alternative, m.look ?? null, m.look ? null : sortedValues(m.values)]);
 
+// The exclusivity slot for `main`:
+// - A knob cell (`values` without `look`) competes only within `(state, alternative, knobKeys)`,
+//   so each frame can accumulate its own ★ Main across multiple knobs (e.g. glyphs + colour).
+// - A look cell competes within `(state, alternative)`.
+// - A bare frame competes within `state` on Alternatives ideas, or only with itself on a Set.
+export function mainSlotKey(m: MarkSubject, isSet = false): string {
+  if (m.look) return JSON.stringify(["look", m.state, m.alternative]);
+  const keys = m.values ? Object.keys(m.values).sort() : [];
+  if (keys.length) return JSON.stringify(["knob", m.state, m.alternative, keys]);
+  return isSet
+    ? JSON.stringify(["frame", m.state, m.alternative])
+    : JSON.stringify(["state", m.state]);
+}
+
 export const markOn = (marks: Mark[], subject: MarkSubject): Mark | undefined => {
   const key = subjectKey(subject);
   return marks.find((m) => subjectKey(m) === key);
 };
 
-// The marks with this subject's set to a kind, or cleared. A state has one Main: a new
-// one leaves the last a pick.
+// The marks with this subject's set to a kind, or cleared.
+// Main replaces only another Main in the same slot (leaving it neutral, never silently
+// bookmarking it). Keep and Deleted replace only this exact subject.
 export function withMark(
   marks: Mark[],
   subject: MarkSubject,
-  kind: "pick" | "main" | null,
+  kind: StoredMarkKind | null,
   by: Author,
   at: string,
+  opts: { isSet?: boolean } = {},
 ): Mark[] {
   const key = subjectKey(subject);
   const rest = marks.filter((m) => subjectKey(m) !== key);
   if (kind === null) return rest;
+  const slot = kind === "main" ? mainSlotKey(subject, !!opts.isSet) : null;
   const others =
-    kind === "main"
-      ? rest.map((m) =>
-          m.kind === "main" && m.state === subject.state ? { ...m, kind: "pick" as const } : m,
-        )
+    slot !== null
+      ? rest.filter((m) => !(m.kind === "main" && mainSlotKey(m, !!opts.isSet) === slot))
       : rest;
   const values = subject.values && Object.keys(subject.values).length ? subject.values : undefined;
   return [
@@ -71,6 +114,34 @@ export function withMark(
       by,
     },
   ];
+}
+
+// Accumulated ★ Main knob values on a single frame across all knobs (oldest first so newer
+// marks win on any overlapping knob path).
+export function mainValuesFor(
+  marks: {
+    state: string | null;
+    alternative?: string;
+    kind: string;
+    values?: Record<string, KnobValue>;
+    at?: string;
+  }[],
+  state: string | null,
+  alternative: string,
+): Record<string, KnobValue> {
+  const mine = marks
+    .filter(
+      (m) =>
+        m.kind === "main" &&
+        m.state === state &&
+        m.alternative === alternative &&
+        m.values &&
+        Object.keys(m.values).length > 0,
+    )
+    .sort((a, b) => (a.at ?? "").localeCompare(b.at ?? ""));
+  const merged: Record<string, KnobValue> = {};
+  for (const m of mine) Object.assign(merged, m.values);
+  return merged;
 }
 
 // The frames a mark still has something to stand on: the alternative is in that state.
@@ -90,9 +161,8 @@ export function mainOf(
   return (state === undefined ? undefined : mains.find((m) => m.state === state)) ?? mains[0];
 }
 
-// One mark as a read lists it. A kept answer reads as a pick, with the answer it is; an
-// archived frame as archived, at when it left. A kept answer that sets values is not on
-// any one frame.
+// One mark as a read lists it. A kept answer reads as keep, with the answer it is; an
+// archived frame as archived, at when it left.
 export interface MarkView {
   kind: MarkKind;
   state: string | null;
@@ -131,10 +201,10 @@ export function marksOf(
           const here = live.some((r) => r.state === state && r.alternative === o.alternative);
           const subject = { state, alternative: o.alternative };
           if (here && !markOn(design.marks, subject))
-            kept.push({ kind: "pick", ...subject, answer });
+            kept.push({ kind: "keep", ...subject, answer });
         }
       } else if (o.set && Object.keys(o.set).length) {
-        kept.push({ kind: "pick", state: ask.state ?? null, values: o.set, answer });
+        kept.push({ kind: "keep", state: ask.state ?? null, values: o.set, answer });
       }
     }
   }
@@ -149,13 +219,67 @@ export function marksOf(
   return [...stored, ...kept, ...archived];
 }
 
-// The frames a Use would put in use: every pick and Main still standing, a question's kept
-// answers on a frame included.
-export const framePicks = (marks: MarkView[]): (MarkView & { alternative: string })[] =>
-  marks.filter(
-    (m): m is MarkView & { alternative: string } =>
-      m.kind !== "archived" && m.alternative !== undefined,
+// One frame resolved for Use: grouped per (state, alternative) with its accumulated
+// ★ Main knob values (Q1 combo) and optional look name.
+export interface FrameUsePick {
+  kind: "main";
+  state: string | null;
+  alternative: string;
+  main?: true;
+  look?: string;
+  values?: Record<string, KnobValue>;
+}
+
+// The frames a Use would put in use:
+// - On a Set (`isSet: true`), every live frame ships (Q2 all-with-main), each wearing its
+//   accumulated ★ Main knob values where chosen (defaults otherwise).
+// - On an Alternatives idea (`isSet: false`), every frame with a ★ Main mark, grouped per
+//   frame so multiple knob ★ Main marks combine into one entry wearing all chosen knobs.
+export function framePicks(
+  marks: MarkView[],
+  opts: { isSet?: boolean; rows?: AlternativeRow[] } = {},
+): FrameUsePick[] {
+  const mains = marks.filter(
+    (m): m is MarkView & { alternative: string; kind: "main" } =>
+      m.kind === "main" && m.alternative !== undefined,
   );
+  const forFrame = (state: string | null, alternative: string): FrameUsePick => {
+    const mine = mains.filter((m) => m.state === state && m.alternative === alternative);
+    const values = mainValuesFor(
+      mine.map((m) => ({
+        state: m.state,
+        alternative: m.alternative,
+        kind: "main" as const,
+        values: m.values,
+        at: m.at ?? "",
+      })),
+      state,
+      alternative,
+    );
+    const look = mine.find((m) => m.look)?.look;
+    return {
+      kind: "main",
+      state,
+      alternative,
+      ...(mine.length ? { main: true as const } : {}),
+      ...(look ? { look } : {}),
+      ...(Object.keys(values).length ? { values } : {}),
+    };
+  };
+  if (opts.isSet && opts.rows) {
+    const live = opts.rows.filter((r) => isLive(r.status));
+    return live.map((r) => forFrame(r.state, r.alternative));
+  }
+  const seen = new Set<string>();
+  const out: FrameUsePick[] = [];
+  for (const m of mains) {
+    const k = JSON.stringify([m.state, m.alternative]);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(forFrame(m.state, m.alternative));
+  }
+  return out;
+}
 
 // A pick as a Use compares it with the last: the frame, what it wears, and whether it is Main.
 export const pickKey = (p: {
@@ -170,8 +294,7 @@ export const pickKey = (p: {
     !!p.main,
   ]);
 
-// Whether the picks have moved since the last Use took them: the idea is "changed since
-// Use", and nothing goes anywhere until Use again.
+// Whether the picks (or set items + their ★ Main combos) have moved since the last Use.
 export function changedSinceUse(
   used: {
     state: string | null;
@@ -181,8 +304,9 @@ export function changedSinceUse(
     main?: true;
   }[],
   marks: MarkView[],
+  opts: { isSet?: boolean; rows?: AlternativeRow[] } = {},
 ): boolean {
-  const now = new Set(framePicks(marks).map((m) => pickKey({ ...m, main: m.kind === "main" })));
+  const now = new Set(framePicks(marks, opts).map((m) => pickKey({ ...m, main: !!m.main })));
   const then = new Set(used.map(pickKey));
   return now.size !== then.size || [...now].some((k) => !then.has(k));
 }

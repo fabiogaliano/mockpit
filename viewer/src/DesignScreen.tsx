@@ -70,7 +70,9 @@ import { ArchivedNote } from "./Questions.tsx";
 import { AnswerPills } from "./Kept.tsx";
 import { canDesign, canFrame, runFrameAction } from "./frameActions.ts";
 import { AlternativeActs } from "./Alternatives.tsx";
+import { KnobSideBySide } from "./KnobChoicePanel.tsx";
 import { LooksStrip } from "./Looks.tsx";
+import { valueOfCol } from "./sheet.ts";
 import { Sheet } from "./Sheet.tsx";
 import { Present } from "./Present.tsx";
 import { SideOver } from "./SideOver.tsx";
@@ -85,6 +87,7 @@ import {
   linkClick,
   navigate,
   projectPath,
+  pushUrl,
   replaceUrl,
   route,
   SHEET_LOOKS,
@@ -189,10 +192,10 @@ const upClick = (e: MouseEvent, href: string) => {
 };
 
 // The pill's keys, on the frame on stage or the sheet cell under the pointer.
-const MARK_KEYS: Record<string, "pick" | "main" | "archive" | undefined> = {
-  p: "pick",
+const MARK_KEYS: Record<string, "main" | "keep" | "delete" | undefined> = {
   m: "main",
-  x: "archive",
+  k: "keep",
+  x: "delete",
 };
 
 // Shift and an arrow from a cell open from the sheet: [down, across].
@@ -238,6 +241,24 @@ export function DesignScreen(props: {
   const sideRow = createMemo(() =>
     !reading() && !undrawn() && !phoneLayout() ? sideAsk(s) : null,
   );
+  // The open Sheet cell's dynamic side-by-side finalists view.
+  const knobSideActive = createMemo(
+    () => !reading() && !undrawn() && !phoneLayout() && !!s.sheet.held() && s.sheet.knobSide(),
+  );
+  // Structural navigation level: transitions between One, Sheet (and its knob tabs), and
+  // Cell push a history entry so browser Back steps cleanly; stepping values/frames inside
+  // a Cell replaces in place so Back still returns to the Sheet.
+  const viewKeyOf = (
+    sheet: ReturnType<DesignScreenState["sheet"]["view"]>,
+    held: ReturnType<DesignScreenState["sheet"]["held"]>,
+  ) =>
+    sheet
+      ? `sheet:${sheet.knob ?? SHEET_LOOKS}`
+      : held
+        ? `cell:${held.at.knob ?? SHEET_LOOKS}`
+        : "one";
+  let prevViewKey: string | null = null;
+  let fromPop = false;
   // The URL follows the place on screen. A tick later: Back runs several popstate
   // listeners in turn, and writing between them would stamp the place being left
   // onto the entry just arrived at.
@@ -248,6 +269,7 @@ export function DesignScreen(props: {
     s.activeState();
     s.stagePick();
     s.sheet.view();
+    s.sheet.held();
     host().window.clearTimeout(urlTimer);
     urlTimer = host().window.setTimeout(() => {
       const w = host().window;
@@ -261,25 +283,66 @@ export function DesignScreen(props: {
       put("alternative", pick?.alternative);
       put("version", pick?.version);
       const sheet = s.sheet.view();
-      put("sheet", sheet ? (sheet.knob ?? SHEET_LOOKS) : null);
-      put("one", sheet?.one);
+      const held = s.sheet.held();
+      const activeSheet = sheet ?? held?.at ?? null;
+      put("sheet", activeSheet ? (activeSheet.knob ?? SHEET_LOOKS) : null);
+      put("one", activeSheet?.one);
+      put("value", held ? valueOfCol(held.col, held.at) : null);
       q.delete("owed");
       q.delete("question");
       const next = q.size ? `?${q}` : "";
-      if (next !== w.location.search) replaceUrl(`${w.location.pathname}${next}`);
+      const nextKey = viewKeyOf(sheet, held);
+      const shouldPush = !fromPop && prevViewKey !== null && prevViewKey !== nextKey;
+      prevViewKey = nextKey;
+      fromPop = false;
+      if (next !== w.location.search) {
+        if (shouldPush) pushUrl(`${w.location.pathname}${next}`);
+        else replaceUrl(`${w.location.pathname}${next}`);
+      }
     }, 0);
   });
   // Back, Forward or a link to another place on this same design: the screen stays
-  // mounted and moves there.
+  // mounted and moves there, restoring both frame (`open`) and Sheet/Cell (`sheet`).
   createEffect(
     on(
       () => {
         const r = route();
-        return r.screen === "design" ? JSON.stringify(r.open) : null;
+        return r.screen === "design" ? JSON.stringify({ open: r.open, sheet: r.sheet }) : null;
       },
       () => {
         const r = route();
-        if (r.screen === "design" && r.open) s.landOn(r.open);
+        if (r.screen !== "design" || !s.design()) return;
+        const curSheet = s.sheet.view();
+        const curHeld = s.sheet.held();
+        const want = r.sheet;
+        const curKind = curSheet
+          ? `sheet:${curSheet.knob ?? SHEET_LOOKS}:${curSheet.one ?? ""}`
+          : curHeld
+            ? `cell:${curHeld.at.knob ?? SHEET_LOOKS}:${curHeld.at.one ?? ""}:${valueOfCol(curHeld.col, curHeld.at)}:${curHeld.v.alternative}`
+            : "one";
+        const wantKind = !want
+          ? "one"
+          : want.value
+            ? `cell:${want.knob ?? SHEET_LOOKS}:${want.one ?? ""}:${want.value}:${r.open?.alternative ?? s.activeAlternative()?.alternative ?? ""}`
+            : `sheet:${want.knob ?? SHEET_LOOKS}:${want.one ?? ""}`;
+        fromPop = true;
+        if (r.open) s.landOn(r.open);
+        if (curKind !== wantKind) {
+          if (!want) {
+            s.sheet.exit();
+          } else if (want.value) {
+            const ok = s.sheet.openCellByValue(
+              r.open?.alternative ?? null,
+              { knob: want.knob, one: want.one },
+              want.value,
+            );
+            if (!ok) s.sheet.open({ knob: want.knob, one: want.one });
+          } else {
+            if (curHeld) s.setHeldPreview(null);
+            s.sheet.open({ knob: want.knob, one: want.one });
+          }
+        }
+        prevViewKey = viewKeyOf(s.sheet.view(), s.sheet.held());
       },
       { defer: true },
     ),
@@ -304,7 +367,7 @@ export function DesignScreen(props: {
       { defer: true },
     ),
   );
-  // A sheet's link opens on it, once the design has said what it can lay out.
+  // A sheet's link opens on it (or its named cell), once the design has said what it can lay out.
   let sheetAsked: ReturnType<typeof route> | null = untrack(route);
   const [openingSheet, setOpeningSheet] = createSignal(
     sheetAsked.screen === "design" && !!sheetAsked.sheet,
@@ -325,7 +388,19 @@ export function DesignScreen(props: {
     }
     sheetAsked = null;
     const at = r.sheet;
-    untrack(() => s.sheet.open(at));
+    untrack(() => {
+      if (at.value) {
+        const ok = s.sheet.openCellByValue(
+          r.open?.alternative ?? null,
+          { knob: at.knob, one: at.one },
+          at.value,
+        );
+        if (!ok) s.sheet.open({ knob: at.knob, one: at.one });
+      } else {
+        s.sheet.open({ knob: at.knob, one: at.one });
+      }
+      prevViewKey = viewKeyOf(s.sheet.view(), s.sheet.held());
+    });
     setOpeningSheet(false);
   });
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
@@ -345,7 +420,7 @@ export function DesignScreen(props: {
     () => !!s.design() && !phoneLayout(),
     () => (reading() ? READING_W : null),
     outlining,
-    () => !!sideRow(),
+    () => !!sideRow() || knobSideActive(),
   );
   // The tools act on a page, and a document isn't one.
   createEffect(() => {
@@ -563,6 +638,8 @@ export function DesignScreen(props: {
       else if (s.askingState()) s.setAskingState(null);
       else if (m.leftFloats()) m.closeLeft();
       else if (s.drawer()) s.setDrawer(false);
+      else if (s.sheet.knobSide()) s.sheet.setKnobSide(false);
+      else if (s.sheet.held()) s.sheet.back();
       else if (s.sheet.view()) s.sheet.close();
       else if (s.design())
         upToBoard(boardHome(s.design()!, s.activeState(), s.activeAlternative()?.alternative).href);
@@ -680,7 +757,7 @@ export function DesignScreen(props: {
       class="screen design-screen"
       classList={{
         phone: phoneLayout(),
-        sbsmode: !!sideRow(),
+        sbsmode: !!sideRow() || knobSideActive(),
         gliding: gliding(),
         stripped: m.stripW() > 0,
       }}
@@ -714,7 +791,7 @@ export function DesignScreen(props: {
                 m={m}
                 reading={reading()}
                 drawn={!undrawn()}
-                sideRow={!!sideRow()}
+                sideRow={!!sideRow() || knobSideActive()}
                 saw={sawStep()}
                 onCompare={setComparing}
               />
@@ -727,7 +804,7 @@ export function DesignScreen(props: {
           }
         />
         {/* Beside a docked left margin the same steps are its first list. */}
-        <Show when={m.statesShown() && !m.leftDocked() && !sideRow()}>
+        <Show when={m.statesShown() && !m.leftDocked() && !sideRow() && !knobSideActive()}>
           <FlowBar nav={nav} count={phoneLayout()}>
             <Show when={outlining()}>
               <OutlineChips s={s} />
@@ -772,7 +849,14 @@ export function DesignScreen(props: {
               <Show when={showingStage() && sideRow()}>
                 {(ask) => <SideBySide s={s} ask={ask()} />}
               </Show>
-              <Show when={showingStage() && !sideRow() && comparing() && s.stageStep()}>
+              <Show when={showingStage() && !sideRow() && knobSideActive()}>
+                <KnobSideBySide s={s} />
+              </Show>
+              <Show
+                when={
+                  showingStage() && !sideRow() && !knobSideActive() && comparing() && s.stageStep()
+                }
+              >
                 <CompareTwo
                   s={s}
                   before={comparing()!}
@@ -781,7 +865,7 @@ export function DesignScreen(props: {
                   onClose={() => setComparing(null)}
                 />
               </Show>
-              <Show when={m.ghosts() && showingStage()}>
+              <Show when={m.ghosts() && showingStage() && !knobSideActive()}>
                 <Ghost s={s} nav={nav} by={-1} />
                 <Ghost s={s} nav={nav} by={1} />
               </Show>
@@ -810,7 +894,7 @@ export function DesignScreen(props: {
           </Show>
           <SentNote s={s} slug={props.slug} />
           <Show when={s.design()}>
-            <Show when={!s.sheet.view()}>
+            <Show when={!s.sheet.view() && !knobSideActive()}>
               <LooksStrip s={s} />
             </Show>
             <StateAsk s={s} />
@@ -830,7 +914,9 @@ export function DesignScreen(props: {
             fallback={
               <>
                 <ToolStrip s={s} m={m} />
-                <Show when={m.active() && !undrawn() && !reading() && !sideRow()}>
+                <Show
+                  when={m.active() && !undrawn() && !reading() && !sideRow() && !knobSideActive()}
+                >
                   <VersionCaption s={s} reading={false} sl={shortlists} />
                 </Show>
                 <LeftMargin s={s} nav={nav} m={m} />
@@ -1168,6 +1254,18 @@ function TopRow(props: {
         <Show when={!phoneLayout() && !props.reading && s.sheet.available()}>
           <SheetSwitch s={s} />
         </Show>
+        <Show
+          when={
+            !phoneLayout() &&
+            !props.reading &&
+            !readonly() &&
+            s.design()?.kind === "idea" &&
+            !s.design()?.archivedAt &&
+            s.inState(s.activeState()).filter((v) => isLive(v.status)).length > 1
+          }
+        >
+          <SetSwitch s={s} />
+        </Show>
         <Show when={s.design()}>
           <Show
             when={!phoneLayout()}
@@ -1365,9 +1463,9 @@ function SheetSwitch(props: { s: DesignScreenState }) {
     <div class="seg sheetsw" role="group" aria-label="View">
       <button
         type="button"
-        classList={{ on: !on() }}
-        aria-pressed={!on()}
-        onClick={() => s.sheet.close()}
+        classList={{ on: !on() && !s.sheet.held() }}
+        aria-pressed={!on() && !s.sheet.held()}
+        onClick={() => s.sheet.exit()}
       >
         One
       </button>
@@ -1385,6 +1483,34 @@ function SheetSwitch(props: { s: DesignScreenState }) {
         }
       >
         Sheet
+      </button>
+    </div>
+  );
+}
+
+// Pick one (alternatives) vs Keep all (a Set), flippable anytime on multi-entry ideas.
+function SetSwitch(props: { s: DesignScreenState }) {
+  const s = props.s;
+  const isSet = () => !!s.design()?.set;
+  return (
+    <div class="seg setsw" role="group" aria-label="Collection mode">
+      <button
+        type="button"
+        classList={{ on: !isSet() }}
+        aria-pressed={!isSet()}
+        title="Pick one winning alternative"
+        onClick={() => void s.setIdeaSet(false)}
+      >
+        Pick one
+      </button>
+      <button
+        type="button"
+        classList={{ on: isSet() }}
+        aria-pressed={isSet()}
+        title="Keep all items together as a set"
+        onClick={() => void s.setIdeaSet(true)}
+      >
+        Keep all
       </button>
     </div>
   );

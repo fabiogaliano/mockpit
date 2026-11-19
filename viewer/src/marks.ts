@@ -8,7 +8,7 @@
 // marked or its question kept it. A new pick is written as a mark only.
 
 import type { AnswerStanding, Ask, AskOption, HiddenAnswer } from "../../server/types.ts";
-import { type MarkSubject, subjectKey } from "../../server/marks.ts";
+import { mainSlotKey, type MarkSubject, subjectKey } from "../../server/marks.ts";
 import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
 import {
   archivedAnswer,
@@ -46,7 +46,7 @@ interface MarkDeps {
   frameIn: (state: string | null) => AlternativeView | undefined;
 }
 
-export type MarkWord = "pick" | "main";
+export type MarkWord = "main" | "keep" | "deleted";
 
 const isFrameMark = (m: MarkView): m is MarkView & MarkSubject =>
   m.alternative !== undefined && m.kind !== "archived";
@@ -57,7 +57,7 @@ export function createMarks(d: MarkDeps) {
     design()?.standings?.[ask.id] ?? { kept: [], hidden: [] };
   const isKept = (ask: Ask, id: string) => standingFor(ask).kept.includes(id);
 
-  // --- picks and Main ---
+  // --- Main, Keep (Bookmarked), Deleted ---
 
   const marks = (): MarkView[] => design()?.marks ?? [];
   const viewOf = (subject: MarkSubject) => {
@@ -68,37 +68,71 @@ export function createMarks(d: MarkDeps) {
     const m = viewOf(subject);
     return m ? (m.kind as MarkWord) : null;
   };
-  // A frame's mark in any of its cells: Main outranks a pick.
-  const frameMark = (state: string | null, alternative: string): MarkWord | null => {
+  // A frame's active mark across its cells: Main outranks Keep; Deleted marks are ignored.
+  const frameMark = (state: string | null, alternative: string): "main" | "keep" | null => {
     const mine = marks().filter(
-      (m) => isFrameMark(m) && m.state === state && m.alternative === alternative,
+      (m) =>
+        isFrameMark(m) &&
+        m.kind !== "deleted" &&
+        m.state === state &&
+        m.alternative === alternative,
     );
-    return mine.some((m) => m.kind === "main") ? "main" : mine.length ? "pick" : null;
+    return mine.some((m) => m.kind === "main")
+      ? "main"
+      : mine.some((m) => m.kind === "keep")
+        ? "keep"
+        : null;
   };
-  // What the screen shows before the server answers: the subject's mark replaced, and a
-  // new Main leaving the state's last one a pick, as server/marks.ts withMark does.
-  const locally = (list: MarkView[], subject: MarkSubject, kind: MarkWord | null) => {
+  // A frame's mark on a specific knob (or looks when knob is null): used for Sheet row stars
+  // and Set progress (N/M ★).
+  const frameKnobMark = (
+    state: string | null,
+    alternative: string,
+    knob: string | null,
+  ): "main" | "keep" | null => {
+    const mine = marks().filter(
+      (m) =>
+        isFrameMark(m) &&
+        m.kind !== "deleted" &&
+        m.state === state &&
+        m.alternative === alternative &&
+        (knob === null ? !!m.look : !!m.values && Object.hasOwn(m.values, knob)),
+    );
+    return mine.some((m) => m.kind === "main")
+      ? "main"
+      : mine.some((m) => m.kind === "keep")
+        ? "keep"
+        : null;
+  };
+  // Optimistic update mirroring server/marks.ts withMark: setting Main replaces only an
+  // earlier Main in the same slot (leaving it neutral, never auto-bookmarked).
+  const locally = (
+    list: MarkView[],
+    subject: MarkSubject,
+    kind: MarkWord | null,
+    isSet: boolean,
+  ) => {
     const key = subjectKey(subject);
-    const rest = list.filter((m) => !isFrameMark(m) || subjectKey(m) !== key);
+    const slot = mainSlotKey(subject, isSet);
+    const rest = list.filter((m) => {
+      if (!isFrameMark(m)) return true;
+      if (subjectKey(m) === key) return false;
+      if (kind === "main" && m.kind === "main" && mainSlotKey(m, isSet) === slot) return false;
+      return true;
+    });
     if (kind === null) return rest;
-    const others =
-      kind === "main"
-        ? rest.map((m) =>
-            m.kind === "main" && m.state === subject.state ? { ...m, kind: "pick" as const } : m,
-          )
-        : rest;
-    return [...others, { ...subject, kind, at: new Date().toISOString(), by: "user" as const }];
+    return [...rest, { ...subject, kind, at: new Date().toISOString(), by: "user" as const }];
   };
   async function setMark(subject: MarkSubject, kind: MarkWord | null): Promise<boolean> {
     const m = design();
     if (!m || readonly()) return false;
     const was = viewOf(subject);
-    setDesign({ ...m, marks: locally(marks(), subject, kind) });
+    setDesign({ ...m, marks: locally(marks(), subject, kind, !!m.set) });
     try {
       const { marks: back } = await api.mark(m.id, { ...subject, mark: kind });
       const now = design();
       if (now) setDesign({ ...now, marks: back });
-      // A pick read from a question's kept answer lives in that store: letting it go
+      // A bookmark read from a question's kept answer lives in that store: letting it go
       // takes it out of there too.
       if (kind === null && was?.answer) {
         const ask = d.asks().find((a) => a.id === was.answer!.ask);
@@ -113,12 +147,25 @@ export function createMarks(d: MarkDeps) {
       return false;
     }
   }
-  const togglePick = (subject: MarkSubject) =>
-    void setMark(subject, markOf(subject) ? null : "pick");
+  const toggleKeep = (subject: MarkSubject) =>
+    void setMark(subject, markOf(subject) === "keep" ? null : "keep");
   const toggleMain = (subject: MarkSubject) =>
-    void setMark(subject, markOf(subject) === "main" ? "pick" : "main");
+    void setMark(subject, markOf(subject) === "main" ? null : "main");
+  async function deleteMark(subject: MarkSubject, label?: string) {
+    const prev = markOf(subject);
+    if (prev === "deleted") return;
+    const ok = await setMark(subject, "deleted");
+    if (!ok) return;
+    d.setToast({
+      text: label ? `Deleted ${label}` : "Deleted",
+      undo: () => {
+        d.setToast(null);
+        void setMark(subject, prev);
+      },
+    });
+  }
 
-  // What picking an answer marks: its alternative, in each state it would be used in, or
+  // What bookmarking an answer marks: its alternative, in each state it would be used in, or
   // the frame on stage in its values. An answer in words only, or one that borrows a part,
   // is on no frame.
   function answerSubjects(ask: Ask, o: AskOption): MarkSubject[] {
@@ -138,7 +185,11 @@ export function createMarks(d: MarkDeps) {
     return frame ? [{ state, alternative: frame.alternative, values: o.set }] : [];
   }
   const answerPicked = (ask: Ask, o: AskOption) =>
-    isKept(ask, o.id) || answerSubjects(ask, o).some((x) => markOf(x) !== null);
+    isKept(ask, o.id) ||
+    answerSubjects(ask, o).some((x) => {
+      const k = markOf(x);
+      return k === "main" || k === "keep";
+    });
   const isPicked = (ask: Ask, id: string) => {
     const o = ask.options.find((x) => x.id === id);
     return !!o && answerPicked(ask, o);
@@ -147,20 +198,19 @@ export function createMarks(d: MarkDeps) {
     const subjects = answerSubjects(ask, o);
     if (!subjects.length) return toggleKept(ask, o);
     if (!answerPicked(ask, o)) {
-      for (const x of subjects) void setMark(x, "pick");
+      for (const x of subjects) void setMark(x, "keep");
       return;
     }
     for (const x of subjects) if (markOf(x) !== null) void setMark(x, null);
     if (isKept(ask, o.id)) void setStanding(ask, o, "open");
   }
-  // An answer stepping aside for another stays in the running: picked, or kept where it is
-  // on no frame. False if that couldn't be saved.
+  // An answer stepping aside for another stays bookmarked: kept where it is on no frame.
   async function holdAnswer(ask: Ask, o: AskOption): Promise<boolean> {
     const m = design();
     if (!m || answerPicked(ask, o)) return true;
     const subjects = answerSubjects(ask, o);
     if (subjects.length) {
-      const done = await Promise.all(subjects.map((x) => setMark(x, "pick")));
+      const done = await Promise.all(subjects.map((x) => setMark(x, "keep")));
       return done.every(Boolean);
     }
     try {
@@ -171,8 +221,8 @@ export function createMarks(d: MarkDeps) {
       return false;
     }
   }
-  // Answering a question whose answers are frames picks the frame, as its tick does, and
-  // taking the answer back lets that pick go. Main and kept answers stay as they are.
+  // Answering a question whose answers are frames bookmarks the frame, and taking the
+  // answer back lets that bookmark go. Main and kept answers stay as they are.
   function followAnswer(ask: Ask, before: string[], after: string[]) {
     for (const o of ask.options) {
       if (!o.alternative) continue;
@@ -180,8 +230,8 @@ export function createMarks(d: MarkDeps) {
       if (now === before.includes(o.id)) continue;
       for (const x of answerSubjects(ask, o)) {
         const mark = viewOf(x);
-        if (now && !mark) void setMark(x, "pick");
-        else if (!now && mark?.kind === "pick" && !mark.answer) void setMark(x, null);
+        if (now && !mark) void setMark(x, "keep");
+        else if (!now && mark?.kind === "keep" && !mark.answer) void setMark(x, null);
       }
     }
   }
@@ -251,7 +301,7 @@ export function createMarks(d: MarkDeps) {
       d.fail(e);
     }
   }
-  // The answers a question shows, in the order the agent asked them: a pick never moves a
+  // The answers a question shows, in the order the agent asked them: a mark never moves a
   // card. Hidden ones are left out (they fold away below).
   const shownOptions = (ask: Ask): AskOption[] => ask.options.filter((o) => !hiddenOf(ask, o.id));
   const hiddenOptions = (ask: Ask): AskOption[] => [
@@ -283,9 +333,11 @@ export function createMarks(d: MarkDeps) {
     marks,
     markOf,
     frameMark,
+    frameKnobMark,
     setMark,
-    togglePick,
+    toggleKeep,
     toggleMain,
+    deleteMark,
     hiddenOf,
     isCarried,
     shownOptions,

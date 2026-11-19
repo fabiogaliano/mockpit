@@ -5,16 +5,19 @@ designs were made before picks, looks, the Sheet and Use. You need nothing else:
 says what changed, how to find each old pattern, the commands that adapt it, and what to hand
 the user at the end.
 
-The model now: the user compares frames, picks several, stars one Main, saves knob values as
-looks, and presses Use to put the picks in the product. None of that needs a question. You
-publish what varies as alternatives or a choice knob, and ask only when a choice blocks your
-next step.
+The model now: the user compares frames, marks **Main** (`M`), **Bookmark / Keep** (`K`),
+or **Delete** (`X`, silent tombstone in `ruledOut`), saves knob values as **looks**, and
+presses **Use** to put their choices in the product. None of that needs a question. When all
+items of an idea ship together (such as morphing hero drawings that each need their own glyph
+and colour style), mark the idea a **Set** (`--set`, `Keep all`): each item keeps its own
+per-knob `★ Main` and all live items ship on Use. You publish what varies as alternatives or
+a choice knob, and ask only when a choice blocks your next step.
 
 ## Ground rules
 
-- What the user made stays as they made it: marks (picks, Main), looks, answers, kept and
-  archived answers, and spec sections they wrote by hand (`spec.held`). Read them and build
-  on them.
+- What the user made stays as they made it: marks (Main, Bookmark/Keep, Delete), looks,
+  answers, kept and archived answers, and spec sections they wrote by hand (`spec.held`).
+  Read them and build on them.
 - Use only the reversible moves below: an `edit`, a new version, a look added beside the
   user's, a re-asked open question with the same ids. Archive, move, hide or delete nothing.
 - A design the user is answering right now (`pending` names its draft in `mockpit read`)
@@ -23,23 +26,24 @@ next step.
 
 ## 1. What changed
 
-| Before                                                                  | Now                                                                                                                                                                                                                                                                                        |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `reply.tuned`: values for the whole design                              | `reply.tunedOn`: `{alternative: {path: value}}`, a tune per frame. `tuned` holds the Main frame's (else the one in use or on screen) for one release                                                                                                                                       |
-| `reply.more`, `reply.update`: one of each per Send                      | `reply.requests`, every request in order: `{kind: "more" \| "update" \| "revise" \| "state" \| "draw", …}`. `more` and `update` are the first of their kind, resolved; `moreAlso` and `updateAlso` the rest                                                                                |
-| `verdict: {kind: "revise"}`: the one New version                        | every `revise` in `requests`; `verdict` repeats the first                                                                                                                                                                                                                                  |
-| nothing                                                                 | `reply.lines`: the Send in the user's words, one line each, as their Send list showed it                                                                                                                                                                                                   |
-| `verdict: {kind: "use"}` from Use this: one alternative                 | Use: `verdict.picks`, Main first, each `{state, alternative, version, main?, look?, values?, tuned?, as?}`. An instruction to put them in the code; `lines[0]` reads "Use in <target>: put football (Main) with marks petals; flowers in the code"                                         |
-| `combos` on `read`, `reply.combo`                                       | gone. `looks` hold knob values by name; picks cover answers                                                                                                                                                                                                                                |
-| kept answers (`standings.kept`)                                         | still there, and each also reads as a pick in `marks`, with its `answer`                                                                                                                                                                                                                   |
-| nothing                                                                 | `read <slug>`: `marks` (`{kind: pick \| main \| archived, state, alternative, look?, values?, at, by}`), `looks` (`{name, values, author, design}`), `settledOn` (settled values per frame); a screen's or component's read: `usedFrom` (`[{id, slug, title}]`, the ideas Use copied from) |
-| `publish`                                                               | adds `looks` (`--looks <json\|file>`: alone, no new version) and `sheet` (`--sheet <knob>`: an idea's link opens on that knob's Sheet)                                                                                                                                                     |
-| nudge "N alternatives and no question binds them" with a `suggestedAsk` | gone: the user picks without a question. The nudge for answers mockpit added to your own question stays                                                                                                                                                                                    |
-| nudge "a 2–3 option knob is a choice: ask"                              | gone: a choice knob is what the user Spreads                                                                                                                                                                                                                                               |
-| nothing                                                                 | word caps, nudges only: `edit` purpose over one sentence, a behaviour line over 14 words; `ask` answer labels over 6 words                                                                                                                                                                 |
-| `pending.draft {answered, of, comments}`                                | adds `requests`                                                                                                                                                                                                                                                                            |
-| `mockpit watch`: `Quiet or dark?: Dark · 1 tuned`                       | the Send's `lines`, joined with `·`                                                                                                                                                                                                                                                        |
-| words: Use this, Keep, combo, Drop                                      | Use, Pick and Main, Look, Archive. Also new: Frame, Spread, Sheet                                                                                                                                                                                                                          |
+| Before                                                                  | Now                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reply.tuned`: values for the whole design                              | `reply.tunedOn`: `{alternative: {path: value}}`, a tune per frame. `tuned` holds the Main frame's (else the one in use or on screen) for one release                                                                                                                                            |
+| `reply.more`, `reply.update`: one of each per Send                      | `reply.requests`, every request in order: `{kind: "more" \| "update" \| "revise" \| "state" \| "draw", …}`. `more` and `update` are the first of their kind, resolved; `moreAlso` and `updateAlso` the rest                                                                                     |
+| `verdict: {kind: "revise"}`: the one New version                        | every `revise` in `requests`; `verdict` repeats the first                                                                                                                                                                                                                                       |
+| nothing                                                                 | `reply.lines`: the Send in the user's words, one line each, as their Send list showed it                                                                                                                                                                                                        |
+| `verdict: {kind: "use"}` from Use this: one alternative                 | Use: `verdict.picks`, Main first, each `{state, alternative, version, main?, look?, values?, tuned?, as?}`. On a **Set** (`set: true`), every live frame ships wearing its accumulated `★ Main` knob combo (e.g. glyphs + colour). `lines[0]` reads "Use in <target>: …"                        |
+| `combos` on `read`, `reply.combo`                                       | gone. `looks` hold knob values by name; `marks` hold per-frame/per-knob Main, Keep and Delete                                                                                                                                                                                                   |
+| kept answers (`standings.kept`)                                         | still there, and each also reads as `keep` in `marks`, with its `answer`                                                                                                                                                                                                                        |
+| nothing                                                                 | `read <slug>`: `set` (`boolean`), `marks` (`{kind: main \| keep \| deleted \| archived, state, alternative, look?, values?, at, by}`; legacy `pick` normalizes to `keep`; `deleted` emits a silent tombstone into `ruledOut`), `looks`, `settledOn`; a screen's or component's read: `usedFrom` |
+| `publish` / `edit`                                                      | adds `--set` / `--no-set` (MCP/HTTP `set`), `looks` (`--looks <json\|file>`: alone, no new version), and `sheet` (`--sheet <knob>`: an idea's link opens on that knob's Sheet)                                                                                                                  |
+| auto-popping `"Which alternative?"` panel                               | retired: plain Focus stays quiet with no agent question; opening a Sheet cell (`?alternative=&sheet=&value=`) opens the Knob Choice Panel + Side-by-side finalist grid                                                                                                                          |
+| nudge "N alternatives and no question binds them" with a `suggestedAsk` | gone: the user marks without a question. The nudge for answers mockpit added to your own question stays                                                                                                                                                                                         |
+| nudge "a 2–3 option knob is a choice: ask"                              | gone: a choice knob is what the user Spreads                                                                                                                                                                                                                                                    |
+| nothing                                                                 | word caps, nudges only: `edit` purpose over one sentence, a behaviour line over 14 words; `ask` answer labels over 6 words                                                                                                                                                                      |
+| `pending.draft {answered, of, comments}`                                | adds `requests`                                                                                                                                                                                                                                                                                 |
+| `mockpit watch`: `Quiet or dark?: Dark · 1 tuned`                       | the Send's `lines`, joined with `·`                                                                                                                                                                                                                                                             |
+| words: Use this, Pick, combo, Drop                                      | Use, Main (`M`), Bookmark / Keep (`K`), Delete (`X`), Look, Set (`Pick one` \| `Keep all`). Also: Frame, Spread, Sheet                                                                                                                                                                          |
 
 A Send or a Use archives nothing; an answer releases the other alternatives from use.
 
@@ -65,7 +69,7 @@ for (const row of read().designs) {
   const out = [];
   if (row.variants && !(tree.get(row.slug)?.instanceIn ?? []).length)
     out.push(
-      `variants design no screen includes (${row.variants} variants): a gallery to choose from?`,
+      `variants design no screen includes (${row.variants} variants): a gallery to choose from, or a Set?`,
     );
   for (const [path, k] of Object.entries(d.knobs ?? {})) {
     const choice = (k?.type === "select" || k?.type === "image") && k.options?.length > 1;
@@ -99,8 +103,8 @@ for (const row of read().designs) {
     out.push(
       `entries used from ${d.usedFrom.map((u) => u.slug).join(", ")}: is the code built from them?`,
     );
-  const picks = (d.marks ?? []).filter((m) => m.kind !== "archived").length;
-  if (picks) out.push(`${picks} pick(s) by the user: build on them`);
+  const activeMarks = (d.marks ?? []).filter((m) => m.kind === "main" || m.kind === "keep").length;
+  if (activeMarks) out.push(`${activeMarks} mark(s) by the user: build on them`);
   if (out.length) console.log(`${row.slug} (${row.kind})\n  ${out.join("\n  ")}`);
 }
 ```
@@ -110,26 +114,39 @@ patterns live: search it for `tuned`, `.more`, `.update`, `verdict`, `combo` and
 
 ## 3. Adapt each pattern
 
-### A variants design used as a gallery to choose from
+### A variants design used for exploration (Pick one vs. Keep all Set)
 
-Signs: a screen or component with variants (`· N variants`) that no screen includes, whose
-variants are options for one place in a product design rather than forms that all ship (nine
-hero drawings, not a button's sizes). The case this was built for: `hero-drawings`, nine
-drawings, which belong to `home-hero-two-blocks-of-colour`.
+Signs: a screen or component with variants (`· N variants`) that no screen includes, where the
+user is still styling or choosing between entries.
 
-Leave it when a screen includes it (`instanceIn` in `read --tree`; `edit` refuses anyway) or
-its variants all ship. When you can't tell which design it is for, list it.
+First check whether **one** entry ships (a `Pick one` idea) or **all** entries ship together
+(a `Keep all` **Set** idea, `--set`). For example, `hero-drawings` is a **Set** — all eight
+drawings belong in the hero and morph from one to the next on click, while each drawing needs
+its own glyph style (`figure.glyphs`) and colour (`figure.colour`). Treating a Set as a
+pick-one gallery breaks the user's mental model because they are choosing knob styles _per
+item_, not picking one drawing to discard the rest.
+
+Leave it when a screen already includes it (`instanceIn` in `read --tree`; `edit` refuses
+anyway). When you can't tell whether the entries compete or all ship, list it.
 
 ```sh
+# Collection where every item ships together, styled per item via choice knobs (a Set):
 mockpit read home-hero-two-blocks-of-colour --json   # its states: here ["Home"]
-mockpit edit hero-drawings --no-variants --kind idea \
+mockpit edit hero-drawings --no-variants --kind idea --set \
   --for home-hero-two-blocks-of-colour --first-state Home
-mockpit read hero-drawings                           # now an idea for the hero, state Home
+mockpit read hero-drawings                           # now a Set idea for the hero, state Home
+
+# Competing options where only one winner ships (omit --set):
+mockpit edit card-layouts --no-variants --kind idea --no-set \
+  --for catalog --first-state Default
 ```
 
 `--first-state` names the gallery's one unnamed state after the target's state the frames
 belong in, so a Use copies into it; drop it when the gallery's states already carry the
 target's names. Its variants become alternatives under the same names, and its knobs stay.
+When a Set with `--becomes screen|component` is used, Mockpit creates the target with
+`variants: true` automatically so every named item is preserved with its baked `★ Main` knob
+defaults.
 
 A gallery whose named states differ from the target's has no rename: `move --to-state` copies
 the frames and archives the originals, leaving any marks on the archived ones. List it.

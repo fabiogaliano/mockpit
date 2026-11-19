@@ -29,6 +29,7 @@ import type { FlowNav } from "./flowNav.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
+  alternativeName,
   BOARD_GAP,
   BOARD_PAD,
   boardWidths,
@@ -41,8 +42,10 @@ import {
   TOOL_BAND_W,
   widthChoices,
 } from "./logic.ts";
+import { KnobChoicePanel, KnobViewToggle } from "./KnobChoicePanel.tsx";
 import { PaletteTool, paletteChoices } from "./PaletteTool.tsx";
 import { PreviewTool } from "./PreviewTool.tsx";
+import { knobName } from "./sheet.ts";
 import { Spec, specShown } from "./Spec.tsx";
 import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
@@ -60,8 +63,8 @@ import type { TuneState } from "./tune.ts";
 import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, tabletLayout, win } from "./viewport.ts";
 
-// "built" is Tune's: the panel while Tune is on, with no tabs.
-export type Side = "talk" | "spec" | "built" | "thread";
+// "built" is Tune's: the panel while Tune is on, with no tabs. "knob" is the Sheet cell's.
+export type Side = "talk" | "spec" | "built" | "thread" | "knob";
 export type Margins = ReturnType<typeof createMargins>;
 
 // Past this many a list is names alone: every picture is a whole page loading, and
@@ -120,12 +123,14 @@ export function createMargins(
     (page() || s.tunable().length > 0 || previewHas() || paletteChoices(s).length > 0);
 
   const closed = () => !!s.design()?.archivedAt;
-  // Only an open question opens the panel by itself. What else it holds (what this Send
-  // carries, answered questions) is there when opened.
+  const knobWants = () => !closed() && !!s.sheet.held();
+  // Only an open question or an open Sheet cell opens the panel by itself. What else it
+  // holds (what this Send carries, answered questions) is there when opened.
   const talkWants = () => !closed() && !!s.curAsk();
   const talkHas = () =>
     !closed() &&
-    (talkWants() ||
+    (knobWants() ||
+      talkWants() ||
       s.flow().length > 0 ||
       s.sendable() ||
       keptGroups(s).length > 0 ||
@@ -150,6 +155,7 @@ export function createMargins(
     if (shut()) return null;
     if (s.panel() === "thread") return "thread";
     if (s.panel() === "spec") return "spec";
+    if (knobWants()) return "knob";
     if (s.cardMin()) return null;
     if (talkWants() || pinned()) return "talk";
     return null;
@@ -159,6 +165,17 @@ export function createMargins(
       () => s.curAsk()?.id,
       (id, was) => {
         if (id && id !== was) setShut(false);
+      },
+    ),
+  );
+  createEffect(
+    on(
+      () => {
+        const h = s.sheet.held();
+        return h ? `${h.at.knob ?? ""}:${h.v.alternative}` : null;
+      },
+      (key, was) => {
+        if (key && key !== was) setShut(false);
       },
     ),
   );
@@ -232,10 +249,11 @@ export function createMargins(
     setPinned(false);
     setShut(true);
   }
-  // The toggle in the top bar: shut, or open on the question and what goes with it.
+  // The toggle in the top bar: shut, or open on the active knob cell or question.
   function togglePanel() {
     if (side()) return closeSide();
     setShut(false);
+    if (knobWants()) return;
     toggleSide("talk");
   }
   // A tab: what it shows, in the panel whether or not it stood open.
@@ -316,6 +334,7 @@ const TITLES: Record<Side, string> = {
   spec: "Spec",
   thread: "Activity",
   built: "Instances",
+  knob: "Choices",
 };
 
 // The panel's toggle, in the top bar where it costs the design nothing. Only there while
@@ -509,8 +528,16 @@ export function RightMargin(props: {
   const s = props.s;
   const m = props.m;
   const [body, setBody] = createSignal<HTMLElement>();
-  const title = (side: Side) =>
-    side === "built" ? (s.tool() === "tune" ? "Tune" : "Instances") : TITLES[side];
+  const title = (side: Side) => {
+    if (side === "built") return s.tool() === "tune" ? "Tune" : "Instances";
+    if (side === "knob") {
+      const h = s.sheet.held();
+      if (!h) return TITLES.knob;
+      const k = h.at.knob ? knobName(h.at.knob) : "Looks";
+      return `${k} · ${alternativeName(h.v.alternative)}`;
+    }
+    return TITLES[side];
+  };
   return (
     <Show when={m.side()}>
       {(side) => (
@@ -520,7 +547,10 @@ export function RightMargin(props: {
           aria-label={side() === "built" ? "Tune" : "Panel"}
         >
           <div class="rm-head">
-            <h2>{title(side())}</h2>
+            <h2 title={title(side())}>{title(side())}</h2>
+            <Show when={side() === "knob"}>
+              <KnobViewToggle s={s} />
+            </Show>
             <Show when={side() === "talk" && !m.closed() ? s.curAsk() : null}>
               {(ask) => (
                 <Show when={pictured(s, ask())}>
@@ -540,6 +570,9 @@ export function RightMargin(props: {
           </div>
           <div class="rm-body">
             <Switch>
+              <Match when={side() === "knob"}>
+                <KnobChoicePanel s={s} />
+              </Match>
               <Match when={side() === "talk"}>
                 <Talk s={s} m={m} sl={props.sl} />
               </Match>

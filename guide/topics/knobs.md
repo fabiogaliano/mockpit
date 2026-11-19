@@ -4,22 +4,28 @@ A knob is a value the user tunes live on one render. Declare knobs for what is w
 fine-tuning (size, spacing, colour, density) even unasked; they wait in Tune. A tune belongs
 to the frame it was made on: tuning one alternative leaves the others as they were.
 
-## Choice knobs, the Sheet and looks
+## Choice knobs, the Sheet, Sets and looks
 
 A choice knob is a `select` or an `image` with options, or a part's swaps. Publish what
 varies across renders as one, not as a question: the user presses Spread beside it in Tune
 and sees the frame in every value, then every frame in every value, on a Sheet (frames down,
-values across). On a screen or component Spread opens an idea for it, holding copies of its
-frames, so the product stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on
-an idea lands its link on that Sheet; a knob that can't be laid out leaves the link as it
-was, with a nudge. On hosts that support it, publishing starts background capture for the row.
+values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it
+full-size beside a Knob Choice Panel (and Side-by-side finalist grid) where the user marks
+**Main** (`M`), **Bookmark / Keep** (`K`), or **Delete** (`X`, ruling out that cell only,
+never the whole alternative). Each frame accumulates its own `★ Main` across multiple choice
+knobs (e.g. glyphs + colour). On a **Set** idea (`--set`, `Keep all`), every live frame ships
+on Use wearing its accumulated `★ Main` knob values (and defaults for knobs left unset). On a
+screen or component Spread opens an idea for it, holding copies of its frames, so the product
+stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on an idea lands its link
+on that Sheet; a knob that can't be laid out leaves the link as it was, with a nudge.
+On hosts that support capture, it also starts capturing the published row in the background.
 
 A look is a named set of knob values, holding only the knobs it changes. The user saves
 them from Tune; yours come with a publish, `--looks '{"Big dots": {"marks": "dots",
 "size": 1.6}}'` (MCP and HTTP `"looks"`), checked against the knobs declared. Alone it adds
 them with no new version. A look is offered on every design that declares each knob it
 sets, and a look the user named stands against yours of that name (a nudge says so).
-`read` lists `looks`; a pick or a Use names the look it was made in.
+`read` lists `looks`; a mark or a Use names the look or knob values it was made in.
 
 ## Declaring
 

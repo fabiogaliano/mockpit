@@ -31,6 +31,7 @@ const field = {
   alternative: 'Alternative label; default "default"',
   variant: "On a variants design, its label instead",
   variants: "Its entries are variants that all ship (screen or component), not alternatives",
+  set: "Idea whose entries all ship together; each keeps its own Main per knob",
   project: "Default: the session's project",
   title: "Design title",
   session: "Session id from an earlier publish",
@@ -262,6 +263,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string", d: field.area },
       group: { t: "string", d: field.group },
       variants: { t: "boolean", d: field.variants },
+      set: { t: "boolean", d: field.set },
       for: { t: "string", d: field.for },
       becomes: { t: "string", d: field.becomes },
       source: { t: "string", d: field.source },
@@ -310,7 +312,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
   {
     name: "read",
     description:
-      "Read this first. Every form carries decisionLog: what the user settled; it stands unless they say otherwise. No design: every design, flows, pending. area: one area, all settled and what's left (coverage); read it before drawing there. design: its spec (the user's edits stand), states, alternatives, questions, parts, knobs, looks, marks (the user's picks and Main, saved without a Send), settled values, a product's usedFrom. Never consumes feedback.",
+      "Read this first. Every form carries decisionLog: what the user settled; it stands unless they say otherwise. No design: every design, flows, pending. area: one area, all settled and what's left (coverage); read it before drawing there. design: its spec (the user's edits stand), states, alternatives, questions, parts, knobs, looks, marks (Main/Keep/Deleted, saved without Send), ruledOut, settled values, a product's usedFrom. Never consumes feedback.",
     params: {
       design: { t: "string", d: field.design },
       project: P.project,
@@ -392,6 +394,7 @@ export const MCP_TOOL_DEFS: ToolDef[] = [
       area: { t: "string" },
       group: { t: "string" },
       variants: { t: "boolean", d: field.variants },
+      set: { t: "boolean", d: field.set },
       for: { t: "string" },
       becomes: { t: "string" },
       source: { t: "string" },
@@ -582,12 +585,13 @@ const feedbackSchema = o({
   edited: o({
     kind: str.optional(),
     area: nullStr.optional(),
+    set: z.boolean().optional(),
     spec: bag.optional(),
     ready: o({ ready: z.boolean(), at: str }).optional(),
   })
     .optional()
     .describe(
-      "The user moved the design themselves (its kind or area now), edited its spec, or marked it Ready (or took it off)",
+      "The user moved the design themselves (its kind, area, or set mode now), edited its spec, or marked it Ready (or took it off)",
     ),
   nudges: strs.optional(),
   followUps: followUpsSchema.optional(),
@@ -738,8 +742,13 @@ const OUTPUT_SCHEMAS: Record<string, z.ZodRawShape> = {
       .array(bag)
       .optional()
       .describe(
-        "The user's marks {kind: pick|main|archived, state, alternative, look?, values?, at}, saved without a Send",
+        "The user's marks {kind: main|keep|deleted|archived, state, alternative, look?, values?, at}, saved without a Send",
       ),
+    ruledOut: z
+      .array(o({ name: str }))
+      .optional()
+      .describe("Ruled-out options; don't suggest again"),
+    set: z.boolean().optional(),
     tree: z.array(bag).optional(),
     spec: bag.optional(),
     ready: bag

@@ -23,7 +23,6 @@ import {
   type Knobs,
   type KnobValue,
   type Look,
-  type Mark,
   MAX_WORKSPACE_ASSET_BYTES,
   type Design,
   type DesignReady,
@@ -81,6 +80,7 @@ import {
 } from "./system.ts";
 import type { Mode } from "./themes.ts";
 import { RULES_SETTING } from "./guidance.ts";
+import { normalizeMarks } from "./marks.ts";
 
 type Row = Record<string, SqlStorageValue>;
 
@@ -1165,6 +1165,7 @@ export class SqlStore implements Store {
       source: "TEXT",
       shortlist: "INTEGER NOT NULL DEFAULT 0",
       variants: "INTEGER NOT NULL DEFAULT 0",
+      isSet: "INTEGER NOT NULL DEFAULT 0",
       // A design's `for`, another SQL keyword.
       forDesign: "TEXT",
       becomes: "TEXT",
@@ -1839,6 +1840,7 @@ export class SqlStore implements Store {
       sessionId: (r.sessionId as string) ?? null,
       shortlist: !!r.shortlist,
       variants: !!r.variants,
+      set: !!r.isSet,
       for: (r.forDesign as string) ?? null,
       becomes: isIdeaBecomes(r.becomes) ? r.becomes : null,
       archivedAt: (r.archivedAt as string) ?? null,
@@ -1849,7 +1851,7 @@ export class SqlStore implements Store {
       answerAdditions: parseJson<AnswerAddition[]>(r.answerAdditions, []),
       standings: parseJson<Record<string, AnswerStanding>>(r.standings, {}),
       looks: parseJson<Look[]>(r.looks, []),
-      marks: parseJson<Mark[]>(r.marks, []),
+      marks: normalizeMarks(parseJson<unknown>(r.marks, [])),
       createdAt: r.createdAt as string,
       updatedAt: r.updatedAt as string,
     };
@@ -2178,6 +2180,7 @@ export class SqlStore implements Store {
       sessionId: input.sessionId ?? null,
       shortlist: !!input.shortlist,
       variants: !!input.variants,
+      set: !!input.set,
       for: input.for ?? null,
       becomes: input.becomes ?? null,
       archivedAt: null,
@@ -2193,7 +2196,7 @@ export class SqlStore implements Store {
       updatedAt: now,
     };
     this.sql.exec(
-      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, forDesign, becomes, looks, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO designs (id, project, slug, title, kind, area, libraryGroup, source, states, asks, knobs, widths, draft, sessionId, shortlist, variants, isSet, forDesign, becomes, looks, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       design.id,
       design.project,
       design.slug,
@@ -2208,6 +2211,7 @@ export class SqlStore implements Store {
       design.sessionId,
       design.shortlist ? 1 : 0,
       design.variants ? 1 : 0,
+      design.set ? 1 : 0,
       design.for,
       design.becomes,
       JSON.stringify(design.looks),
@@ -2233,6 +2237,7 @@ export class SqlStore implements Store {
       ...(patch.area !== undefined && { area: label(patch.area) }),
       ...(patch.group !== undefined && { group: label(patch.group) }),
       ...(patch.variants !== undefined && { variants: patch.variants }),
+      ...(patch.set !== undefined && { set: patch.set }),
       ...(patch.for !== undefined && { for: patch.for }),
       ...(patch.becomes !== undefined && { becomes: patch.becomes }),
       ...(patch.source !== undefined && { source: label(patch.source) }),
@@ -2256,12 +2261,13 @@ export class SqlStore implements Store {
       updatedAt: new Date().toISOString(),
     };
     this.sql.exec(
-      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, looks = ?, marks = ?, updatedAt = ? WHERE id = ?",
+      "UPDATE designs SET title = ?, kind = ?, area = ?, libraryGroup = ?, variants = ?, isSet = ?, forDesign = ?, becomes = ?, source = ?, states = ?, asks = ?, knobs = ?, widths = ?, sessionId = ?, archivedAt = ?, archiveReason = ?, spec = ?, ready = ?, stateOutlines = ?, answerAdditions = ?, standings = ?, looks = ?, marks = ?, updatedAt = ? WHERE id = ?",
       next.title,
       next.kind,
       next.area,
       next.group,
       next.variants ? 1 : 0,
+      next.set ? 1 : 0,
       next.for,
       next.becomes,
       next.source,

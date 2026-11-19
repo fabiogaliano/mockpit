@@ -486,19 +486,20 @@ export interface Look {
   at: string;
 }
 
-// The user's mark on a frame: picked, or picked and Main (one per state). A frame worn in
-// a look or in some knob values, as a sheet cell shows it, is marked apart from the frame
-// as it is. Saved on the click and stored with the design (marks.ts); nothing is sent.
-// Archived is a mark as `read` lists it, never stored here: an archived frame's record is
-// its alternative's status.
-export type MarkKind = "pick" | "main" | "archived";
+// The user's mark on a frame or sheet cell: Main (primary selection), Keep (parked
+// backup), or Deleted (hidden from UI with silent ruledOut tombstone for the agent).
+// A frame worn in a look or knob values, as a sheet cell shows it, is marked apart from
+// the frame as it is. Saved on the click and stored with the design (marks.ts).
+// Archived is a mark as `read` lists it for archived alternatives.
+export type StoredMarkKind = "main" | "keep" | "deleted";
+export type MarkKind = StoredMarkKind | "archived";
 export interface Mark {
   state: string | null;
   alternative: string;
   // A look's name, with the values it set when marked.
   look?: string;
   values?: Record<string, KnobValue>;
-  kind: "pick" | "main";
+  kind: StoredMarkKind;
   at: string;
   by: Author;
 }
@@ -833,6 +834,8 @@ export interface Lift {
 export interface DesignEdit {
   kind?: DesignKind;
   area?: string | null;
+  // Whether an idea's entries all ship together (Set) or compete (Alternatives).
+  set?: boolean;
   // The sections of the spec the user just wrote by hand; null where they cleared one.
   spec?: { purpose?: string | null; behaviour?: SpecLine[] | null };
   // The user marked the design Ready, or took the mark off.
@@ -960,6 +963,9 @@ export interface Design {
   // alternatives to choose between: nothing on it is chosen, and agents name them
   // as variants. Only a screen or a component holds variants.
   variants: boolean;
+  // Only on an idea: its entries are a Set (AND — all ship together, each styled
+  // independently via per-knob Main) rather than competing Alternatives (OR — pick one).
+  set: boolean;
   // When the user archived it: off the working shelf, its open asks dismissed, until
   // they restore it or an agent asks something new. null while it is live.
   archivedAt: string | null;
@@ -1315,6 +1321,7 @@ export interface CreateDesignInput {
   sessionId?: string | null;
   shortlist?: boolean;
   variants?: boolean;
+  set?: boolean;
   for?: string | null;
   becomes?: IdeaBecomes | null;
   looks?: Look[];
@@ -1327,6 +1334,7 @@ export interface UpdateDesignInput {
   area?: string | null;
   group?: string | null;
   variants?: boolean;
+  set?: boolean;
   for?: string | null;
   becomes?: IdeaBecomes | null;
   source?: string | null;

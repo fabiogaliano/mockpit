@@ -324,7 +324,7 @@ export const api = {
       alternative: string;
       look?: string;
       values?: Record<string, KnobValue>;
-      mark: "pick" | "main" | null;
+      mark: "main" | "keep" | "deleted" | null;
     },
   ) =>
     call<{ marks: MarkView[] }>(`/api/designs/${encodeURIComponent(id)}/marks`, json("POST", body)),
@@ -439,9 +439,15 @@ export const api = {
   // section of its spec. The agent hears it in its next feedback.
   editDesign: (
     id: string,
-    body: { kind?: DesignKind; area?: string | null; purpose?: string; behaviour?: SpecLine[] },
+    body: {
+      kind?: DesignKind;
+      area?: string | null;
+      set?: boolean;
+      purpose?: string;
+      behaviour?: SpecLine[];
+    },
   ) =>
-    call<{ design: { kind: DesignKind; area?: string } }>(
+    call<{ design: { kind: DesignKind; area?: string; set?: boolean } }>(
       `/api/designs/${encodeURIComponent(id)}`,
       json("PATCH", body),
     ),

@@ -65,6 +65,8 @@ verbs:
       --variant <name>  on a variants design, the variant's label instead
       --variants        its entries are variants that all ship, not alternatives
                         to choose between (screen or component; --no-variants: off)
+      --set             an idea whose entries all belong together (e.g. a morphing set;
+                        --no-set: off)
       --html <file|->   the html body (or a positional file)
       --surfaces <json|file>  instead: the full ordered surface list; {"id"}
                         alone keeps a surface, a missing id removes it
@@ -131,7 +133,7 @@ verbs:
   mockpit move --design <slug> (--alternative <v>... | --variant <v>...) (--to <design> [--to-state s] | --archive | --restore)
                                           move alternatives elsewhere, archive or restore them
                                           (--archive or --restore alone: the whole design)
-  mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--[no-]variants] [--source p]
+  mockpit edit <slug> [--slug s] [--title t] [--kind k] [--area a] [--group g] [--[no-]variants] [--[no-]set] [--source p]
           [--for d] [--becomes k] [--purpose t] [--behaviour t [--state s] [--part p]]
                                           change a design or its spec without a new
                                           version ("" clears)
@@ -1233,6 +1235,7 @@ function parsePublishFlags() {
       area: { type: "string" },
       group: { type: "string" },
       variants: { type: "boolean" },
+      set: { type: "boolean" },
       for: { type: "string" },
       becomes: { type: "string" },
       source: { type: "string" },
@@ -1382,6 +1385,7 @@ async function publishDesign() {
     area: flags.area,
     group: flags.group,
     variants: flags.variants,
+    set: flags.set,
     for: flags.for,
     becomes: flags.becomes,
     source: flags.source,
@@ -1552,6 +1556,7 @@ function watchLines(batch) {
     const bits = [
       e.kind ? `now a ${e.kind}` : "",
       e.area !== undefined ? (e.area ? `area ${e.area}` : "no area") : "",
+      e.set !== undefined ? (e.set ? "set (keep all)" : "alternatives (pick one)") : "",
     ].filter(Boolean);
     if (bits.length) lines.push(`mockpit edited ${name}: the user moved it (${bits.join(", ")})`);
     if (e.spec?.purpose !== undefined) {
@@ -2561,6 +2566,7 @@ const commands = {
         area: { type: "string" },
         group: { type: "string" },
         variants: { type: "boolean" },
+        set: { type: "boolean" },
         for: { type: "string" },
         becomes: { type: "string" },
         source: { type: "string" },
@@ -2655,6 +2661,7 @@ const commands = {
       "area",
       "group",
       "variants",
+      "set",
       "for",
       "becomes",
       "source",
@@ -2662,7 +2669,7 @@ const commands = {
     ].filter((k) => flags[k] !== undefined);
     if (!fields.length && flags["first-state"] === undefined && flags.behaviour === undefined) {
       die(
-        "edit needs --slug, --title, --kind, --area, --group, --variants, --for, --becomes, --source, --purpose, --behaviour or --first-state",
+        "edit needs --slug, --title, --kind, --area, --group, --variants, --set, --for, --becomes, --source, --purpose, --behaviour or --first-state",
         "mockpit edit --help",
       );
     }
@@ -2697,6 +2704,7 @@ const commands = {
         m.kind === "component" && !m.area ? "shared" : m.area && `area ${m.area}`,
         m.group && `group ${m.group}`,
         m.variants && "variants",
+        m.set && "set",
         m.for && `for ${m.for}`,
         m.becomes && `becomes ${m.becomes}`,
         m.source && `source ${m.source}`,

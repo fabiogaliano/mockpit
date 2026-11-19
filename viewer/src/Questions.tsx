@@ -1138,11 +1138,11 @@ function OptionCard(props: {
           <button
             type="button"
             class="optic"
-            aria-label={`Archive ${props.label}`}
-            title={FACE.archive.label}
+            aria-label={`Delete ${props.label}`}
+            title={FACE.delete.label}
             onClick={(e) => a.onHide?.(e.currentTarget.closest(".optw"), byKey(e))}
           >
-            <Icon name={FACE.archive.icon} />
+            <Icon name={FACE.delete.icon} />
           </button>
         </Show>
         <Show when={hasMenu()}>
@@ -1181,8 +1181,8 @@ function OptionCard(props: {
               aria-pressed={a.picked}
               onClick={item(() => a.onPick?.())}
             >
-              <Icon name={FACE.pick.icon} />
-              {a.picked ? "Picked" : FACE.pick.label}
+              <Icon name={FACE.keep.icon} />
+              {a.picked ? "Bookmarked" : FACE.keep.label}
             </button>
           </Show>
           <Show when={a.onBorrow}>
@@ -1210,8 +1210,8 @@ function OptionCard(props: {
                 item(() => a.onHide?.(at, byKey(e)))();
               }}
             >
-              <Icon name={FACE.archive.icon} />
-              {FACE.archive.label}
+              <Icon name={FACE.delete.icon} />
+              {FACE.delete.label}
             </button>
           </Show>
         </div>

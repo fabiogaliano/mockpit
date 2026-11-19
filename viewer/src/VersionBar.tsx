@@ -99,7 +99,19 @@ export function VersionStepper(props: {
 // use: its newest version is current, and Ready is its mark.
 export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
   const s = props.s;
-  const picks = () => framePicks(s.marks());
+  const isSet = () => !!s.design()?.set;
+  const picks = () => framePicks(s.marks(), { isSet: isSet(), rows: s.alternatives() });
+  const setProgress = () => {
+    if (!isSet()) return null;
+    const frames = s.sheet.frames();
+    if (!frames.length) return null;
+    const knob = s.sheet.view()?.knob ?? s.sheet.held()?.at.knob ?? s.sheet.choiceKnobs()[0]?.path;
+    if (knob === undefined) return null;
+    const starred = frames.filter(
+      (v) => s.frameKnobMark(v.state, v.alternative, knob) === "main",
+    ).length;
+    return { starred, total: frames.length };
+  };
   const inUse = () => sameVersion(s.onStage(), s.inUse());
   const usedStep = () => stepFor(s.steps(), s.inUse());
   const questionOpen = () => !!s.curAsk() && !s.questionHidden();
@@ -117,6 +129,11 @@ export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
       <span class="lbl">{usedLabel()}</span>
     </button>
   );
+  const picksLabel = () => {
+    if (!isSet()) return `Use · ${picks().length}`;
+    const p = setProgress();
+    return p ? `Use set · ${p.starred}/${p.total} ★` : `Use set · ${picks().length}`;
+  };
   return (
     <Show when={!readonly() && canDesign(s, "use")}>
       <Show
@@ -149,12 +166,16 @@ export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
             type="button"
             class="btn use"
             classList={{ go: props.primary }}
-            aria-label={`Use ${picks().length} picked${into() ? ` in ${into()}` : ""}`}
+            aria-label={
+              isSet()
+                ? `Use set (${picks().length} items)${into() ? ` in ${into()}` : ""}`
+                : `Use ${picks().length} picked${into() ? ` in ${into()}` : ""}`
+            }
             title={into() ? `Into ${into()}` : undefined}
             onClick={() => void s.use()}
           >
-            <span class="lbl">{`Use · ${picks().length}`}</span>
-            <span class="sh">Use</span>
+            <span class="lbl">{picksLabel()}</span>
+            <span class="sh">{isSet() ? "Use set" : "Use"}</span>
           </button>
         </Show>
       </Show>

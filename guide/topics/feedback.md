@@ -112,8 +112,8 @@ list showed it before it went (a Use first). Read it first, then the fields:
    instances show that one, not your newer publishes, until the user picks again.
    A batch's `system` (`{rev, changes}`) is what its Send decided for the whole project:
    a palette made the default, a project knob settled. Every design wears it now.
-   `read --history` flags a version the user hid `hidden`. The question `alternative` (per
-   state `alternative:<state>`) is the built-in alternative question. A `chosen` entry with
+   `read --history` flags a version the user hid `hidden`. (Older replies may carry
+   `alternative` / `alternative:<state>` from the retired built-in alternative question.) A `chosen` entry with
    `other: true` is the user's own answer (its `label`); it flips no alternative and sets
    no knob. `comment` qualifies the answer and may come with nothing chosen. `onAnswers`
    are comments on single answers, picked or not, each naming its answer: read one on an
@@ -411,10 +411,15 @@ mockpit read    --decisions               # the whole decision log, when a read 
   `why` its reason), and restoring it unhides the answer. A kept screen (`kept: true`) is
   not archived when another is chosen and doesn't follow new versions unless `carried`:
   leave it as it is.
-- `marks` (on `read` of an idea) is what the user picked, saved on the click and sent to
-  no one: `{kind: pick|main|archived, state, alternative, look?, values?, at, by}`, one
-  Main a state. A kept answer reads as a pick with its `answer` (`{ask, option, label}`);
-  an archived frame reads `archived`. Read them before you publish more: build on the picks.
+- `marks` (on `read` of an idea) holds what the user marked, saved on the click and sent to
+  no one: `{kind: main|keep|deleted|archived, state, alternative, look?, values?, at, by}`.
+  `main` is the starred winner per slot (per `(state, knob)` on cells, or per `state` on a
+  Pick-one idea); `keep` is bookmarked; `deleted` vanishes in the viewer and emits a silent
+  tombstone into `ruledOut` so you never suggest that cell/option again. A kept answer reads
+  as `keep` with its `answer` (`{ask, option, label}`); an archived frame reads `archived`.
+  On a **Set** idea (`set: true`), every live frame accumulates its own `main` picks across
+  multiple choice knobs (e.g. glyphs + colour) and ships together on Use wearing those values
+  (and defaults for unset knobs). Read `marks` and `ruledOut` before you publish more.
 - `looks` (on `read`) are named knob values, `{name, values, author, design}`: the
   design's own, then those of other designs that declare every knob they set. Add yours
   with `publish --looks` (alone, no new version); one the user named stands against yours.

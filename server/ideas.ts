@@ -156,6 +156,19 @@ export function ruledOutOf(
     });
   }
   const out = [...byName.values()];
+  for (const m of target.marks) {
+    if (m.kind !== "deleted") continue;
+    const detail = m.look
+      ? m.look
+      : m.values && Object.keys(m.values).length
+        ? Object.entries(m.values)
+            .sort(([a], [b]) => (a < b ? -1 : 1))
+            .map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : String(v)}`)
+            .join(", ")
+        : "";
+    const where = [m.state, m.alternative, detail].filter(Boolean).join(" · ");
+    out.push({ name: where, ...(m.at ? { when: m.at } : {}) });
+  }
   for (const standing of Object.values(target.standings)) {
     for (const h of standing.hidden) {
       // Hiding an alternative's answer archived the alternative: one entry, with the why.

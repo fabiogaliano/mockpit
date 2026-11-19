@@ -26,7 +26,7 @@ archives or restores them (never touches one in use, and says so in the design's
 when the user asks, hides or deletes their older versions (`hideOlder`, `deleteOlder`:
 deleting skips any version a reply, comment, question, instance, copy, fork or Ready mark points at,
 `deleteBlocker` in `server/app.ts`); `edit` changes a design (slug, title, kind, area,
-group, variants, for, becomes, source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
+group, variants, set, for, becomes, source, spec, or the first name of its one unnamed state) without a new version, renames a project, sets its area order, or says what the project or one area is for;
 `publish` with `amend` replaces an alternative's latest version in place and with
 `withdraw` deletes it, both only from the session that published it and only
 while the user hasn't acted on it (`touchedBy` in `server/app.ts`). A
@@ -40,7 +40,7 @@ it does, any word; a component with no area is **shared**, and the library lists
 ones by group). The user can move a design too,
 from a cover's ⋯ menu on a Library page (kind, area, archive); the agent hears a move as a feedback
 batch's `edited`, through the same cursor as a Send. The user's is Send, which releases one **reply**; Use releases one of its own. A screen or component
-has nothing to choose between: no Use, no Which alternative?, nothing in use; its newest
+has nothing to choose between: no Use, nothing in use; its newest
 version is current, and the user's one mark on it is **Ready** (below).
 
 Current product stances (deliberate choices, not accidents — revisit
@@ -64,8 +64,9 @@ consciously, not as a side effect):
   a background `mockpit watch`). Guard this hardest — both halves have
   regressed before.
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
-  (alternatives → Focus's list of them and the built-in Which alternative? question, which never counts as open, asks → Questions, `data-part` → Tune parts and part
-  comments, `knobs` → Tune knobs, states and flows → the flow bar, `kind`
+  (alternatives → Focus's list of them, `set: true` → Keep-all Set where each frame
+  ships and keeps its own per-knob `★ Main`, asks → Questions, `data-part` → Tune parts and part
+  comments, `knobs` → Tune knobs and Sheet, states and flows → the flow bar, `kind`
   screen/component, areas and flows → the Board's pages and sections; undeclared is an idea
   or a document, by what it contains, on the Ideas or Documents page). A plain publish of
   any kind still gets Focus + Activity + Use / New version, except a document (only written surfaces and pictures, no declared
@@ -91,15 +92,22 @@ Stances reversed knowingly, so nobody restores them by accident:
   I" problem, so a design now always opens on the Board.
 - "A choice is several alternatives plus one question that binds them" (2026-11-18), with
   the nudge and `suggestedAsk` for alternatives no question binds, and "a 2–3 option knob is
-  a choice: ask". The user now compares, picks and Uses without a question, so an agent
+  a choice: ask". The user now compares, marks and Uses without a question, so an agent
   publishes what varies as alternatives or a choice knob and asks only when a choice blocks
   its next step. The nudge for answers mockpit added to an agent's own question stays.
 - "Tuned values are design-wide" and saved combos of answers (2026-11-18): a tune belongs to
-  one frame, and a look holds knob values by name; picks cover answers.
+  one frame, and a look holds knob values by name; marks cover frames and cells.
 - "Some actions reach the agent at once" (`sendAlone`, 2026-11-18): More answers, More like
   this, Borrow and the rest now wait in the draft, and only Send or Use reaches the agent.
-- "A pick waits for Send" (2026-11-18): picks and Main are marks, saved on the click and
-  read in `read`, sent by nothing; Keep, a separate bookmark, is gone.
+- "Built-in Which alternative? auto-opens in One" and "Pick + Archive for marks" (2026-11-19):
+  auto-popping `"Which alternative?"` is retired so plain Focus stays quiet when no agent ask
+  is open. Opening a Sheet cell preserves `?alternative=&sheet=&value=` with browser Back
+  history and opens the Knob Choice Panel beside the stage (plus a dynamic Side-by-side finalist
+  grid). Ideas carry `set: boolean` (`Pick one` | `Keep all`) so collections where every item
+  ships (e.g. morphing hero drawings) get per-item `★ Main` per knob and ship together on Use.
+  Marks use three mutually exclusive states — **Main** (`M`), **Bookmark / Keep** (`K`, bookmark
+  icon), and **Delete** (`X`, instant vanish with Undo toast and silent `ruledOut` tombstone for
+  the agent) — retiring `"pick"` (normalized to `"keep"`).
 
 ## Map
 
@@ -349,12 +357,12 @@ Stances reversed knowingly, so nobody restores them by accident:
   answering an alternative question settles every live alternative in the states it chooses in, so an
   open question of the agent's that names some of a state's alternatives shows the rest as answers
   mockpit added (`added: true`, id `added:<alternative>`, stored on the ask once a Send answers
-  it), and the built-in Which alternative? appears only where no such question chooses. Archiving
+  it). The auto-popping built-in `"Which alternative?"` is retired: plain Focus stays quiet when
+  no agent question is open. Archiving
   an alternative answer archives the alternative (the why as its reason; the one in use refuses), any
   restore unhides it (`unhideRestored`), and an alternative answer whose alternative is archived reads
   as hidden, so the question and Focus's list of alternatives read one list.
-- Kept and archived answers (stored as `hidden`; `server/standings.ts`, `Design.standings` by ask id, the built-in
-  Which alternative? included): saved on the click through `POST /api/designs/:id/standings`
+- Kept and archived answers (stored as `hidden`; `server/standings.ts`, `Design.standings` by ask id): saved on the click through `POST /api/designs/:id/standings`
   (serialized per design), never waiting for a Send; the next reply of any kind carries the
   changed ones (`Reply.standings`, `unsent`). A re-ask remaps them to the new option ids; a
   hidden answer stays folded and `existing` in `more` leaves it out. A Send or a Use archives
@@ -370,13 +378,19 @@ Stances reversed knowingly, so nobody restores them by accident:
   pictures keeps its answered card in the panel and its row in Side by side
   (`SideBySide.tsx`) instead: the pick outlined, the kept beside it, the archived folded.
   The old `starred` column is inert.
-- **Marks** (`server/marks.ts`, shared with the viewer; `viewer/src/marks.ts`): `Design.marks`,
-  the user's picks and the one Main a state, each on a frame as it is or worn in a look or
-  knob values, as a sheet cell shows it. Saved on the click (`POST /api/designs/:id/marks`,
-  viewer only, serialized per design), refused on a product design, sent by nothing: `read`
-  lists them (`marksOf`: the stored ones still standing, then each kept answer as a pick
-  with its `answer`, then each archived frame), and a Use takes `framePicks`. Until the
-  standings fold in, both are read and a new pick is written here only.
+- **Marks & Sets** (`server/marks.ts`, shared with the viewer; `viewer/src/marks.ts`):
+  `Design.set` (`boolean`, `isSet` column, CLI `--[no-]set`, MCP `set`, viewer `Pick one` |
+  `Keep all` segmented control in Focus's bar) marks an idea whose items all ship together
+  (e.g. morphing hero drawings). `Design.marks` holds three mutually exclusive marks:
+  `main` (`★ Main`, one per slot: per `(state, knob)` on a frame/cell, or per `state` on a
+  plain Pick-one idea; replacing `main` leaves the old one neutral), `keep` (Bookmark icon,
+  `K`), and `deleted` (`X`, vanishes immediately with Undo toast and adds a silent tombstone
+  entry to `ruledOutOf` so the agent won't suggest it again). Legacy `"pick"` marks normalize
+  to `"keep"`. Saved on the click (`POST /api/designs/:id/marks`, viewer only, serialized per
+  design), refused on a product design, sent by nothing: `read` lists them (`marksOf`), and
+  a Use takes `framePicks` — on a Set, every live item ships wearing its accumulated `★ Main`
+  knob combo (`mainValuesFor`, e.g. `figure.glyphs` + `figure.colour`) and defaults otherwise,
+  creating a `variants: true` target when `becomes` makes a screen or component.
 - **Send and Use** (`server/sendLines.ts`, shared with the viewer; `viewer/src/draft.ts`,
   `SendList.tsx`): the draft carries `requests` (`more`, `update`, `revise`, `state`,
   `draw`) beside the answers, and nothing reaches the agent but a Send or a Use. One
@@ -386,18 +400,19 @@ Stances reversed knowingly, so nobody restores them by accident:
   rest. A Use is its own reply, `verdict: {kind: "use", picks}` (`useLine` its line), and
   archives nothing; its toast offers to archive the other live frames of the states it took
   picks from (`unpickedBeside` in `state.ts`, through `archiveAlternatives`, with its Undo).
-- **The Sheet** (`viewer/src/sheet.ts`, `Sheet.tsx`): frames down, one choice knob's values
-  (`choices` in `server/knobs.ts`) or the design's looks across, there only with two or more
-  frames and something to vary. Spread, beside a choice knob in Tune, opens it on the frame
-  on stage and All on every frame; on a product design it opens an idea for it holding copies
-  of its frames. `?sheet=<knob>` (`@looks` for the looks) opens Focus on it, which
-  `publish`'s `sheet` puts on the link. A cell is a still once made (`server/stills.ts`, the
-  cache key; `viewer/src/stills.ts` asks for the cells in view; `bin/poster.js` takes them
-  through `/api/designs/:id/stills`), else the frame drawn live. A double-click (or Enter)
-  opens a cell on stage, held in its values (`sheet.held()`), across its frame's versions:
-  `CellNav` in the caption says where it is ("Flowers · deep blue") and steps to the
-  neighbouring frame or value, as Shift and the arrows do (the arrows alone step versions);
-  P, M and X mark the cell, and Esc or Sheet goes back to the sheet, landing on it.
+- **The Sheet & Knob Choice Panel** (`viewer/src/sheet.ts`, `Sheet.tsx`, `KnobChoicePanel.tsx`):
+  frames down, one choice knob's values (`choices` in `server/knobs.ts`) or the design's looks
+  across, there only with two or more frames and something to vary. Spread, beside a choice
+  knob in Tune, opens it on the frame on stage and All on every frame; on a product design it
+  opens an idea for it holding copies of its frames. Structural transitions (`One ↔ Sheet`,
+  switching knob tabs, `Sheet ↔ Cell`) push browser history (`pushUrl`) so Back always works;
+  stepping values/frames inside a Cell replaces state (`replaceUrl`). `?alternative=<name>&sheet=<knob>&value=<val>`
+  preserves cell context across reloads and Back/Forward. A cell is a still once made
+  (`server/stills.ts`, `viewer/src/stills.ts`, `bin/poster.js`), else drawn live. Clicking a
+  cell opens it on stage (`sheet.held()`) beside the **Knob Choice Panel** (`KnobChoicePanel`,
+  with a **Side by side** `KnobSideBySide` dynamic grid whose columns shrink and enlarge
+  surviving finalists as options are deleted). `M`, `K` (Bookmark), and `X` (Delete cell only,
+  never the whole alternative row) mark the cell; `Esc` steps back Cell → Sheet → One → Board.
 - A Send goes to the design's owner unless the owner can't hear it: with no watch open and
   no call in `OWNER_BUSY_MS`, it goes to the user's pick (`SendTo`, from
   `GET /api/designs/:id/recipients`) or else to a session started in this project that is
@@ -526,13 +541,13 @@ Stances reversed knowingly, so nobody restores them by accident:
     corner and the ? key, listed for where the user is: one frame, the Sheet or a cell open
     from it (`FocusShortcuts`, `mockpit:focus-keys`). `Margins.tsx`: the states on the left (not
     drawn ones dashed; the standard states a screen lacks wait behind New state) and the
-    state's alternatives (`Alternatives.tsx`; headed Variants on a variants design,
+    state's alternatives (`Alternatives.tsx`; headed Set on a Set idea, Variants on a variants design,
     archived ones folded); on the right one panel, there only while a question is open
-    (or something answered waits) or the user opens Spec (with Instances, `BuiltFrom`) or
+    (or something answered waits), a Sheet cell is open (`KnobChoicePanel.tsx`), or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
     when it would take the design below 80%). On an idea, the frame on stage carries
     a pill over its top corner, in the caption and always there, and a sheet cell one on hover
-    (`MarkPill.tsx`: Pick, Main, Archive, More like this, Comment; keys P, M, X),
+    (`MarkPill.tsx`: Main, Bookmark/Keep, Delete, More like this, Comment; keys M, K, X),
     with Borrow, Copy to… and Move to… behind the ⋯ at the stage pill's end
     (`AlternativeActs`); the panel repeats none of it. Which action a
     frame has is `frameActions.ts`'s, never a kind check in a component. `Compare.tsx` is two versions in one frame
@@ -783,14 +798,16 @@ the finding needs.
 
 - **Naming.** project › design › state › alternative › version; part, ask, knob,
   reply, draft. The words follow the design tools: an **alternative** is one of several
-  to choose between; a **variant** is a form that ships, on a design whose entries all ship
+  to choose between; a **Set** (`Design.set`, `Pick one` | `Keep all`) is an idea whose items
+  all ship together, each carrying its own per-knob `★ Main`; a **variant** is a form that ships, on a product design whose entries all ship
   (`Design.variants`, named with `--variant`); a state is what the user meets, a variant
   what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
   **instance** is an included component (`<mockpit-instance>`); a **frame** is an
   alternative as the viewer shows it, and a tune belongs to one; a **look** is a named set
   of knob values; **Spread** lays a choice knob out as a **Sheet** (frames down, values or
-  looks across); a **pick** is the user's tick on a frame and **Main** the one starred a
-  state; **Send** releases a reply and **Use** puts the picks in use, in the product design
+  looks across); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
+  **Bookmark / Keep** (`K`, `keep`, bookmark icon for runners-up), and **Delete** (`X`, `deleted`,
+  instant vanish with Undo and silent `ruledOut` tombstone); **Send** releases a reply and **Use** puts the picks (or every live item in a Set, wearing its accumulated `★ Main` knob combo) in use, in the product design
   an idea is for; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
   viewer's word only, and stored data, the CLI and MCP say `area`. A
   project has one **system**: sheet, token, scale, role, palette, pair, project knob. Its
@@ -802,17 +819,17 @@ the finding needs.
   one design, a component a whole design others include as instances. Each level has one
   status ladder, capitalised wherever it shows: a screen or component is In design, Ready
   or Changed (or Archived); an idea Exploring or In use in <target> (or how many questions
-  wait); an alternative is Picked, Main, In use or Archived; a version is current or, older
-  ones, Hidden. Hide only ever means a version, taking an alternative out is Archive, and a
-  frame's tick is Pick and its star Main. An alternative has a `description`,
+  wait); a frame or cell mark is Main, Bookmarked (`keep`), In use, Deleted or Archived; a version is current or, older
+  ones, Hidden. Hide only ever means a version, archiving an entire design/alternative is Archive,
+  and cell/frame culling uses Main, Bookmark (`keep`) and Delete (`deleted`). An alternative has a `description`,
   a design has a `spec`, an area and a project a `description`, an answer has a `comment`. Retired words — item, group (for a lead's followers; a component's library `group` is live),
   snippet, stream, `part` for a surface, trace, slot, mix
   (now borrow), resolve, close and end (now archive), mock (now design), `page` and
   `sketch` as kinds (now screen and idea), note for an alternative or an answer, screen for
   a state, moment, design system and design settings (now system), accepted and dropped
   in anything an agent reads, variant for one of several to choose between (now
-  alternative), fill (now swap), embed (now instance), set and combo for saved answers
-  (now looks and picks), Keep for a runner-up (now Pick), Drop (now Archive), Use this (now
+  alternative), fill (now swap), embed (now instance), combo for saved answers
+  (now looks and marks), `pick` mark kind (now `keep` / Bookmark), Drop (now Delete/Archive), Use this (now
   Use),
   decision list (now decision log), the views before the Board and Focus (Studio, Stage
   for the view, Wall, Columns, All states, the Answers board: now the Board, Focus and Side

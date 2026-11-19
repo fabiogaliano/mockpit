@@ -10,6 +10,7 @@
 
 import { createEffect, createMemo, createSignal } from "solid-js";
 import { choices } from "../../server/knobs.ts";
+import { mainValuesFor } from "../../server/marks.ts";
 import {
   MAX_SHEET_COLUMNS,
   SHEET_WIDTH,
@@ -58,6 +59,10 @@ export interface SheetColumn {
   // A look sets values; a knob's value is one.
   look?: LookView;
 }
+
+// The URL-safe value token of a sheet column: the knob's raw value, or the look's name.
+export const valueOfCol = (col: SheetColumn, at: SheetView): string =>
+  col.look ? col.look.name : String(at.knob ? (col.values[at.knob] ?? col.label) : col.label);
 
 export interface SheetCell {
   src: string;
@@ -190,11 +195,14 @@ export function createSheet(d: SheetDeps) {
     const version = d.frameVersionOf(v);
     const surface = pageOf(v, version);
     if (surface < 0) return null;
+    // Merge accumulated Main picks on other knobs underneath this cell's value so
+    // switching from glyphs to colour wears the chosen glyphs automatically.
+    const mainVals = mainValuesFor(m.marks ?? [], v.state, v.alternative);
     const ctx: KnobContext = {
       knobs: { ...m.knobs, ...v.knobs },
       asks: m.asks,
       answers: d.draft()?.answers ?? {},
-      tuned: d.draft()?.tunedOn[v.alternative] ?? {},
+      tuned: { ...mainVals, ...d.draft()?.tunedOn[v.alternative] },
       settled: settledOf(m, v.alternative),
     };
     const tuned = col.look ? tunedWithLook(ctx, col.values) : { ...ctx.tuned, ...col.values };
@@ -262,6 +270,9 @@ export function createSheet(d: SheetDeps) {
     }
   }
 
+  // Side-by-side canvas view for the open knob cell's active finalists.
+  const [knobSide, setKnobSide] = createSignal(false);
+
   // The state it was opened on: another has frames of its own to lay out.
   let openedOn: string | null = null;
   createEffect(() => {
@@ -269,16 +280,18 @@ export function createSheet(d: SheetDeps) {
     if (view() && st !== openedOn) setView(null);
   });
 
+  function resolveKnob(knob: string | null) {
+    const knobs = choiceKnobs();
+    return knob !== null && !knobs.some((k) => k.path === knob) ? (knobs[0]?.path ?? null) : knob;
+  }
+
   function open(at: SheetView) {
     if (d.product()) return void inIdea(at);
     if (d.tool() === "tune") d.toggleTool("tune");
-    const knobs = choiceKnobs();
-    const knob =
-      at.knob !== null && !knobs.some((k) => k.path === at.knob)
-        ? (knobs[0]?.path ?? null)
-        : at.knob;
+    const knob = resolveKnob(at.knob);
     lastKnob = knob;
     openedOn = d.activeState();
+    setKnobSide(false);
     setView({ ...at, knob });
   }
   // Spread: the frame on stage in every value of the knob.
@@ -289,7 +302,7 @@ export function createSheet(d: SheetDeps) {
     setView(null);
   };
 
-  // The cell under the pointer or the keyboard's focus, which P, M and X mark.
+  // The cell under the pointer or the keyboard's focus, which M, K and X mark.
   const [pointedKey, setPointedKey] = createSignal<{ post: string; column: string } | null>(null);
   const row = (id: string) => rows().find((v) => v.postId === id);
   const column = (key: string) => columns().find((col) => col.key === key);
@@ -318,6 +331,9 @@ export function createSheet(d: SheetDeps) {
     if (r < 0 || c < 0) return null;
     return { at: o.at, rows, cols, r, c, v: rows[r], col: cols[c] };
   });
+  createEffect(() => {
+    if (!held()) setKnobSide(false);
+  });
   // Where the sheet lands when it opens again: the cell last open, scrolled to and pointed.
   const [landing, setLanding] = createSignal<{ alternative: string; col: string } | null>(null);
 
@@ -334,12 +350,40 @@ export function createSheet(d: SheetDeps) {
       knobs: c.knobs,
     });
   }
-  // A double-click: the frame on stage, held in those values until let go.
+  // Open a cell from the Sheet grid: the frame on stage, held in those values with the
+  // knob choice panel beside it.
   function openCell(v: AlternativeView, col: SheetColumn) {
     const at = view();
     if (!at) return;
     hold(v, col, at);
     close();
+  }
+  // Focus another option or frame while already inspecting a cell (updates URL via replaceState).
+  function focusCell(v: AlternativeView, col: SheetColumn) {
+    const at = held()?.at ?? view();
+    if (!at) return;
+    hold(v, col, at);
+  }
+  // Open a cell directly from URL parameters (`?alternative=...&sheet=...&value=...`) or Back/Forward.
+  function openCellByValue(alternative: string | null, at: SheetView, value: string): boolean {
+    if (d.product()) return false;
+    const knob = resolveKnob(at.knob);
+    const resolved: SheetView = { ...at, knob };
+    const rs = rowsOf(resolved);
+    const cs = columnsOf(resolved).slice(0, MAX_COLUMNS);
+    const v =
+      (alternative ? rs.find((x) => x.alternative === alternative) : undefined) ??
+      d.activeAlternative() ??
+      rs[0];
+    const col = cs.find(
+      (c) => valueOfCol(c, resolved) === value || c.label === value || c.key === value,
+    );
+    if (!v || !col) return false;
+    lastKnob = knob;
+    openedOn = d.activeState();
+    hold(v, col, resolved);
+    close();
+    return true;
   }
   // From the open cell to its neighbour in the sheet it came from: across the row to the
   // next value or look, down the column to the next frame. Nothing past the edges.
@@ -355,8 +399,15 @@ export function createSheet(d: SheetDeps) {
     const h = held();
     if (!h) return;
     setLanding({ alternative: h.v.alternative, col: h.col.key });
+    setKnobSide(false);
     d.setHeldPreview(null);
     open(h.at);
+  }
+  // Leave the sheet and any open sheet cell completely, returning to plain One view.
+  function exit() {
+    setKnobSide(false);
+    if (held()) d.setHeldPreview(null);
+    close();
   }
 
   return {
@@ -374,8 +425,13 @@ export function createSheet(d: SheetDeps) {
     open,
     spread,
     close,
+    exit,
     openCell,
+    focusCell,
+    openCellByValue,
     held,
+    knobSide,
+    setKnobSide,
     step,
     back,
     landing,

@@ -13,14 +13,14 @@ import { type Ask, type AskOption, isLive } from "../../server/types.ts";
 import type { AlternativeView } from "./api.ts";
 import { readonly } from "./host.ts";
 import type { IconName } from "./icons.tsx";
-import { drawsAnswer, historyRow, moreAllowed } from "./logic.ts";
+import { alternativeName, drawsAnswer, historyRow, moreAllowed } from "./logic.ts";
 import type { SheetColumn } from "./sheet.ts";
 import type { DesignScreenState } from "./state.ts";
 
 export type FrameActionId =
-  | "pick"
   | "main"
-  | "archive"
+  | "keep"
+  | "delete"
   | "more"
   | "comment"
   | "borrow"
@@ -41,7 +41,7 @@ export interface FrameAction {
   icon: IconName;
   // Its key while the pointer is on the frame.
   key?: string;
-  // Pressed: picked, Main.
+  // Pressed: Main, Bookmarked.
   on?: boolean;
   // Behind ⋯ where the actions are a row; never on the pill.
   menu?: boolean;
@@ -79,11 +79,12 @@ export function canFrame(s: DesignScreenState, id: FrameActionId, f: FrameRef): 
   if (readonly() || !s.design() || !isLive(v.status)) return false;
   const exploring = !ships(s);
   switch (id) {
-    case "pick":
     case "main":
-      return exploring && liveHere(s, v).length > 1;
-    case "archive":
-      return exploring && v.status !== "inUse";
+    case "keep":
+      // On a sheet cell, choosing between knob values works even for a single frame.
+      return exploring && (!!f.col || liveHere(s, v).length > 1);
+    case "delete":
+      return exploring && (!!f.col || v.status !== "inUse");
     case "more":
     case "copy":
     case "move":
@@ -105,9 +106,9 @@ export function subjectOf(f: FrameRef): MarkSubject {
 }
 
 const ORDER: FrameActionId[] = [
-  "pick",
   "main",
-  "archive",
+  "keep",
+  "delete",
   "more",
   "comment",
   "borrow",
@@ -117,25 +118,28 @@ const ORDER: FrameActionId[] = [
 
 // How each action reads and looks, wherever it is drawn.
 export const FACE: Record<FrameActionId, { label: string; icon: IconName }> = {
-  pick: { label: "Pick", icon: "check" },
   main: { label: "Make main", icon: "star" },
-  archive: { label: "Archive", icon: "archive" },
+  keep: { label: "Bookmark", icon: "bookmark" },
+  delete: { label: "Delete", icon: "trash" },
   more: { label: "More like this", icon: "spark" },
   comment: { label: "Comment", icon: "mark" },
   borrow: { label: "Borrow a part", icon: "borrow" },
   copy: { label: "Copy to…", icon: "copy" },
   move: { label: "Move to…", icon: "move" },
 };
-const KEYS: Partial<Record<FrameActionId, string>> = { pick: "P", main: "M", archive: "X" };
+const KEYS: Partial<Record<FrameActionId, string>> = { main: "M", keep: "K", delete: "X" };
 const IN_MENU = new Set<FrameActionId>(["borrow", "copy", "move"]);
 
 // The frame's actions, in the order every place draws them.
 export function frameActions(s: DesignScreenState, f: FrameRef): FrameAction[] {
   const mark = s.markOf(subjectOf(f));
-  const on: Partial<Record<FrameActionId, boolean>> = { pick: !!mark, main: mark === "main" };
+  const on: Partial<Record<FrameActionId, boolean>> = {
+    main: mark === "main",
+    keep: mark === "keep",
+  };
   const said: Partial<Record<FrameActionId, string>> = {
-    ...(mark ? { pick: "Picked" } : {}),
     ...(mark === "main" ? { main: "Main" } : {}),
+    ...(mark === "keep" ? { keep: "Bookmarked" } : {}),
   };
   return ORDER.filter((id) => canFrame(s, id, f)).map((id) => ({
     id,
@@ -158,12 +162,29 @@ export function runFrameAction(s: DesignScreenState, id: FrameActionId, f: Frame
   if (!canFrame(s, id, f)) return;
   const v = f.v;
   switch (id) {
-    case "pick":
-      return s.togglePick(subjectOf(f));
     case "main":
       return s.toggleMain(subjectOf(f));
-    case "archive": {
-      // The frame on stage leaves it for its neighbour, as the list reads.
+    case "keep":
+      return s.toggleKeep(subjectOf(f));
+    case "delete": {
+      // On a sheet cell, delete ONLY this knob/look cell (never archive the whole alternative!).
+      if (f.col) {
+        const label = `${alternativeName(v.alternative)} · ${f.col.label}`;
+        void s.deleteMark(subjectOf(f), label);
+        // If we deleted the cell currently held on stage, advance to the next active option.
+        const held = s.sheet.held();
+        if (held && held.v.alternative === v.alternative && held.col.key === f.col.key) {
+          const next = held.cols.find(
+            (c) =>
+              c.key !== f.col!.key &&
+              s.markOf(subjectOf({ v, col: c })) !== "deleted" &&
+              s.markOf(subjectOf({ v, col: c })) !== "keep",
+          );
+          if (next) s.sheet.focusCell(v, next);
+        }
+        return;
+      }
+      // Bare frame: archive the alternative, stepping to its neighbour.
       if (s.activeAlternative()?.alternative === v.alternative) {
         const live = liveHere(s, v);
         const at = live.findIndex((x) => x.alternative === v.alternative);

@@ -19,7 +19,6 @@ import {
   tunedCount,
   type TunedOn,
 } from "../../server/types.ts";
-import { needsBuiltinAsk } from "../../server/alternativeQuestion.ts";
 import {
   inheritsFrom,
   knobDefault,
@@ -28,6 +27,7 @@ import {
   type KnobContext,
 } from "../../server/knobValues.ts";
 export { inheritsFrom, knobDefault, knobPart, resolveKnobs, type KnobContext };
+import { mainValuesFor } from "../../server/marks.ts";
 import { owedStates, type StateOutlineRow } from "../../server/coverage.ts";
 import type {
   CommentRow,
@@ -188,34 +188,14 @@ export const liveAlternatives = (
   ),
 ];
 
-// The built-in asks a design shows, under the ids the server reserves for them.
-// One design-wide ask when every state needs one and the live alternative names line
-// up, so the user answers once; one per needing state otherwise. Option ids
-// are alternative names, as the server's reply handling expects.
+// Retired: Focus no longer auto-pops a synthetic "Which alternative?" panel.
+// Ideas use Main / Keep / Delete marks directly on frames, sheets, and knob panels;
+// agents still ask explicit questions whenever they want a structured answer.
 export function builtinAsks(
-  design: Pick<DesignDetail, "asks" | "states" | "kind"> & { archivedAt?: string | null },
-  alternatives: AlternativeRow[],
+  _design: Pick<DesignDetail, "asks" | "states" | "kind"> & { archivedAt?: string | null },
+  _alternatives: AlternativeRow[],
 ): Ask[] {
-  // Ending the design put its choices away with it.
-  if (design.archivedAt) return [];
-  const states = design.states.length ? design.states : [null];
-  const needing = states.filter((st) => needsBuiltinAsk(design.asks, design, alternatives, st));
-  if (!needing.length) return [];
-  const ask = (names: string[], state: string | null): Ask => ({
-    id: state === null ? BUILTIN_ASK_ID : `${BUILTIN_ASK_ID}:${state}`,
-    text: "Which alternative?",
-    scope: state === null ? "design" : "state",
-    ...(state === null ? {} : { state }),
-    options: names.map((v) => ({ id: v, label: v, alternative: v })),
-    at: "",
-  });
-  const first = liveAlternatives(alternatives, needing[0]);
-  const sameNames = (st: string | null) => {
-    const names = liveAlternatives(alternatives, st);
-    return names.length === first.length && names.every((n) => first.includes(n));
-  };
-  if (needing.length === states.length && states.every(sameNames)) return [ask(first, null)];
-  return needing.map((st) => ask(liveAlternatives(alternatives, st), st));
+  return [];
 }
 
 // The latest version any alternative of the design reached.
@@ -747,19 +727,36 @@ export const settledOf = (
   (alternative !== undefined ? design.settledOn?.[alternative] : undefined) ?? design.settled;
 
 // The knob values a frame should show for the draft: declared defaults (a part
-// knob inheriting the global it refines), then what was already sent, then
-// answered knob-set options, then the frame's own tuned values.
+// knob inheriting the global it refines), then what was already sent, then the
+// frame's accumulated ★ Main knob marks, then answered knob-set options, then the
+// frame's own tuned values.
 export function draftKnobValues(
-  design: Pick<DesignDetail, "asks" | "knobs" | "settled" | "settledOn">,
-  frame: Pick<AlternativeView, "alternative" | "knobs">,
+  design: Pick<DesignDetail, "asks" | "knobs" | "settled" | "settledOn" | "marks">,
+  frame: Pick<AlternativeView, "alternative" | "knobs"> & { state?: string | null },
   draft: DraftInput | null,
 ): Record<string, KnobValue> {
+  const mainMarks = (design.marks ?? []).flatMap((m) =>
+    m.kind === "main" && m.alternative !== undefined
+      ? [
+          {
+            state: m.state,
+            alternative: m.alternative,
+            kind: "main" as const,
+            values: m.values,
+            at: m.at ?? "",
+          },
+        ]
+      : [],
+  );
+  const mainVals = mainMarks.length
+    ? mainValuesFor(mainMarks, frame.state ?? null, frame.alternative)
+    : {};
   return resolveKnobs({
     knobs: { ...design.knobs, ...frame.knobs },
     asks: design.asks,
     answers: draft?.answers ?? {},
     tuned: draft?.tunedOn[frame.alternative] ?? {},
-    settled: settledOf(design, frame.alternative),
+    settled: { ...settledOf(design, frame.alternative), ...mainVals },
   });
 }
 

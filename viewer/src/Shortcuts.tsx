@@ -73,11 +73,11 @@ export function FocusShortcuts(props: {
   const held = () => !!s.sheet.held();
   const marks = () =>
     sheet()
-      ? s.sheet.frames().length > 1 && !readonly()
+      ? s.sheet.frames().length > 0 && !readonly()
       : !props.reading &&
         (s.sheet.held()
-          ? canFrame(s, "pick", { v: s.sheet.held()!.v, col: s.sheet.held()!.col })
-          : !!s.activeAlternative() && canFrame(s, "pick", { v: s.activeAlternative()! }));
+          ? canFrame(s, "main", { v: s.sheet.held()!.v, col: s.sheet.held()!.col })
+          : !!s.activeAlternative() && canFrame(s, "main", { v: s.activeAlternative()! }));
   const across = () => (s.sheet.held()?.at.knob === null ? "look" : "value");
   return (
     <ShortcutsButton k={props.k} id="focus-keys" class="fkeys">
@@ -86,7 +86,7 @@ export function FocusShortcuts(props: {
           <dt>
             <kbd>↵</kbd>
           </dt>
-          <dd>Open, or double-click</dd>
+          <dd>Open cell</dd>
         </Show>
         <Show when={held()}>
           <dt>
@@ -106,17 +106,17 @@ export function FocusShortcuts(props: {
         </Show>
         <Show when={marks()}>
           <dt>
-            <kbd>P</kbd>
-          </dt>
-          <dd>Pick</dd>
-          <dt>
             <kbd>M</kbd>
           </dt>
           <dd>Main</dd>
           <dt>
+            <kbd>K</kbd>
+          </dt>
+          <dd>Bookmark</dd>
+          <dt>
             <kbd>X</kbd>
           </dt>
-          <dd>Archive</dd>
+          <dd>Delete</dd>
         </Show>
         <Show when={!sheet() && props.page && !props.reading && !readonly()}>
           <dt>

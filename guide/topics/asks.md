@@ -188,7 +188,7 @@ answer mockpit added, by name only (`added: true`, id `added:<alternative>`), an
 nudges with your question plus them as `suggestedAsk`: ask again to describe them, or
 archive what you don't mean to offer.
 
-With no question of yours naming a state's alternatives, the viewer shows a built-in
-"Which alternative?" with a picture of each alternative, gone once answered. It doesn't count as open. Its answer reads like any
-other under the reserved id `alternative` (per state: `alternative:<state>`), and puts in
-use per state. Your own question over those alternatives replaces it.
+With no question of yours naming a state's alternatives, Focus stays quiet: the user
+compares frames directly, marks Main / Bookmark / Delete (or opens a choice knob Sheet
+to cull values per frame), and presses Use without a question. Ask only when a choice
+actually blocks your next step.

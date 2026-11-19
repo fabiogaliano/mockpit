@@ -2013,7 +2013,7 @@ export function createDesignScreen(
   async function use(ref: VersionRef | null = null) {
     const m = design();
     if (!m || readonly()) return;
-    const picked = ref ? [] : framePicks(marks.marks());
+    const picked = ref ? [] : framePicks(marks.marks(), { isSet: !!m.set, rows: alternatives() });
     const one = ref ?? onStage();
     if (!picked.length && !one) return;
     try {
@@ -2030,10 +2030,13 @@ export function createDesignScreen(
       if (used.reply) outbox.landed(used.reply.id);
       if (!picked.length) showVersion(one!);
       const target = design()?.target?.title ?? used.usedIn?.target;
-      const what = picked.length
-        ? `${picked.length} pick${picked.length === 1 ? "" : "s"}`
-        : nameOf(one!);
-      const others = unpickedBeside(picked);
+      const what =
+        m.set && picked.length
+          ? `set (${picked.length} items)`
+          : picked.length
+            ? `${picked.length} pick${picked.length === 1 ? "" : "s"}`
+            : nameOf(one!);
+      const others = m.set ? [] : unpickedBeside(picked);
       const rest = others.length === 1 ? "the other one" : `the other ${others.length}`;
       setToast({
         text: target ? `Using ${what} in ${target}` : `Using ${what}`,
@@ -2237,7 +2240,10 @@ export function createDesignScreen(
   // The picks moved since the last Use: nothing has gone anywhere, and Use takes them again.
   const changedUse = () => {
     const u = lastUse();
-    return !!u && changedSinceUse(u.picks, marks.marks());
+    return (
+      !!u &&
+      changedSinceUse(u.picks, marks.marks(), { isSet: !!design()?.set, rows: alternatives() })
+    );
   };
   // Answered, a picked answer can take over: the one in use waits in its place, and the
   // new answer goes with the next Send.
@@ -2520,6 +2526,22 @@ export function createDesignScreen(
       },
     );
   }
+  // Flip an idea between "Pick one" (alternatives) and "Keep all" (a Set).
+  async function setIdeaSet(next: boolean): Promise<boolean> {
+    const m = design();
+    if (!m || m.kind !== "idea" || readonly() || !!m.set === next) return false;
+    setDesign({ ...m, set: next ? true : undefined });
+    try {
+      await api.editDesign(m.id, { set: next });
+      await loadDesign();
+      return true;
+    } catch (e) {
+      const now = design();
+      if (now) setDesign({ ...now, set: m.set });
+      fail(e);
+      return false;
+    }
+  }
   // New version: ask the agent for another version of the one on stage. It goes with the
   // next Send, as every request does.
   function askNew() {
@@ -2652,8 +2674,11 @@ export function createDesignScreen(
     marks: marks.marks,
     markOf: marks.markOf,
     frameMark: marks.frameMark,
-    togglePick: marks.togglePick,
+    frameKnobMark: marks.frameKnobMark,
+    setMark: marks.setMark,
+    toggleKeep: marks.toggleKeep,
     toggleMain: marks.toggleMain,
+    deleteMark: marks.deleteMark,
     hiddenOf,
     isCarried,
     hideAnswer: marks.hideAnswer,
@@ -2734,6 +2759,7 @@ export function createDesignScreen(
     askForState,
     askToDraw,
     saveSpec,
+    setIdeaSet,
     viewNewVersion,
     toast,
     setToast,

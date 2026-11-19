@@ -579,7 +579,7 @@ a later draft of that section isn't applied, and the result says so.
 ## Ready
 
 A screen or component holds what ships, one entry a state, so nothing on it is chosen:
-its newest version is current, with no Use, no Which alternative? and nothing in use.
+its newest version is current, with no Use and nothing in use.
 Alternatives for it belong in an idea; \`read\` says \`holdsAlternatives\` (and a nudge
 says so once) until they leave. Publish an idea for it and \`move\` them there, or, when
 they all ship, make it a variants design (\`edit <slug> --variants\`), and \`read\` lists
@@ -735,8 +735,10 @@ a delete can't be undone, so confirm first (\`mockpit move --help\`).
 Publish what varies; the user compares and decides without being asked. Each
 alternative is a frame. A choice knob (a \`select\` or \`image\` with options) is a value
 every frame can wear, which the user Spreads into a Sheet: frames down, values across.
-In an idea they pick frames (several, one Main a state), save knob values as named
-**looks**, and press Use. Picks are saved at once and sent to no one: \`read <slug>\` has
+In an idea they mark **Main**, **Keep** (bookmark) or **Delete** (ruled out in \`target.ruledOut\`),
+save knob values as named **looks**, and press Use. Add \`--set\` (MCP/HTTP \`set: true\`) when
+all frames ship together (e.g. morphing illustrations): each frame keeps its own per-knob Main
+and all live frames ship on Use. Marks save at once and send to no one: \`read <slug>\` has
 them as \`marks\`. Ask only when a choice blocks your next step (which states to draw
 next, what only words can settle), not to let the user compare.
 

@@ -34,7 +34,7 @@ export function AlternativeList(props: { s: DesignScreenState }) {
   return (
     <Show when={here().length > 1}>
       <section class="lm-sec lm-alts">
-        <h3>{s.design()?.variants ? "Variants" : "Alternatives"}</h3>
+        <h3>{s.design()?.variants ? "Variants" : s.design()?.set ? "Set" : "Alternatives"}</h3>
         {/* One just archived keeps its place a moment, as its ghost. */}
         <For each={here().filter((v) => isLive(v.status) || s.ghostOn(v.state, v.alternative))}>
           {(v) => {
@@ -72,10 +72,10 @@ export function AlternativeList(props: { s: DesignScreenState }) {
                       <span
                         class="lm-mark"
                         classList={{ main: k() === "main" }}
-                        title={k() === "main" ? "Main" : "Picked"}
+                        title={k() === "main" ? "Main" : "Bookmarked"}
                       >
-                        <Icon name={k() === "main" ? "star" : "check"} />
-                        <span class="sr-only">{k() === "main" ? ", Main" : ", picked"}</span>
+                        <Icon name={k() === "main" ? "star" : "bookmark"} />
+                        <span class="sr-only">{k() === "main" ? ", Main" : ", bookmarked"}</span>
                       </span>
                     )}
                   </Show>

@@ -54,11 +54,13 @@ The loop never waits for the user:
    for each design in `instanceIn`, and anything else touching another design, publish
    an idea for it with one question, never a direct change. `read` lists open ones.
 3. Publish what varies as alternatives or a choice knob (`--knobs`, a `select` the user
-   can Spread into a Sheet): the user compares, picks frames, saves looks and presses
-   Use without a question. `mockpit ask` only when a choice blocks your next step; its
-   options carry an `alternative`, knob `set` or `palette`. An alternative decides
-   everything it differs on; don't re-ask it. Declare knobs for what is worth
-   fine-tuning even unasked.
+   can Spread into a Sheet); add `--set` on an idea when all items ship together (each
+   item gets its own per-knob `★ Main` and all live items ship on Use). The user compares,
+   marks Main / Bookmark (`keep`) / Delete (`deleted`, surfaced silently in `ruledOut`),
+   saves looks and presses Use without a question. `mockpit ask` only when a choice blocks
+   your next step; its options carry an `alternative`, knob `set` or `palette`. An
+   alternative decides everything it differs on; don't re-ask it. Declare knobs for what is
+   worth fine-tuning even unasked.
    What every design shares (sheet, tokens, scales, palettes, project knobs) is the
    project's system: `mockpit system` reads and changes it, for every design at once
    (`mockpit guide --topic system`).

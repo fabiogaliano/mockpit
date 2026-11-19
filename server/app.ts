@@ -134,7 +134,16 @@ import {
 } from "./decisionLog.ts";
 import { chosenSwaps, decisionsFor, settledByAlternative, settledValues } from "./decisions.ts";
 import { checkLooks, looksFor, MAX_LOOK_NAME, withLooks } from "./looks.ts";
-import { framePicks, mainOf, MAX_MARKS, marksOf, pickKey, withMark } from "./marks.ts";
+import {
+  framePicks,
+  mainOf,
+  mainValuesFor,
+  MAX_MARKS,
+  marksOf,
+  normalizeMarkKind,
+  pickKey,
+  withMark,
+} from "./marks.ts";
 import {
   checkAnswerSwap,
   checkAnswerStyle,
@@ -2733,6 +2742,7 @@ export function createApp({
     const system = await systemFor(design.project);
     const mode = await workspaceMode();
     const settled = await settledViews(design, posts);
+    const main = mainValuesFor(design.marks ?? [], post.state, post.alternative);
     const stateParts = partsByState(design, posts);
     const declared = (part: string) =>
       stateParts.some(
@@ -2761,7 +2771,7 @@ export function createApp({
           knobs: { ...design.knobs, ...post.knobs },
           asks: design.asks,
           answers: {},
-          tuned: { [path]: value },
+          tuned: { ...main, [path]: value },
           settled: settled.settledOn?.[post.alternative] ?? settled.settled,
         }),
       })),
@@ -2960,6 +2970,8 @@ export function createApp({
     }
     const variants = variantsArg(body, slug, kind ?? design?.kind ?? "idea", !!design?.variants);
     if (isResult(variants)) return variants;
+    const set = setArg(body, slug, kind ?? design?.kind ?? "idea");
+    if (isResult(set)) return set;
     const forIn = await forArg(body, project, design?.id ?? null);
     if (isResult(forIn)) return forIn;
     const becomesIn = becomesArg(body);
@@ -3051,6 +3063,7 @@ export function createApp({
           ...(area === undefined ? {} : { area }),
           ...(group === undefined ? {} : { group }),
           ...(variants === undefined ? {} : { variants }),
+          ...(set === undefined ? {} : { set }),
           ...(forId ? { for: forId } : {}),
           ...(becomes ? { becomes } : {}),
           ...(source === undefined ? {} : { source }),
@@ -3088,6 +3101,7 @@ export function createApp({
             area,
             group,
             variants,
+            set,
             for: forId,
             becomes,
             source,
@@ -3270,6 +3284,7 @@ export function createApp({
             ...(area === undefined ? {} : { area }),
             ...(group === undefined ? {} : { group }),
             ...(variants === undefined ? {} : { variants }),
+            ...(set === undefined ? {} : { set }),
             ...(forId ? { for: forId } : {}),
             ...(becomes ? { becomes } : {}),
             ...(source === undefined ? {} : { source }),
@@ -3316,6 +3331,7 @@ export function createApp({
           area,
           group,
           variants,
+          set,
           for: forId,
           becomes,
           source,
@@ -3360,6 +3376,7 @@ export function createApp({
           area,
           group,
           variants,
+          set,
           for: forId,
           becomes,
           source,
@@ -3413,6 +3430,7 @@ export function createApp({
         area,
         group,
         variants,
+        set,
         for: forId,
         becomes,
         source,
@@ -3827,6 +3845,22 @@ export function createApp({
     return v;
   }
 
+  // `set`: an idea whose entries all belong together (e.g. a morphing set of hero drawings),
+  // rather than mutually-exclusive alternatives. Each entry gets its own ★ Main per knob,
+  // and Use ships all live entries wearing their ★ Main picks.
+  function setArg(body: any, slug: string, kind: DesignKind): boolean | undefined | FlowResult {
+    const v = body?.set;
+    if (v === undefined) return undefined;
+    if (typeof v !== "boolean") return fail(400, '"set" must be true or false');
+    if (v && kind !== "idea") {
+      return fail(
+        400,
+        `${slug} is a ${kind}: "set" is for an idea whose entries all belong together (use "variants" on a screen or component)`,
+      );
+    }
+    return v;
+  }
+
   // `for`: the screen or component an idea explores, by slug, title or id, or the flow a
   // flow idea was placed as (`flow:<name>`, a flow of the project); "" or null clears it.
   // Only an idea is for something, and never for another idea.
@@ -4012,6 +4046,7 @@ export function createApp({
       area?: string | null;
       group?: string | null;
       variants?: boolean;
+      set?: boolean;
       for?: string | null;
       becomes?: IdeaBecomes | null;
       source?: string | null;
@@ -4034,7 +4069,8 @@ export function createApp({
       ...(w.area === undefined ? {} : { area: w.area }),
       ...(w.group === undefined ? {} : { group: w.group }),
       ...(w.variants === undefined ? {} : { variants: w.variants }),
-      ...(product ? { for: null, becomes: null } : {}),
+      ...(product ? { for: null, becomes: null, set: false } : {}),
+      ...(!product && w.set !== undefined ? { set: w.set } : {}),
       ...(!product && w.for !== undefined ? { for: w.for } : {}),
       ...(!product && w.becomes !== undefined ? { becomes: w.becomes } : {}),
       ...(w.source === undefined ? {} : { source: w.source }),
@@ -4576,6 +4612,7 @@ export function createApp({
     const instanceHistory =
       query.viewer && query.history ? await sheetInstanceHistory(design, posts) : undefined;
     const ideas = await ideasDecidingFor(design);
+    const ownRuledOut = query.viewer ? undefined : ruledOutOf(design, posts, lines ?? []).ruledOut;
     const view = designDetailView(design, posts, {
       // The spec's third part: the design's own lines and those of the ideas for it,
       // bounded as the list above is.
@@ -4604,6 +4641,7 @@ export function createApp({
       ),
       ...(await shortlistReach(design)),
       ...(await ideaFields(design, { ruledOut: !query.viewer, lines })),
+      ...(ownRuledOut?.length ? { ruledOut: ownRuledOut } : {}),
     });
     const held = query.viewer ? null : await alternativesNudgeOnce(design, posts);
     return ok({
@@ -6501,12 +6539,14 @@ export function createApp({
       const created = !target;
       if (!target) {
         const order = idea.states.filter((st) => used.some((u) => u.post.state === st));
+        const asSet = idea.set && used.length > 1;
         target = await store.createDesign({
           project: idea.project,
           slug,
           title: idea.title,
           kind: making!,
           area: idea.area,
+          ...(asSet ? { variants: true } : {}),
           states: order,
           widths: idea.widths,
           sessionId: idea.sessionId,
@@ -6565,7 +6605,7 @@ export function createApp({
             design: into.id,
             state: post.state,
             alternative:
-              (created || (!into.variants && inState.length === 0)) && !taken.size
+              !into.variants && (created || inState.length === 0) && !taken.size
                 ? DEFAULT_ALTERNATIVE
                 : name,
             title: into.title,
@@ -6640,11 +6680,10 @@ export function createApp({
   }
 
   // The picks in the order a Use takes them: Main first, then state by state as marked.
-  // A frame picked in two looks or values lands twice; past the first it is named after
-  // what it wears there.
+  // On a Set, every live frame ships wearing its accumulated ★ Main knob values (Q1+Q2).
   function picksInOrder(design: Design, posts: Post[], body: any) {
     const order: (string | null)[] = design.states.length ? design.states : [null];
-    const marks = framePicks(marksOf(design, posts));
+    const marks = framePicks(marksOf(design, posts), { isSet: design.set, rows: posts });
     const sorted = [...marks].sort(
       (a, b) =>
         Number(b.kind === "main") - Number(a.kind === "main") ||
@@ -7627,9 +7666,10 @@ export function createApp({
       if (isProduct(design)) {
         return fail(409, `${design.slug} is a ${design.kind}: nothing on it is picked`);
       }
-      const kind = body?.mark;
-      if (kind !== "pick" && kind !== "main" && kind !== null) {
-        return fail(400, '"mark" is "pick", "main" or null');
+      const rawKind = body?.mark;
+      const kind = rawKind === null ? null : normalizeMarkKind(rawKind);
+      if (rawKind !== null && kind === null) {
+        return fail(400, '"mark" is "main", "keep", "deleted" or null');
       }
       const state = stateArg(body?.state) ?? null;
       const alternative = str(body?.alternative, MAX_LABEL);
@@ -7639,7 +7679,7 @@ export function createApp({
       if (!post)
         return fail(404, `${design.slug} has no ${state ? `${state}/` : ""}${alternative}`);
       if (kind !== null && !isLive(post.status)) {
-        return fail(409, `${alternative} is archived: restore it to pick it`);
+        return fail(409, `${alternative} is archived: restore it to mark it`);
       }
       const look = body?.look === undefined ? undefined : str(body.look, MAX_LOOK_NAME);
       if (body?.look !== undefined && !look) return fail(400, '"look" is a look\'s name');
@@ -7656,7 +7696,9 @@ export function createApp({
         ...(look ? { look } : {}),
         ...(Object.keys(values.value).length ? { values: values.value } : {}),
       };
-      const marks = withMark(design.marks, subject, kind, "user", new Date().toISOString());
+      const marks = withMark(design.marks, subject, kind, "user", new Date().toISOString(), {
+        isSet: design.set,
+      });
       if (marks.length > MAX_MARKS) return fail(400, `a design holds at most ${MAX_MARKS} marks`);
       const updated = await store.updateDesign(design.id, { marks });
       if (!updated) return fail(404, "design not found");
@@ -8528,6 +8570,7 @@ export function createApp({
       "area",
       "group",
       "variants",
+      "set",
       "for",
       "becomes",
       "source",
@@ -8544,7 +8587,7 @@ export function createApp({
     if (given.length === 0) {
       return fail(
         400,
-        'provide one of "slug", "title", "kind", "area", "group", "variants", "for", "becomes", "source", "firstState", "purpose" or "behaviour"',
+        'provide one of "slug", "title", "kind", "area", "group", "variants", "set", "for", "becomes", "source", "firstState", "purpose" or "behaviour"',
       );
     }
     const design = await resolveDesign(ref, body.project, body.session);
@@ -8567,6 +8610,8 @@ export function createApp({
     if (isResult(source)) return source;
     const variants = variantsArg(body, design.slug, kind ?? design.kind, design.variants);
     if (isResult(variants)) return variants;
+    const set = setArg(body, design.slug, kind ?? design.kind);
+    if (isResult(set)) return set;
     const forIn = await forArg(body, design.project, design.id);
     if (isResult(forIn)) return forIn;
     const becomesIn = becomesArg(body);
@@ -8579,6 +8624,7 @@ export function createApp({
     // A screen or a component is for nothing: what the idea was for goes with the move.
     const forNext = kindNow !== "idea" ? (design.for ? null : undefined) : typing.for;
     const becomesNext = kindNow !== "idea" ? (design.becomes ? null : undefined) : typing.becomes;
+    const setNext = kindNow !== "idea" ? (design.set ? false : undefined) : set;
 
     const specIn = specInput(body, design);
     if ("error" in specIn) return fail(400, specIn.error, specIn.extra);
@@ -8636,6 +8682,7 @@ export function createApp({
       area !== undefined ||
       group !== undefined ||
       variants !== undefined ||
+      setNext !== undefined ||
       forNext !== undefined ||
       becomesNext !== undefined ||
       source !== undefined ||
@@ -8648,6 +8695,7 @@ export function createApp({
           ...(area === undefined ? {} : { area }),
           ...(group === undefined ? {} : { group }),
           ...(variants === undefined ? {} : { variants }),
+          ...(setNext === undefined ? {} : { set: setNext }),
           ...(forNext === undefined ? {} : { for: forNext }),
           ...(becomesNext === undefined ? {} : { becomes: becomesNext }),
           ...(source === undefined ? {} : { source }),
@@ -8725,7 +8773,7 @@ export function createApp({
     });
   }
 
-  // The user moved a design themselves (another kind or area), or corrected its spec:
+  // The user moved a design themselves (another kind, area, or set mode), or corrected its spec:
   // the agent hears it once, through the same cursor as a Send, on the session driving
   // the design. Nothing to tell when no agent has written it.
   async function tellAgentEdited(before: Design, after: Design): Promise<void> {
@@ -8733,6 +8781,7 @@ export function createApp({
     const edited: DesignEdit = {
       ...(after.kind !== before.kind ? { kind: after.kind } : {}),
       ...(after.area !== before.area ? { area: after.area } : {}),
+      ...(after.set !== before.set ? { set: after.set } : {}),
       ...(spec ? { spec } : {}),
     };
     if (Object.keys(edited).length === 0) return;

@@ -352,9 +352,17 @@ export function partsByState(design: Design, posts: Post[]): StateParts[] {
 // Where a design sits in the product, its library group and the code that implements it, only once
 // declared, so the views of a project that names neither cost nothing.
 export const placeOf = (
-  design: Pick<Design, "kind" | "area" | "group" | "source" | "variants">,
-): { area?: string; shared?: true; group?: string; source?: string; variants?: true } => ({
+  design: Pick<Design, "kind" | "area" | "group" | "source" | "variants" | "set">,
+): {
+  area?: string;
+  shared?: true;
+  group?: string;
+  source?: string;
+  variants?: true;
+  set?: true;
+} => ({
   ...(design.variants ? { variants: true as const } : {}),
+  ...(design.set && design.kind === "idea" ? { set: true as const } : {}),
   ...(design.area ? { area: design.area } : {}),
   // A component of no area: the library's shared part.
   ...(isShared(design) ? { shared: true as const } : {}),
@@ -505,6 +513,8 @@ export const designDetailView = (
     ideasFor?: IdeaLink[];
     // On a screen or a component: the ideas its entries were used from.
     usedFrom?: UsedFrom[];
+    // For agent reads: entries and knob choices the user deleted or ruled out.
+    ruledOut?: RuledOut[];
   } = {},
 ) => {
   const posts = shipped(design, all);
@@ -526,6 +536,7 @@ const detailOf = (
     target?: IdeaTarget;
     ideasFor?: IdeaLink[];
     usedFrom?: UsedFrom[];
+    ruledOut?: RuledOut[];
   },
 ) => ({
   id: design.id,
@@ -538,6 +549,7 @@ const detailOf = (
   ...(opts.target ? { target: opts.target } : {}),
   ...(opts.ideasFor?.length ? { ideasFor: opts.ideasFor } : {}),
   ...(opts.usedFrom?.length ? { usedFrom: opts.usedFrom } : {}),
+  ...(opts.ruledOut?.length ? { ruledOut: opts.ruledOut } : {}),
   ...(design.shortlist ? { shortlist: true } : {}),
   // No agent has written to this shortlist yet: who its replies reach for now.
   ...(opts.repliesGoTo ? { repliesGoTo: opts.repliesGoTo } : {}),
@@ -573,7 +585,7 @@ const detailOf = (
   // By alternative, where a frame was tuned apart: all of that frame's values.
   ...(opts.settledOn ? { settledOn: opts.settledOn } : {}),
   ...(opts.looks?.length ? { looks: opts.looks } : {}),
-  // The user's picks and Main, kept answers read as picks, and the archived frames.
+  // The user's Main, Keep, Deleted marks, kept answers read as keep, and the archived frames.
   ...((marks) => (marks.length ? { marks } : {}))(marksOf(design, posts)),
 });
 

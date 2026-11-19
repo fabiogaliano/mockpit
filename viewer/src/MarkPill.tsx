@@ -7,7 +7,7 @@ import { type FrameAction, frameActions, type FrameRef, runFrameAction } from ".
 import { Icon } from "./icons.tsx";
 import type { DesignScreenState } from "./state.ts";
 
-const MARKS = new Set(["pick", "main", "archive"]);
+const MARKS = new Set(["main", "keep", "delete"]);
 
 export function MarkPill(props: {
   s: DesignScreenState;
@@ -21,8 +21,14 @@ export function MarkPill(props: {
   const button = (a: FrameAction) => (
     <button
       type="button"
-      classList={{ on: !!a.on, star: a.id === "main", "mp-ask": !MARKS.has(a.id) }}
-      aria-pressed={a.id === "pick" || a.id === "main" ? !!a.on : undefined}
+      classList={{
+        on: !!a.on,
+        star: a.id === "main",
+        keep: a.id === "keep",
+        del: a.id === "delete",
+        "mp-ask": !MARKS.has(a.id),
+      }}
+      aria-pressed={a.id === "main" || a.id === "keep" ? !!a.on : undefined}
       aria-label={a.label}
       title={a.key ? `${a.label} (${a.key})` : a.label}
       onClick={(e) => {

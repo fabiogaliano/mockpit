@@ -4983,7 +4983,8 @@ html:has(.design-screen) {
 }
 
 /* ---------- One / Sheet, and the sheet in place of the frame ---------- */
-.sheetsw {
+.sheetsw,
+.setsw {
   display: flex;
   flex: none;
   gap: 2px;
@@ -4992,16 +4993,22 @@ html:has(.design-screen) {
   border-radius: 8px;
   background: var(--row);
 }
-.sheetsw button {
+.setsw {
+  margin-left: 6px;
+}
+.sheetsw button,
+.setsw button {
   padding: 3px 10px;
   border-radius: 6px;
   font-size: 12.5px;
   color: var(--t4);
 }
-.sheetsw button:hover {
+.sheetsw button:hover,
+.setsw button:hover {
   color: var(--t1);
 }
-.sheetsw button.on {
+.sheetsw button.on,
+.setsw button.on {
   background: var(--fill);
   color: var(--t1);
 }
@@ -5034,7 +5041,7 @@ html:has(.design-screen) {
 .sheet-bar {
   position: sticky;
   top: 0;
-  z-index: 2;
+  z-index: 50;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -5079,27 +5086,43 @@ html:has(.design-screen) {
   display: grid;
   align-items: center;
   gap: 5px;
-  padding: 6px 14px 120px;
+  padding: 12px 14px 120px;
 }
 .sheet-h {
-  padding: 2px 0 3px;
+  padding: 2px 4px 3px;
   overflow: hidden;
+  border-radius: 5px;
   font-size: 11.5px;
   color: var(--t4);
   text-align: center;
   white-space: nowrap;
   text-overflow: ellipsis;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
 }
 .sheet-h.mine {
   color: var(--accent);
 }
+.sheet-h.hot {
+  color: var(--t1);
+  background: var(--row);
+}
 .sheet-l {
-  padding-right: 4px;
+  padding: 3px 6px 3px 4px;
   overflow: hidden;
+  border-radius: 5px;
   font-size: 12.5px;
   color: var(--t2);
   white-space: nowrap;
   text-overflow: ellipsis;
+  transition:
+    color 140ms ease-out,
+    background-color 140ms ease-out;
+}
+.sheet-l.hot {
+  color: var(--t1);
+  background: var(--row);
 }
 .sheet-cell {
   position: relative;
@@ -5107,15 +5130,25 @@ html:has(.design-screen) {
   width: 100%;
   aspect-ratio: 1.12;
   overflow: hidden;
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--frame);
-  outline: 1px solid var(--engrave);
+  outline: 1px solid oklch(1 0 0 / 0.1);
   outline-offset: -1px;
   cursor: pointer;
+  transition:
+    outline-color 140ms ease-out,
+    opacity 160ms ease-out;
+}
+[data-theme="light"] .sheet-cell {
+  outline-color: oklch(0 0 0 / 0.1);
 }
 .sheet-cell:hover,
 .sheet-cell:focus-visible {
-  outline: 1.5px solid var(--t5);
+  outline: 1.5px solid oklch(1 0 0 / 0.24);
+}
+[data-theme="light"] .sheet-cell:hover,
+[data-theme="light"] .sheet-cell:focus-visible {
+  outline: 1.5px solid oklch(0 0 0 / 0.28);
 }
 .sheet-cell > img,
 .sheet-cell > .thumb {
@@ -5123,8 +5156,7 @@ html:has(.design-screen) {
   width: 100%;
   height: 100%;
 }
-.sheet-cell > img,
-.sheet-peek > img {
+.sheet-cell > img {
   object-fit: contain;
 }
 .sheet-updating {
@@ -5146,30 +5178,6 @@ html:has(.design-screen) {
   background: var(--panel);
   color: var(--t1);
   font-size: 11px;
-}
-.sheet-peek {
-  position: fixed;
-  z-index: 15;
-  overflow: hidden;
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow:
-    var(--shadow),
-    0 0 0 1px var(--edge);
-  pointer-events: none;
-}
-.sheet-peek > img {
-  display: block;
-  width: 100%;
-}
-.sheet-peek > div {
-  height: 26px;
-  overflow: hidden;
-  padding: 5px 9px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 12px;
-  color: var(--t2);
 }
 .savelook-form {
   display: flex;
@@ -10725,67 +10733,283 @@ button.bmc {
   background: var(--panel);
   box-shadow: var(--dd-shadow);
 }
-/* On a cell the pill is sized by what it sits on. A cell gives a button about an eighth of
-   its width: a sheet's usual cell is near 200px, and a share fit for the stage left the
-   pill at its least there. Under 200px a cell keeps the marks alone, sized so three still
-   fit. */
+/* A cell is its column's width up to its still's (STILL_MAX_W in bin/poster.js), past which
+   a still only blurs; centred under its heading. The outer slot stays stationary so hover
+   transforms on .sheet-card never flicker. */
 .sheet-cellw {
+  position: relative;
+  z-index: 1;
+  justify-self: center;
+  width: 100%;
+  max-width: 480px;
   container-type: inline-size;
 }
-.sheet-cellw > .markpill {
-  --mp: clamp(26px, 13cqi, 42px);
+.sheet-card {
+  position: relative;
+  width: 100%;
 }
-@container (max-width: 200px) {
-  .sheet-cellw > .markpill {
-    --mp: clamp(18px, 26cqi, 24px);
-  }
+.sheet-frame {
+  display: none;
 }
-.sheet-cellw > .markpill {
+.sheet-top-label {
+  display: none;
+}
+.sheet-cellw .markpill button:active {
+  transform: scale(0.96);
+}
+
+/* Hover zoom OFF: compact corner pill over the top-right corner, no scale lift. */
+.sheet-grid:not(.lift-on) .sheet-top {
+  --mp: clamp(20px, 5.5cqi, 26px);
   position: absolute;
   top: calc(var(--mp) / 4);
   right: calc(var(--mp) / 4);
   z-index: 6;
-  gap: calc(var(--mp) / 16);
-  padding: calc(var(--mp) / 10);
-  border-radius: calc(var(--mp) / 2.6);
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--ease);
 }
-.sheet-cellw > .markpill button {
+.sheet-grid:not(.lift-on) .sheet-top .markpill {
+  gap: calc(var(--mp) / 16);
+  padding: calc(var(--mp) / 10);
+  border-radius: calc(var(--mp) / 2.6);
+}
+.sheet-grid:not(.lift-on) .sheet-top .markpill button {
   width: var(--mp);
   height: var(--mp);
   border-radius: calc(var(--mp) / 3.6);
 }
-.sheet-cellw > .markpill button .icon {
+.sheet-grid:not(.lift-on) .sheet-top .markpill button .icon {
   width: calc(var(--mp) * 0.58);
   height: calc(var(--mp) * 0.58);
 }
-.sheet-cellw > .markpill i {
+.sheet-grid:not(.lift-on) .sheet-top .markpill i {
   height: calc(var(--mp) * 0.56);
 }
 @container (max-width: 200px) {
-  .sheet-cellw > .markpill .mp-ask,
-  .sheet-cellw > .markpill i {
+  .sheet-grid:not(.lift-on) .sheet-top .markpill .mp-ask,
+  .sheet-grid:not(.lift-on) .sheet-top .markpill i {
     display: none;
   }
 }
-.sheet-cellw:hover > .markpill,
-.sheet-cellw:focus-within > .markpill {
+.sheet-grid:not(.lift-on) .sheet-cellw:hover .sheet-top,
+.sheet-grid:not(.lift-on) .sheet-cellw:has(:focus-visible) .sheet-top {
   opacity: 1;
   pointer-events: auto;
 }
-/* A cell is its column's width up to its still's (STILL_MAX_W in bin/poster.js), past which
-   a still only blurs; centred under its heading, so the pill sits on its corner. */
-.sheet-cellw {
-  position: relative;
-  justify-self: center;
-  width: 100%;
-  max-width: 480px;
+
+/* Hover zoom ON: 1.44× in-place lift with edge-locked origin and a concentric top action bar
+   above the picture (zero occlusion). 16px CSS buttons scale cleanly to ~23px visual targets. */
+.sheet-grid.lift-on .sheet-card {
+  will-change: transform;
+  transform: translate3d(0, 0, 0) scale(1);
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+  transition:
+    transform 180ms cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 160ms ease-out;
 }
-.sheet-cellw.picked > .sheet-cell {
+.sheet-grid.lift-on .sheet-frame {
+  display: block;
+  position: absolute;
+  inset: -23px -4px -4px -4px;
+  z-index: -1;
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.14),
+    0 14px 34px rgba(0, 0, 0, 0.65),
+    0 4px 12px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  clip-path: inset(19px 0 0 0 round 10px);
+  pointer-events: none;
+  transition:
+    opacity 150ms ease-out,
+    clip-path 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+[data-theme="light"] .sheet-grid.lift-on .sheet-frame {
+  box-shadow:
+    0 0 0 1px oklch(0 0 0 / 0.09),
+    0 14px 32px rgba(0, 0, 0, 0.14),
+    0 4px 10px rgba(0, 0, 0, 0.08);
+}
+.sheet-grid.lift-on .sheet-top {
+  position: absolute;
+  top: -21px;
+  right: 0;
+  left: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3px;
+  height: 19px;
+  padding: 0 2px;
+  opacity: 0;
+  transform: translateY(3px);
+  pointer-events: none;
+  transition:
+    opacity 130ms ease-out,
+    transform 165ms ease-out;
+}
+.sheet-grid.lift-on .sheet-top-label {
+  display: block;
+  min-width: 0;
+  padding-left: 2px;
+  overflow: hidden;
+  font-size: 8.5px;
+  font-weight: 500;
+  color: var(--t3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sheet-grid.lift-on .sheet-top .markpill {
+  flex: none;
+  gap: 1px;
+  margin-left: auto;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.sheet-grid.lift-on .sheet-top .markpill button {
+  width: 16px;
+  height: 16px;
+  border-radius: 3.5px;
+  transition:
+    background-color 110ms ease-out,
+    color 110ms ease-out,
+    transform 100ms ease-out;
+}
+.sheet-grid.lift-on .sheet-top .markpill button .icon {
+  width: 10px;
+  height: 10px;
+}
+.sheet-grid.lift-on .sheet-top .markpill i {
+  height: 10px;
+  margin: 0 1px;
+}
+@container (max-width: 170px) {
+  .sheet-grid.lift-on .sheet-top-label {
+    display: none;
+  }
+  .sheet-grid.lift-on .sheet-top {
+    justify-content: center;
+  }
+  .sheet-grid.lift-on .sheet-top .markpill {
+    margin-left: 0;
+  }
+}
+@container (max-width: 128px) {
+  .sheet-grid.lift-on .sheet-top .markpill .mp-ask,
+  .sheet-grid.lift-on .sheet-top .markpill i {
+    display: none;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .sheet-grid.lift-on:has(.sheet-cellw:not(.deleted):hover) .sheet-cellw:not(:hover) .sheet-card {
+    opacity: 0.56;
+  }
+  .sheet-grid.lift-on .sheet-cellw:not(.deleted):hover {
+    z-index: 30;
+  }
+  .sheet-grid.lift-on .sheet-cellw:not(.deleted):hover .sheet-card {
+    transform: translate3d(0, 3px, 0) scale(1.44);
+    transition:
+      transform 230ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 160ms ease-out;
+  }
+  .sheet-grid.lift-on .sheet-cellw:not(.deleted):hover .sheet-frame {
+    opacity: 1;
+    clip-path: inset(0 0 0 0 round 10px);
+    pointer-events: auto;
+    transition:
+      opacity 170ms ease-out,
+      clip-path 230ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .sheet-grid.lift-on .sheet-cellw:not(.deleted):hover .sheet-top {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    transition:
+      opacity 170ms ease-out 30ms,
+      transform 210ms cubic-bezier(0.22, 1, 0.36, 1) 30ms;
+  }
+}
+/* Keyboard focus reveals the top bar immediately without animating keyboard navigation. */
+.sheet-grid.lift-on .sheet-cellw:not(.deleted):has(:focus-visible) {
+  z-index: 30;
+}
+.sheet-grid.lift-on .sheet-cellw:not(.deleted):has(:focus-visible) .sheet-card {
+  transform: translate3d(0, 3px, 0) scale(1.44);
+  transition: none;
+}
+.sheet-grid.lift-on .sheet-cellw:not(.deleted):has(:focus-visible) .sheet-frame {
+  opacity: 1;
+  clip-path: inset(0 0 0 0 round 10px);
+  pointer-events: auto;
+  transition: none;
+}
+.sheet-grid.lift-on .sheet-cellw:not(.deleted):has(:focus-visible) .sheet-top {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-grid.lift-on .sheet-card,
+  .sheet-grid.lift-on .sheet-frame,
+  .sheet-grid.lift-on .sheet-top,
+  .sheet-badge {
+    transition: none;
+  }
+}
+
+.sheet-cellw.main .sheet-cell {
   outline: 2.5px solid var(--keep);
   outline-offset: 0;
+}
+.sheet-cellw.keep .sheet-cell {
+  opacity: 0.62;
+  outline: 1.5px solid var(--edge);
+  outline-offset: 0;
+}
+.sheet-cellw.keep:hover .sheet-cell,
+.sheet-cellw.keep:has(:focus-visible) .sheet-cell {
+  opacity: 1;
+}
+.sheet-cellw.deleted {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: transparent;
+}
+.sheet-restore {
+  padding: 4px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: var(--panel);
+  color: var(--t3);
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity var(--ease);
+}
+.sheet-cellw.deleted:hover .sheet-restore,
+.sheet-cellw.deleted:focus-within .sheet-restore {
+  opacity: 1;
+}
+.sheet-restore:hover {
+  color: var(--t1);
+  background: var(--row-hover);
+}
+.sheet-progress {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--row);
+  color: var(--keep-ink);
+  font-size: 12px;
+  font-weight: 500;
 }
 .sheet-badge {
   position: absolute;
@@ -10799,15 +11023,24 @@ button.bmc {
   background: var(--keep);
   color: var(--on-keep);
   pointer-events: none;
+  transition:
+    opacity 120ms ease-out,
+    transform 150ms cubic-bezier(0.2, 0, 0, 1);
+}
+.sheet-cellw.keep .sheet-badge {
+  background: var(--panel);
+  color: var(--t3);
+  box-shadow: 0 0 0 1px var(--edge);
 }
 .sheet-badge .icon {
   width: 11px;
   height: 11px;
   stroke-width: 2.4;
 }
-.sheet-cellw:hover > .sheet-badge,
-.sheet-cellw:focus-within > .sheet-badge {
+.sheet-cellw:hover .sheet-badge,
+.sheet-cellw:has(:focus-visible) .sheet-badge {
   opacity: 0;
+  transform: scale(0.7);
 }
 .sheet-l .sheet-star,
 .lm-mark {
@@ -10843,7 +11076,269 @@ button.bmc {
   right: 0;
 }
 .markpill button.star.on .icon,
+.markpill button.keep.on .icon,
 .sheet-cellw.main .sheet-badge .icon,
+.sheet-cellw.keep .sheet-badge .icon,
 .sheet-l .sheet-star .icon {
   fill: currentColor;
+}
+.markpill button.del:hover {
+  color: var(--bad, #d64545);
+}
+
+/* ---------- Knob choice panel & dynamic side-by-side finalists ---------- */
+.kview-sw {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: var(--row);
+}
+.kview-sw button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 5px;
+  color: var(--t4);
+}
+.kview-sw button:hover {
+  color: var(--t1);
+}
+.kview-sw button.on {
+  background: var(--fill);
+  color: var(--t1);
+}
+.kview-sw button .icon {
+  width: 14px;
+  height: 14px;
+}
+.kpanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.kpanel-scroll {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 10px 12px 16px;
+}
+.kpanel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.krow {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--row);
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+}
+.krow:hover {
+  background: var(--row-hover);
+}
+.krow.on {
+  border-color: var(--edge);
+  background: var(--fill);
+}
+.krow.main {
+  border-color: color-mix(in srgb, var(--keep) 55%, transparent);
+}
+.krow.keep {
+  background: transparent;
+  border-color: var(--line);
+}
+.krow-pick {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 0;
+  text-align: left;
+  color: var(--t1);
+  font-size: 13.5px;
+}
+.krow.keep .krow-pick {
+  color: var(--t3);
+}
+.krow-lbl {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.krow-acts {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 1px;
+}
+.kact {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--t4);
+}
+.kact .icon {
+  width: 15px;
+  height: 15px;
+}
+.kact:hover {
+  background: var(--row-hover);
+  color: var(--t1);
+}
+.kact.star.on,
+.kact.keep.on {
+  color: var(--keep-ink);
+}
+.kact.star.on .icon,
+.kact.keep.on .icon {
+  fill: currentColor;
+}
+.kact.del:hover {
+  color: var(--bad, #d64545);
+}
+.ksaved {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.ksaved-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 4px;
+  color: var(--t3);
+  font-size: 12.5px;
+}
+.ksaved-head:hover {
+  color: var(--t1);
+}
+.ksaved-head .icon {
+  width: 13px;
+  height: 13px;
+}
+.ksaved-head .icon:last-child {
+  margin-left: auto;
+}
+.ksaved-list {
+  margin-top: 6px;
+}
+.kpanel-foot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.kpanel-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kpanel-idx {
+  min-width: 34px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--t3);
+}
+.kpanel-sheet {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+}
+.kpanel-sheet .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.ksbs {
+  position: fixed;
+  top: var(--canvas-top, 0px);
+  right: var(--canvas-end, 0px);
+  bottom: 0;
+  left: var(--canvas-l, 0px);
+  z-index: 2;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 24px;
+  background-color: var(--page);
+  background-image: radial-gradient(var(--line) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.ksbs-grid {
+  display: grid;
+  gap: 18px;
+  max-width: 1360px;
+  margin: 0 auto;
+  align-items: stretch;
+}
+.ksbs-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  transition: border-color var(--ease);
+}
+.ksbs-card.on {
+  border-color: var(--accent);
+}
+.ksbs-card.main {
+  border-color: var(--keep);
+}
+.ksbs-picbtn {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  overflow: hidden;
+  background: var(--frame);
+}
+.ksbs-pic {
+  width: 100%;
+  height: 100%;
+}
+.ksbs-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  border-top: 1px solid var(--line);
+}
+.ksbs-lbl {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--t1);
+}
+.ksbs-acts {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+.ksbs-empty {
+  display: grid;
+  place-items: center;
+  gap: 12px;
+  height: 100%;
+  color: var(--t3);
+  font-size: 14px;
 }
