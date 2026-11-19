@@ -12,7 +12,7 @@ and sees the frame in every value, then every frame in every value, on a Sheet (
 values across). On a screen or component Spread opens an idea for it, holding copies of its
 frames, so the product stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on
 an idea lands its link on that Sheet; a knob that can't be laid out leaves the link as it
-was, with a nudge.
+was, with a nudge. On hosts that support it, publishing starts background capture for the row.
 
 A look is a named set of knob values, holding only the knobs it changes. The user saves
 them from Tune; yours come with a publish, `--looks '{"Big dots": {"marks": "dots",

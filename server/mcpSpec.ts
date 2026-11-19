@@ -41,7 +41,7 @@ const field = {
     'Global knobs (tunekit usePane shape) keyed by path: [default,min,max,step], boolean, {type:"select",options}, "#hex"',
   alternativeKnobs: "Knobs this alternative alone has",
   sheet:
-    "An idea's link opens on this choice knob's Sheet: frames down, values across. Never needed",
+    "An idea's link opens on this choice knob's Sheet: frames down, values across. Starts background capture on supported hosts",
   looks:
     '{"name": {path: value}}: named knob values the user can apply. Alone, no new version; the user\'s look of a name stands',
   from: "Branch from this version",

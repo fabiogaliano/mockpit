@@ -1,67 +1,276 @@
-// A design's sheet stills as Focus needs them (server/stills.ts): the ones made, looked up
-// by cell, and the cells in view that have none, asked for together a moment after they
-// show. Each still lands as a stills-updated event; until then the cell draws live.
-
-import { createResource, onCleanup } from "solid-js";
-import { type StillCell, stillKey } from "../../server/stills.ts";
+import { batch, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
+import {
+  legacyStillCompatibility,
+  MAX_STILLS_ASKED,
+  olderStillCompatibility,
+  type StillCell,
+  stillCompatibility,
+  stillKey,
+  type StillPending,
+  type StillRequestCell,
+  type StillsRequest,
+} from "../../server/stills.ts";
 import { api, assetUrl, subscribe } from "./api.ts";
 import { host, readonly } from "./host.ts";
 
-// Cells that come into view together are one request.
-const ASK_MS = 150;
+const ASK_MS = 100;
+const TIMEOUT_MS = 15_000;
 
 export type Stills = ReturnType<typeof createStills>;
 
+/** Keep the cache and live work for the design currently on screen. */
 export function createStills(designId: () => string | undefined) {
-  const [made, { refetch }] = createResource(designId, (id) =>
-    api.stills(id).catch((): { stills: Record<string, string>; taking: boolean } => ({
-      stills: {},
-      taking: false,
-    })),
+  const [capability, setCapability] = createSignal<"loading" | "error" | "capture" | "live">(
+    "loading",
   );
-  let timer = 0;
-  onCleanup(
-    subscribe((e) => {
-      if (e.type !== "stills-updated" || e.designId !== designId()) return;
-      host().window.clearTimeout(timer);
-      timer = host().window.setTimeout(() => void refetch(), ASK_MS);
-    }),
-  );
-  onCleanup(() => host().window.clearTimeout(timer));
-
-  // The still of a cell, as a URL, once one is made.
-  const of = (cell: StillCell): string | null => {
-    const id = made()?.stills[stillKey(cell)];
-    return id ? assetUrl(id) : null;
-  };
-
-  let asking = new Map<string, StillCell>();
+  const [legacyPalettes, setLegacyPalettes] = createSignal<Record<number, string | null>>({});
+  const [indexError, setIndexError] = createSignal(false);
+  const [assets, setAssets] = createStore<Record<string, string | undefined>>({});
+  const [pending, setPending] = createStore<Record<string, StillPending | undefined>>({});
+  const [failures, setFailures] = createStore<Record<string, boolean | undefined>>({});
+  const [broken, setBroken] = createStore<Record<string, string | undefined>>({});
+  let generation = 0;
+  let request = 0;
+  let serial = 0;
+  let indexRevision = 0;
+  let expiryTimer = 0;
   let askTimer = 0;
-  const asked = new Set<string>();
-  const flush = () => {
-    const id = designId();
-    const cells = [...asking.values()];
-    asking = new Map();
-    if (!id || !cells.length) return;
-    void api
-      .takeStills(
-        id,
-        cells.map(({ system: _s, rewrites: _r, ...c }) => c),
-      )
-      .catch(() => {});
-  };
-  // A cell in view with no still: the server is asked once per cell, and only when it
-  // can make them.
-  const want = (cell: StillCell) => {
-    if (readonly() || made.loading || !made()?.taking || of(cell)) return;
-    const key = stillKey(cell);
-    if (asked.has(key)) return;
-    asked.add(key);
-    asking.set(key, cell);
-    host().window.clearTimeout(askTimer);
-    askTimer = host().window.setTimeout(flush, ASK_MS);
-  };
-  onCleanup(() => host().window.clearTimeout(askTimer));
+  let disposed = false;
+  const eventStamps = new Map<string, { serial: number; revision: number }>();
+  const wanted = new Map<string, StillRequestCell>();
+  const requestRevisions = new Map<string, number>();
+  const requesting = new Set<string>();
+  const window = host().window;
 
-  return { of, want, loaded: () => !made.loading };
+  const reschedule = () => {
+    window.clearTimeout(expiryTimer);
+    const next = Math.min(...Object.values(pending).map((job) => job?.expires ?? Infinity));
+    if (!Number.isFinite(next)) return;
+    expiryTimer = window.setTimeout(
+      () => {
+        batch(() => {
+          for (const [key, job] of Object.entries(pending)) {
+            if (job && job.expires <= Date.now()) {
+              setPending(key, undefined);
+              setFailures(key, true);
+            }
+          }
+        });
+        reschedule();
+      },
+      Math.max(0, next - Date.now()),
+    );
+  };
+
+  const newerEvent = (key: string, since: number, revision: number) => {
+    const event = eventStamps.get(key);
+    return event && event.serial > since && event.revision > revision;
+  };
+
+  async function refresh() {
+    const id = designId();
+    if (!id) return;
+    const before = serial;
+    const token = ++request;
+    try {
+      const index = await api.stills(id, AbortSignal.timeout(TIMEOUT_MS));
+      if (disposed || token !== request || id !== designId()) return;
+      if (index.revision < indexRevision) {
+        eventStamps.clear();
+        requestRevisions.clear();
+      }
+      indexRevision = index.revision;
+      const next: Record<string, string | undefined> = { ...index.stills };
+      const work: Record<string, StillPending | undefined> = { ...index.pending };
+      for (const key of new Set([...eventStamps.keys(), ...requestRevisions.keys()])) {
+        if (
+          newerEvent(key, before, index.revision) ||
+          (requestRevisions.get(key) ?? 0) > index.revision
+        ) {
+          next[key] = assets[key];
+          work[key] = pending[key];
+        }
+      }
+      batch(() => {
+        for (const [key, job] of Object.entries(pending)) {
+          if (job && !work[key] && !next[key]) setFailures(key, true);
+        }
+        for (const [key, job] of Object.entries(work)) {
+          if (job) setFailures(key, undefined);
+        }
+        for (const [key, asset] of Object.entries(next)) {
+          if (asset && broken[key] !== asset) setFailures(key, undefined);
+        }
+        setLegacyPalettes(index.legacyPalettes);
+        setAssets(reconcile(next));
+        setPending(reconcile(work));
+        setCapability(index.taking ? "capture" : "live");
+        setIndexError(false);
+      });
+      reschedule();
+    } catch {
+      if (disposed || token !== request || id !== designId()) return;
+      if (capability() === "loading") setCapability("error");
+      setIndexError(true);
+    }
+  }
+
+  createEffect(() => {
+    const id = designId();
+    ++generation;
+    ++request;
+    wanted.clear();
+    requesting.clear();
+    eventStamps.clear();
+    requestRevisions.clear();
+    indexRevision = 0;
+    window.clearTimeout(askTimer);
+    window.clearTimeout(expiryTimer);
+    setLegacyPalettes({});
+    setAssets(reconcile({}));
+    setPending(reconcile({}));
+    setFailures(reconcile({}));
+    setBroken(reconcile({}));
+    setCapability("loading");
+    setIndexError(false);
+    if (id) void refresh();
+  });
+
+  onCleanup(
+    subscribe(
+      (event) => {
+        if (event.type !== "stills-updated" && event.type !== "still-failed") return;
+        if (event.designId !== designId()) return;
+        const key = event.key;
+        if (
+          event.revision <=
+          Math.max(
+            indexRevision,
+            requestRevisions.get(key) ?? 0,
+            eventStamps.get(key)?.revision ?? 0,
+          )
+        )
+          return;
+        eventStamps.set(event.key, { serial: ++serial, revision: event.revision });
+        batch(() => {
+          if (event.type === "stills-updated") {
+            setBroken(event.key, undefined);
+            setAssets(event.key, event.asset);
+            setFailures(event.key, undefined);
+          } else {
+            setFailures(event.key, true);
+          }
+          setPending(event.key, undefined);
+        });
+        reschedule();
+      },
+      () => void refresh(),
+    ),
+  );
+
+  onCleanup(() => {
+    disposed = true;
+    window.clearTimeout(expiryTimer);
+    window.clearTimeout(askTimer);
+  });
+
+  const compatible = createMemo(() => {
+    const bySignature = new Map<string, { key: string; asset: string }>();
+    for (const [key, asset] of Object.entries(assets).reverse()) {
+      if (!asset || broken[key] === asset) continue;
+      const signature = olderStillCompatibility(key, legacyPalettes());
+      if (signature && !bySignature.has(signature)) bySignature.set(signature, { key, asset });
+    }
+    return bySignature;
+  });
+  const picture = (cell: StillCell) => {
+    const key = stillKey(cell);
+    const asset = assets[key];
+    if (asset && broken[key] !== asset) return { key, asset, exact: true };
+    const old =
+      compatible().get(stillCompatibility(cell)) ??
+      compatible().get(legacyStillCompatibility(cell));
+    return old ? { ...old, exact: false } : null;
+  };
+
+  function receive(key: string, result: StillsRequest | null, before: number) {
+    if (newerEvent(key, before, result?.revision ?? -1)) return;
+    if (result) requestRevisions.set(key, result.revision);
+    else if (pending[key]) return;
+    const asset = result?.stills[key];
+    const job = result?.pending[key];
+    const wasBroken = !!asset && broken[key] === asset;
+    if (asset) setAssets(key, asset);
+    if (job) {
+      setAssets(key, undefined);
+      setBroken(key, undefined);
+    }
+    setPending(key, job);
+    setFailures(key, !job && (!asset || wasBroken) ? true : undefined);
+  }
+
+  async function flush() {
+    const id = designId();
+    const owner = generation;
+    const cells = [...wanted].slice(0, MAX_STILLS_ASKED);
+    for (const [key] of cells) {
+      wanted.delete(key);
+      requesting.add(key);
+    }
+    if (!id || !cells.length) return;
+    const before = serial;
+    let result: StillsRequest | null = null;
+    try {
+      result = await api.takeStills(
+        id,
+        cells.map(([, cell]) => cell),
+        AbortSignal.timeout(TIMEOUT_MS),
+      );
+    } catch {
+      // A dropped request leaves its visible cells available for Retry.
+    }
+    if (disposed || owner !== generation) return;
+    for (const [key] of cells) {
+      batch(() => receive(key, result, before));
+      requesting.delete(key);
+    }
+    reschedule();
+    if (wanted.size) void flush();
+  }
+
+  const want = (cell: StillCell, retry = false) => {
+    if (readonly() || capability() !== "capture") return;
+    const key = stillKey(cell);
+    if (requesting.has(key) || wanted.has(key) || pending[key]?.priority === "visible") return;
+    const asset = assets[key];
+    if (!retry && (failures[key] || (asset && broken[key] !== asset))) return;
+    wanted.set(key, retry && asset ? { ...cell, retryAsset: asset } : cell);
+    if (retry) void flush();
+    else {
+      window.clearTimeout(askTimer);
+      askTimer = window.setTimeout(() => void flush(), ASK_MS);
+    }
+  };
+
+  return {
+    picture,
+    of: (cell: StillCell) => {
+      const shot = picture(cell);
+      return shot?.exact ? assetUrl(shot.asset) : null;
+    },
+    want,
+    failed: (cell: StillCell) => !!failures[stillKey(cell)],
+    pending: (cell: StillCell) => !!pending[stillKey(cell)],
+    broken: (key: string, asset: string) => {
+      if (assets[key] !== asset) return;
+      batch(() => {
+        setBroken(key, asset);
+        if (key.startsWith("[")) setFailures(key, true);
+      });
+    },
+    capability,
+    indexError,
+    refresh,
+  };
 }

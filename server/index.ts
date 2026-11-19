@@ -106,7 +106,8 @@ const networkHosts = () => {
 // Sheet stills are taken by the CLI's poster worker, which drives a local Chrome or Chromium
 // and sends each back over HTTP, so it reaches this server as any client does.
 const poster = (await import(pathToFileURL(join(root, "bin", "poster.js")).href)) as {
-  queueStills(job: { base: string; token?: string; client: string; stills: StillJob[] }): void;
+  findBrowser(): string | null;
+  queueStills(job: { base: string; token?: string; client: string; stills: StillJob[] }): boolean;
 };
 const selfHost =
   !hostname || hostname === "0.0.0.0" || hostname === "::"
@@ -140,7 +141,7 @@ const app = createApp({
   executor: createNodeExecutor(),
   networkHosts,
   log: logPath ? createFileLog(logPath) : undefined,
-  takeStills,
+  takeStills: poster.findBrowser() ? takeStills : undefined,
 });
 
 // Cloudflare compresses at its edge; a Node server reached over a network

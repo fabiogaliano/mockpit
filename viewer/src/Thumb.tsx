@@ -3,6 +3,7 @@
 // in this document; pointer-events are off so it is only ever a picture.
 
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { SHEET_MAX_HEIGHT_RATIO, SHEET_PART_PAD } from "../../server/stills.ts";
 import type { KnobValue } from "../../server/types.ts";
 import { takeTurn } from "./frameQueue.ts";
 import { host } from "./host.ts";
@@ -46,6 +47,7 @@ export function Thumb(props: {
   // A part to crop to, where the page reports one of that name: a sheet's cell shows what
   // its knob changes.
   part?: string | null;
+  sheet?: boolean;
 }) {
   let box!: HTMLDivElement;
   let frameEl: HTMLIFrameElement | undefined;
@@ -117,11 +119,32 @@ export function Thumb(props: {
       host().window.removeEventListener("message", onMessage);
     });
   });
-  const frame = () => {
+  const frame = (): ReturnType<typeof fitThumb> & { clip?: string } => {
     const { w } = size();
     const h = props.grow ? w * props.grow : size().h;
     const frameW = props.width ?? FRAME_W;
     const doc = docH();
+    if (props.sheet && doc && w && h) {
+      const frameH = Math.min(doc, frameW * SHEET_MAX_HEIGHT_RATIO);
+      const part = partBox();
+      const left = part ? Math.max(0, part.x - SHEET_PART_PAD) : 0;
+      const top = part ? Math.max(0, part.y - SHEET_PART_PAD) : 0;
+      const right = part ? Math.min(frameW, part.x + part.w + SHEET_PART_PAD) : frameW;
+      const bottom = part ? Math.min(frameH, part.y + part.h + SHEET_PART_PAD) : frameH;
+      const crop =
+        right > left && bottom > top
+          ? { x: left, y: top, w: right - left, h: bottom - top }
+          : { x: 0, y: 0, w: frameW, h: frameH };
+      const s = Math.min(w / crop.w, h / crop.h);
+      return {
+        s,
+        x: (w - crop.w * s) / 2 - crop.x * s,
+        y: (h - crop.h * s) / 2 - crop.y * s,
+        h,
+        frameH,
+        clip: `inset(${crop.y}px ${frameW - crop.x - crop.w}px ${frameH - crop.y - crop.h}px ${crop.x}px)`,
+      };
+    }
     if (props.whole && doc && w && h) {
       const s = Math.min(w / frameW, h / doc);
       return { s, x: (w - frameW * s) / 2, y: (h - doc * s) / 2, h, frameH: doc };
@@ -151,6 +174,7 @@ export function Thumb(props: {
             ref={(el) => {
               frameEl = el;
               setDocH(null);
+              if (props.sheet) setPartBox(null);
             }}
             src={src}
             sandbox="allow-scripts"
@@ -160,6 +184,8 @@ export function Thumb(props: {
             width={props.width ?? FRAME_W}
             height={Math.ceil(frame().frameH)}
             style={{
+              visibility: props.sheet && docH() === null ? "hidden" : undefined,
+              "clip-path": frame().clip,
               transform: `translate(${frame().x}px, ${frame().y}px) scale(${frame().s})`,
             }}
           />

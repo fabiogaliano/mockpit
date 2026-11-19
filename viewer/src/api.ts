@@ -10,7 +10,7 @@ import type {
 } from "../../server/apiViews.ts";
 import type { LookView } from "../../server/looks.ts";
 import type { MarkView } from "../../server/marks.ts";
-import type { StillCell, Stills } from "../../server/stills.ts";
+import type { StillRequestCell, StillsIndex, StillsRequest } from "../../server/stills.ts";
 import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
 import type { FeedEvent } from "../../server/events.ts";
@@ -74,6 +74,8 @@ export type PaletteChoice = {
 export type DesignDetail = ReturnType<typeof designDetailView> & {
   systemRev?: number;
   palettes?: PaletteChoice[];
+  defaultPalette?: string | null;
+  instanceHistory?: Record<string, Record<number, string>>;
 };
 export type TreeNode = ReturnType<typeof treeNodeView>;
 export type BoardPage = ReturnType<typeof boardView> & { onBoard?: boolean };
@@ -331,14 +333,13 @@ export const api = {
     body: { name: string } & ({ values: Record<string, KnobValue> } | { remove: true }),
   ) =>
     call<{ looks: LookView[] }>(`/api/designs/${encodeURIComponent(id)}/looks`, json("POST", body)),
-  // A sheet's cached stills, key → asset id, and whether this server can make more.
-  stills: (id: string) =>
-    call<{ stills: Stills; taking: boolean }>(`/api/designs/${encodeURIComponent(id)}/stills`),
-  takeStills: (id: string, cells: Omit<StillCell, "system" | "rewrites">[]) =>
-    call<{ asked: number; taking: boolean }>(
-      `/api/designs/${encodeURIComponent(id)}/stills/take`,
-      json("POST", { cells }),
-    ),
+  stills: (id: string, signal: AbortSignal) =>
+    call<StillsIndex>(`/api/designs/${encodeURIComponent(id)}/stills`, { signal }),
+  takeStills: (id: string, cells: StillRequestCell[], signal: AbortSignal) =>
+    call<StillsRequest>(`/api/designs/${encodeURIComponent(id)}/stills/take`, {
+      ...json("POST", { cells }),
+      signal,
+    }),
   reply: (
     id: string,
     body: DraftInput & {

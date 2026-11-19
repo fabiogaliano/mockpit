@@ -15,12 +15,14 @@
 // sheet shows cells that have none: a frame in some knob values, cropped to a part. Those
 // come in dozens at once, so a few tabs take them side by side.
 
+import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  renameSync,
   readFileSync,
   rmdirSync,
   rmSync,
@@ -39,13 +41,9 @@ const CAPTURE_MS = 15_000;
 const LOAD_MS = 8_000;
 // A job this old describes a burst long past, and its version has likely moved on.
 const JOB_MAX_AGE_MS = 2 * 60_000;
-// A sheet's stills wait behind each other; one asked for is still wanted a while later.
-const STILL_MAX_AGE_MS = 10 * 60_000;
 const STILL_TABS = 4;
 // A cell is small: past this width a still is only bytes.
 const STILL_MAX_W = 480;
-// Room around a part, so its edge isn't the picture's.
-const STILL_PAD = 16;
 // Stills one system change retakes, latest alternatives first: the rest run live until then.
 const RETAKE_MAX = 40;
 // Stays up briefly for the next publish of a burst, which saves starting a browser again.
@@ -125,22 +123,26 @@ export function queuePoster(job) {
   }
 }
 
-// { base, token, client, stills: [StillJob] } (server/app.ts): one job each, in the order the
-// sheet asked, which is what it has in view first.
+// The queue lives outside the server process, so jobs carry an attempt and deadline.
 export function queueStills({ stills, ...base }) {
   try {
-    if (!findBrowser()) return;
+    if (!findBrowser()) return false;
     const dir = queueDir();
     const at = Date.now();
-    for (const [i, still] of stills.entries()) {
-      const name = `${at}-${String(i).padStart(4, "0")}-${process.pid}-still.job`;
-      writeFileSync(join(dir, name), JSON.stringify({ ...base, still, queuedAt: at }), {
+    const run = randomUUID();
+    for (const [index, still] of stills.entries()) {
+      const order = String(index).padStart(3, "0");
+      const name = `${still.priority}-${at}-${run}-${order}-${still.postId}-still.job`;
+      const file = join(dir, name);
+      writeFileSync(`${file}.tmp`, JSON.stringify({ ...base, still, queuedAt: at }), {
         mode: 0o600,
       });
+      renameSync(`${file}.tmp`, file);
     }
     if (!lockIsFresh(dir)) startWorker();
+    return true;
   } catch {
-    // A sheet shows its live frames without them.
+    return false;
   }
 }
 
@@ -175,6 +177,10 @@ async function launchBrowser(path) {
     ],
     { stdio: "ignore" },
   );
+  let spawnFailed = false;
+  proc.on("error", () => {
+    spawnFailed = true;
+  });
   const stop = () => {
     proc.kill();
     // The browser is still writing to its profile for a moment after the signal.
@@ -183,7 +189,7 @@ async function launchBrowser(path) {
   const portFile = join(profile, "DevToolsActivePort");
   const giveUp = Date.now() + BROWSER_START_MS;
   while (!existsSync(portFile) || !readFileSync(portFile, "utf8").includes("\n")) {
-    if (proc.exitCode !== null || Date.now() > giveUp) {
+    if (spawnFailed || proc.exitCode !== null || Date.now() > giveUp) {
       stop();
       return null;
     }
@@ -193,17 +199,40 @@ async function launchBrowser(path) {
   return { port, stop, alive: () => proc.exitCode === null };
 }
 
-async function openPage(port) {
-  const res = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: "PUT" });
+async function openPage(port, signal) {
+  const res = await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, {
+    method: "PUT",
+    signal,
+  });
   const target = await res.json();
   const ws = new WebSocket(target.webSocketDebuggerUrl);
-  await new Promise((resolve, reject) => {
-    ws.onopen = resolve;
-    ws.onerror = reject;
-  });
+  const close = async () => {
+    ws.close();
+    await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`, {
+      signal: AbortSignal.timeout(1000),
+    }).catch(() => {});
+  };
+  try {
+    await new Promise((resolve, reject) => {
+      ws.onopen = resolve;
+      ws.onerror = reject;
+      ws.onclose = () => reject(new Error("tab closed"));
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      if (signal?.aborted) reject(signal.reason);
+    });
+  } catch (error) {
+    await close();
+    throw error;
+  }
   let nextId = 0;
   const pending = new Map();
   const waiting = new Map();
+  ws.onclose = () => {
+    for (const call of pending.values()) call.reject(new Error("tab closed"));
+    pending.clear();
+    for (const event of waiting.values()) event();
+    waiting.clear();
+  };
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
     if (m.id !== undefined) {
@@ -221,10 +250,7 @@ async function openPage(port) {
         ws.send(JSON.stringify({ id, method, params }));
       }),
     event: (method) => new Promise((resolve) => waiting.set(method, resolve)),
-    close: async () => {
-      ws.close();
-      await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`).catch(() => {});
-    },
+    close,
   };
 }
 
@@ -244,14 +270,20 @@ const SETTLE = `(async () => {
 
 // The part's box in document px, the first of that name drawn, or null.
 const partBox = (name) => `(() => {
-  const el = document.querySelector('[data-part="' + CSS.escape(${JSON.stringify(name)}) + '"]');
-  const r = el && el.getBoundingClientRect();
-  return r && r.width && r.height ? { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height } : null;
+  for (const el of document.querySelectorAll('[data-part]')) {
+    if (el.getAttribute("data-part").trim() !== ${JSON.stringify(name)}) continue;
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height || getComputedStyle(el).visibility === "hidden") continue;
+    return { x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height };
+  }
+  return null;
 })()`;
 
 // `opts.page`: a tab kept open across stills, which is the caller's to close.
 async function shoot(port, job, url, width, opts = {}) {
-  const page = opts.page ?? (await openPage(port));
+  const page = opts.page ?? (await openPage(port, opts.signal));
+  const abort = () => void page.close().catch(() => {});
+  opts.signal?.addEventListener("abort", abort, { once: true });
   try {
     // A cookie and not `?key=` or a header: the page is the agent's, and a script can read
     // its own URL, while extra headers would go to every CDN it loads from too.
@@ -282,7 +314,7 @@ async function shoot(port, job, url, width, opts = {}) {
     });
     const height = Math.min(
       Math.max(Number(measured.result?.value) || VIEWPORT_H, 1),
-      width * MAX_HEIGHT_PER_WIDTH,
+      width * (opts.heightRatio ?? MAX_HEIGHT_PER_WIDTH),
     );
     let clip = { x: 0, y: 0, width, height };
     if (opts.part) {
@@ -292,14 +324,11 @@ async function shoot(port, job, url, width, opts = {}) {
       });
       const box = found.result?.value;
       if (box) {
-        const x = Math.max(0, box.x - STILL_PAD);
-        const y = Math.max(0, box.y - STILL_PAD);
-        clip = {
-          x,
-          y,
-          width: Math.min(width - x, box.w + STILL_PAD * 2),
-          height: Math.min(height - y, box.h + STILL_PAD * 2),
-        };
+        const x = Math.max(0, box.x - opts.partPad);
+        const y = Math.max(0, box.y - opts.partPad);
+        const right = Math.min(width, box.x + box.w + opts.partPad);
+        const bottom = Math.min(height, box.y + box.h + opts.partPad);
+        if (right > x && bottom > y) clip = { x, y, width: right - x, height: bottom - y };
       }
     }
     const scale = opts.maxWidth ? Math.min(1, opts.maxWidth / clip.width) : 1;
@@ -311,6 +340,7 @@ async function shoot(port, job, url, width, opts = {}) {
     });
     return data;
   } finally {
+    opts.signal?.removeEventListener("abort", abort);
     if (!opts.page) await page.close();
   }
 }
@@ -328,6 +358,7 @@ const headersOf = (job) => ({
 async function expandRetake(dir, job) {
   const res = await fetch(`${job.base}/api/projects/${encodeURIComponent(job.project)}/tree`, {
     headers: headersOf(job),
+    signal: AbortSignal.timeout(CAPTURE_MS),
   });
   if (!res.ok) return;
   const { tree } = await res.json();
@@ -358,10 +389,10 @@ async function expandRetake(dir, job) {
   }
 }
 
-async function capture(port, job) {
+async function capture(port, job, signal) {
   const headers = headersOf(job);
   const get = async (path) => {
-    const res = await fetch(`${job.base}${path}`, { headers });
+    const res = await fetch(`${job.base}${path}`, { headers, signal });
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
     return res.json();
   };
@@ -369,6 +400,7 @@ async function capture(port, job) {
     const res = await fetch(`${job.base}${path}`, {
       method: "POST",
       headers,
+      signal,
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
@@ -396,6 +428,7 @@ async function capture(port, job) {
     job,
     `${job.base}/s/${encodeURIComponent(job.postId)}?${query}`,
     width,
+    { signal },
   );
   const asset = await post("/api/assets", {
     data,
@@ -418,15 +451,16 @@ async function capture(port, job) {
 
 // One sheet still, sent back with the cell it is of. The server refuses it if the frame or the
 // system moved on while it was being taken.
-async function captureStill(port, job, page) {
+async function captureStill(port, job, page, signal) {
   const s = job.still;
   const query = new URLSearchParams({
     surface: String(s.surface),
     ver: String(s.version),
     mode: s.mode,
-    ...(s.rewrites ? { w: String(s.rewrites) } : {}),
+    ...(s.rewrites > 0 ? { w: String(s.rewrites) } : {}),
     ...(s.system ? { y: String(s.system) } : {}),
     ...(s.e ? { e: s.e } : {}),
+    ...(s.palette ? { p: s.palette } : {}),
     ...(Object.keys(s.knobs).length ? { k: JSON.stringify(s.knobs) } : {}),
   });
   const data = await shoot(
@@ -436,6 +470,8 @@ async function captureStill(port, job, page) {
     s.width,
     {
       part: s.part,
+      partPad: s.partPad,
+      heightRatio: s.heightRatio,
       maxWidth: STILL_MAX_W,
       page,
     },
@@ -443,20 +479,31 @@ async function captureStill(port, job, page) {
   const res = await fetch(`${job.base}/api/designs/${encodeURIComponent(s.design)}/stills`, {
     method: "POST",
     headers: headersOf(job),
-    body: JSON.stringify({ ...s, data, contentType: "image/jpeg" }),
+    body: JSON.stringify({ key: s.key, attempt: s.attempt, data, contentType: "image/jpeg" }),
+    signal,
   });
   if (!res.ok) throw new Error(`still: ${res.status}`);
 }
 
-const timed = (p) =>
-  Promise.race([
-    p,
-    sleep(CAPTURE_MS).then(() => {
-      throw new Error("timed out");
-    }),
-  ]);
+async function beforeDeadline(ms, run) {
+  const deadline = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      run(deadline.signal),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          deadline.abort();
+          reject(new Error("capture timed out"));
+        }, ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-// The job in `name`, taken off the queue; null when it is unreadable or too old to want.
+// The job in `name`, taken off the queue once.
 function takeJob(dir, name) {
   const file = join(dir, name);
   let job;
@@ -466,47 +513,41 @@ function takeJob(dir, name) {
     job = null;
   }
   rmSync(file, { force: true });
-  if (!job) return null;
-  return Date.now() - job.queuedAt > (job.still ? STILL_MAX_AGE_MS : JOB_MAX_AGE_MS) ? null : job;
+  return job;
 }
 
-// The stills at the head of the queue, `first` among them, a few at a time: each lane keeps
-// one tab and takes the next still as soon as its last is sent, so a slow page holds up
-// only its own lane. A poster job next in the queue ends them.
-async function takeStills(dir, port, first) {
-  let head = first;
-  const next = () => {
-    if (head) {
-      const j = head;
-      head = null;
-      return j;
-    }
-    for (const name of jobsIn(dir)) {
-      if (!name.endsWith("-still.job")) return null;
-      const j = takeJob(dir, name);
-      if (j?.still) return j;
-    }
-    return null;
-  };
-  const lane = async () => {
-    let page = null;
-    try {
-      for (let job = next(); job; job = next()) {
-        utimesSync(lockPath(dir), new Date(), new Date());
-        try {
-          page ??= await openPage(port);
-          await timed(captureStill(port, job, page));
-        } catch {
-          // A page that timed out may still be loading: the next still gets a fresh tab.
-          await page?.close().catch(() => {});
-          page = null;
-        }
-      }
-    } finally {
-      await page?.close().catch(() => {});
-    }
-  };
-  await Promise.all(Array.from({ length: STILL_TABS }, lane));
+async function stillWork(job, failed, signal = AbortSignal.timeout(2000)) {
+  const { design, key, attempt } = job.still;
+  const res = await fetch(`${job.base}/api/designs/${encodeURIComponent(design)}/stills/work`, {
+    method: "POST",
+    headers: headersOf(job),
+    body: JSON.stringify({ key, attempt, failed }),
+    signal,
+  });
+  if (!res.ok) throw new Error(`still work: ${res.status}`);
+  return (await res.json()).current === true;
+}
+
+const isStill = (name) => name.endsWith("-still.job");
+const isVisible = (name) => name.startsWith("visible-") && isStill(name);
+
+async function stillShot(port, job, tab) {
+  const remaining = job.still.expires - Date.now();
+  if (remaining <= 0 || port === undefined) {
+    await stillWork(job, true).catch(() => {});
+    return;
+  }
+  try {
+    await beforeDeadline(Math.min(remaining, CAPTURE_MS), async (signal) => {
+      if (!(await stillWork(job, false, signal))) return;
+      tab.page ??= await openPage(port, signal);
+      await captureStill(port, job, tab.page, signal);
+    });
+  } catch {
+    await tab.page?.close().catch(() => {});
+    tab.page = null;
+    await stillWork(job, true).catch(() => {});
+  }
 }
 
 async function work() {
@@ -524,7 +565,12 @@ async function work() {
   }
   const path = findBrowser();
   let browser = null;
+  const heartbeat = setInterval(() => {
+    utimesSync(lockPath(dir), new Date(), new Date());
+  }, LOCK_STALE_MS / 3);
+  heartbeat.unref();
   const done = () => {
+    clearInterval(heartbeat);
     browser?.stop();
     try {
       rmdirSync(lockPath(dir));
@@ -537,42 +583,85 @@ async function work() {
     setTimeout(() => process.exit(0), 600);
   }, WORKER_MAX_MS).unref();
 
-  let idleSince = Date.now();
-  for (;;) {
-    const name = jobsIn(dir)[0];
-    if (!name) {
-      if (Date.now() - idleSince > WORKER_IDLE_MS) break;
-      await sleep(100);
-      continue;
-    }
-    idleSince = Date.now();
-    utimesSync(lockPath(dir), new Date(), new Date());
-    const job = takeJob(dir, name);
-    if (!job || !path) continue;
-    if (job.still) {
-      try {
-        if (!browser?.alive()) browser = await launchBrowser(path);
-        if (browser) await takeStills(dir, browser.port, job);
-      } catch {
-        // These cells stay live frames; the sheet asks again when it next shows them.
-      }
-      idleSince = Date.now();
-      continue;
-    }
-    if (job.retake) {
-      await expandRetake(dir, job).catch(() => {});
-      continue;
-    }
+  let launching;
+  let lastLaunchFailedAt = -Infinity;
+  const browserPort = () => {
+    if (browser?.alive()) return Promise.resolve(browser.port);
+    if (!path || Date.now() - lastLaunchFailedAt < BROWSER_START_MS)
+      return Promise.resolve(undefined);
+    launching ??= launchBrowser(path)
+      .catch(() => null)
+      .then((launched) => {
+        browser = launched;
+        if (!browser) lastLaunchFailedAt = Date.now();
+        launching = undefined;
+        return browser?.port;
+      });
+    return launching;
+  };
+
+  let lastWork = Date.now();
+  let busy = 0;
+  let runningBoard = false;
+  const lane = async () => {
+    const tab = { page: null, port: undefined };
+    let row;
     try {
-      if (!browser?.alive()) browser = await launchBrowser(path);
-      if (browser) {
-        await timed(capture(browser.port, job));
+      for (;;) {
+        const names = jobsIn(dir);
+        const board = !runningBoard && names.find((name) => !isStill(name));
+        const foreground = names.filter(isVisible);
+        const stills = foreground.length ? foreground : names.filter(isStill);
+        const inRow = row ? stills.find((name) => name.endsWith(`-${row}-still.job`)) : null;
+        // A Board capture gets a lane whenever it is waiting. The other lanes take
+        // visible Sheet work first and continue their current row at the same priority.
+        const name = board || inRow || stills[0];
+        if (!name) {
+          if (!busy && Date.now() - lastWork > WORKER_IDLE_MS) break;
+          await sleep(100);
+          continue;
+        }
+        const job = takeJob(dir, name);
+        if (!job) continue;
+        busy++;
+        lastWork = Date.now();
+        utimesSync(lockPath(dir), new Date(), new Date());
+        try {
+          if (job.still) {
+            row = job.still.postId;
+            const port = await browserPort();
+            if (port !== tab.port) {
+              await tab.page?.close().catch(() => {});
+              tab.page = null;
+              tab.port = port;
+            }
+            await stillShot(port, job, tab);
+          } else {
+            if (Date.now() - job.queuedAt > JOB_MAX_AGE_MS) continue;
+            runningBoard = true;
+            await tab.page?.close().catch(() => {});
+            tab.page = null;
+            if (job.retake) {
+              await expandRetake(dir, job);
+            } else {
+              const port = await browserPort();
+              if (port !== undefined)
+                await beforeDeadline(CAPTURE_MS, (signal) => capture(port, job, signal));
+            }
+          }
+        } catch {
+          // The next job still gets its turn.
+        } finally {
+          if (!job.still) runningBoard = false;
+          busy--;
+          lastWork = Date.now();
+        }
       }
-    } catch {
-      // This page stays live; the next one still gets its try.
+    } finally {
+      await tab.page?.close().catch(() => {});
     }
-    idleSince = Date.now();
-  }
+  };
+  await Promise.all(Array.from({ length: STILL_TABS }, lane));
   done();
   // A publish that saw this worker's lock in its last moment still gets its poster.
   if (jobsIn(dir).length) startWorker();

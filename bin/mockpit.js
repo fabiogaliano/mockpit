@@ -85,6 +85,7 @@ verbs:
       --looks <json|file>  named knob values: {"<name>": {"<path>": value}}; alone,
                         no new version
       --sheet <knob>    an idea's link opens on this choice knob's Sheet
+                         starts background capture on supported hosts
       --from <N>        branch from version N
       --amend           replace the latest version in place: a fix before the
                         user has acted on it (one request, one version)
@@ -269,7 +270,8 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
                      frame with those knobs: {"Big dots, blue": {"marks": "dots"}}.
                      Alone, adds them with no new version; a look the user named stands
   --sheet <knob>     an idea's link opens on its Sheet: every alternative of the state
-                     down, this choice knob's values across. Never needed
+                     down, this choice knob's values across. Starts background capture
+                     on supported hosts
   --from <N>         branch from version N
   --fork <v[@N]>     start this new alternative from sibling v (its version N, else
                      its latest); alone it copies v, with --parts/--swaps it

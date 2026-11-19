@@ -1,3 +1,4 @@
+import { resolveKnobs } from "./knobValues.ts";
 import { boardPages, boardView, pageOf } from "./board.ts";
 import { requestKey, valuesWords } from "./sendLines.ts";
 import { Hono, type Context } from "hono";
@@ -23,6 +24,7 @@ import {
   ideaPlaceOf,
   type IdeaTarget,
   placeOf,
+  partsByState,
   sessionRowView,
   surfaceRef,
 } from "./apiViews.ts";
@@ -155,9 +157,19 @@ import {
   withDefault,
 } from "./knobs.ts";
 import {
+  legacyStillRevision,
+  MAX_SHEET_COLUMNS,
   MAX_STILLS_ASKED,
+  SHEET_WIDTH,
+  SHEET_MAX_HEIGHT_RATIO,
+  SHEET_PART_PAD,
+  sheetCrop,
+  sheetKnobs,
   readStills,
   type StillCell,
+  type StillPending,
+  type StillRequestCell,
+  type StillsRequest,
   stillKey,
   stillsSetting,
   withStill,
@@ -488,7 +500,7 @@ export interface AppOptions {
   // Makes sheet stills (server/stills.ts), each a job the host's headless browser takes
   // and sends back to POST /api/designs/:id/stills. Node hands them to the poster worker
   // (bin/poster.js); absent (the Worker), a sheet's cells stay live frames.
-  takeStills?: (jobs: StillJob[]) => void;
+  takeStills?: (jobs: StillJob[]) => boolean;
   // The event log (server/eventLog.ts): one entry per agent call, viewer write
   // and live-feed connection. The host decides where entries go (a JSONL file
   // on Node, Workers Logs on Cloudflare); absent, nothing is computed.
@@ -699,11 +711,12 @@ const titleFromSlug = (slug: string) =>
 
 // One still to make: the frame's document at these values, cropped to the part when one is
 // named, sent back with the cell it is of.
-export interface StillJob extends StillCell {
+export interface StillJob extends StillCell, StillPending {
   design: string;
-  surface: number;
-  width: number;
   key: string;
+  started?: true;
+  partPad: number;
+  heightRatio: number;
 }
 
 export function createApp({
@@ -1906,104 +1919,234 @@ export function createApp({
 
   // --- sheet stills (server/stills.ts) ---
 
-  // Asked for and not back yet, so a sheet scrolled to and fro asks the host once. A still
-  // that never comes is asked again once this has passed.
-  const stillsAsked = new Map<string, number>();
-  const STILL_ASKED_MS = 5 * 60_000;
+  const stillsAsked = new Map<string, StillJob>();
+  const STILL_ASKED_MS = 2 * 60_000;
+  let stillsRevision = 0;
 
-  // One cell as a sheet names it, checked against the design as it stands: a version it
-  // has, values its knobs take, the system's revision now.
+  function expiredStills() {
+    const now = Date.now();
+    for (const [key, job] of stillsAsked) {
+      if (job.expires <= now) failStill(key, job.attempt);
+    }
+  }
+
+  function failStill(key: string, attempt: string) {
+    const job = stillsAsked.get(key);
+    if (!job || job.attempt !== attempt) return;
+    stillsAsked.delete(key);
+    bus.broadcast({
+      type: "still-failed",
+      designId: job.design,
+      key,
+      attempt,
+      revision: ++stillsRevision,
+    });
+  }
+
   async function stillCell(
     design: Design,
-    posts: Post[],
-    raw: any,
-    rev: number,
-  ): Promise<{ cell: StillCell; post: Post } | FlowResult> {
-    const post = posts.find((p) => p.id === raw?.postId);
-    if (!post) return fail(404, "alternative not found");
-    const version = Number(raw?.version);
-    if (version !== post.version && !post.history.some((h) => h.version === version)) {
-      return fail(409, `${post.alternative} has no version ${raw?.version}`);
-    }
-    const knobs = checkKnobValues(raw?.knobs, design, posts, "knobs");
-    if (!knobs.ok) return fail(400, knobs.error);
-    if (!isMode(raw?.mode)) return fail(400, '"mode" must be "light" or "dark"');
-    const part = raw?.part === null || raw?.part === undefined ? null : str(raw.part, MAX_LABEL);
-    if (part === undefined) return fail(400, '"part" must be a part name or null');
+    post: Post | undefined,
+    raw: Partial<StillCell>,
+    system: System | null,
+  ): Promise<StillCell | null> {
+    if (!post || !isLive(post.status) || typeof raw.version !== "number") return null;
+    const at = postAtVersion(post, raw.version);
+    if (!at || !isMode(raw.mode)) return null;
+    const idx = at.surfaces.findIndex((item) => item.kind === "html");
+    const page = at.surfaces[idx];
+    if (page?.kind !== "html") return null;
+    const knobs = checkKnobValues(
+      raw.knobs,
+      { knobs: { ...system?.knobs, ...design.knobs, ...post.knobs } },
+      [post],
+      "knobs",
+    );
+    if (!knobs.ok || JSON.stringify(knobs.value).length > MAX_KNOB_QUERY) return null;
+    const part = raw.part === null ? null : str(raw.part, MAX_LABEL);
+    if (part === undefined) return null;
+    const palette =
+      raw.palette === null
+        ? ((system && defaultPalette(system)?.id) ?? null)
+        : system?.color.palettes.find((p) => p.id === raw.palette)?.id;
+    if (palette === undefined) return null;
+    const e = hasInstanceTags(page.html)
+      ? instancesKey(await composedHtml(design.project, design.slug, page.html))
+      : "";
     return {
-      post,
-      cell: {
-        postId: post.id,
-        version,
-        rewrites: version === post.version ? (post.rewrites ?? 0) : 0,
-        e: typeof raw?.e === "string" ? raw.e.slice(0, MAX_LABEL) : "",
-        knobs: knobs.value,
-        part,
-        mode: raw.mode,
-        system: rev,
-      },
+      postId: post.id,
+      version: at.version,
+      rewrites: at.version === post.version ? (post.rewrites ?? 0) : -1,
+      e,
+      knobs: knobs.value,
+      part,
+      mode: raw.mode,
+      palette,
+      system: system?.rev ?? 0,
+      surface: idx,
+      width: design.widths[0] ?? SHEET_WIDTH,
     };
   }
 
   async function stillsFlow(ref: unknown): Promise<FlowResult> {
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
-    return ok({
-      stills: readStills(await store.getSetting(stillsSetting(design.id))),
-      taking: !!takeStills,
+    return serialDecision(stillsSetting(design.id), async () => {
+      expiredStills();
+      const stills = readStills(await store.getSetting(stillsSetting(design.id)));
+      const revs = new Set(
+        Object.keys(stills)
+          .map(legacyStillRevision)
+          .filter((rev) => rev !== undefined),
+      );
+      const system = revs.size ? await systemFor(design.project) : null;
+      const palettes = await Promise.all(
+        [...revs].map(async (rev) => {
+          if (rev === 0) return [0, null] as const;
+          const old =
+            rev === system?.rev ? system : await store.getSystemRevision(design.project, rev);
+          return old ? ([rev, defaultPalette(old)?.id ?? null] as const) : null;
+        }),
+      );
+      const legacyPalettes = Object.fromEntries(palettes.filter((item) => item !== null));
+      const pending = Object.fromEntries(
+        [...stillsAsked].flatMap(([key, job]) =>
+          job.design === design.id ? [[key, pendingStill(job)]] : [],
+        ),
+      );
+      return ok({
+        stills,
+        pending,
+        legacyPalettes,
+        taking: !!takeStills,
+        revision: stillsRevision,
+      });
     });
   }
 
-  // A sheet asks for the stills of the cells in view that have none: the host makes them,
-  // and each arrives as a stills-updated event.
+  function pendingStill(job: StillJob): StillPending {
+    return {
+      attempt: job.attempt,
+      expires: job.expires,
+      priority: job.started ? "visible" : job.priority,
+    };
+  }
+
+  async function enqueueStills(
+    design: Design,
+    posts: Post[],
+    raw: StillRequestCell[],
+    priority: StillJob["priority"],
+  ): Promise<StillsRequest> {
+    const setting = stillsSetting(design.id);
+    return serialDecision(setting, async () => {
+      expiredStills();
+      const pending: Record<string, StillPending> = {};
+      const stills: Record<string, string> = {};
+      if (!takeStills) return { pending, stills, revision: stillsRevision };
+      const system = await systemFor(design.project);
+      const have = readStills(await store.getSetting(setting));
+      const jobs: StillJob[] = [];
+      let removed = false;
+      for (const r of raw) {
+        if (!r || typeof r.postId !== "string") continue;
+        const cell = await stillCell(
+          design,
+          posts.find((post) => post.id === r.postId),
+          r,
+          system,
+        );
+        if (!cell || stillKey(cell) !== stillKey(r)) continue;
+        const key = stillKey(cell);
+        if (have[key]) {
+          if ((await store.getAsset(have[key])) && have[key] !== r.retryAsset) {
+            stills[key] = have[key];
+            continue;
+          }
+          delete have[key];
+          removed = true;
+        }
+        const before = stillsAsked.get(key);
+        if (before && (before.started || priority === "warm" || before.priority === "visible")) {
+          pending[key] = pendingStill(before);
+          continue;
+        }
+        const attempt = crypto.randomUUID();
+        const expires = Date.now() + STILL_ASKED_MS;
+        const job = {
+          ...cell,
+          key,
+          design: design.id,
+          attempt,
+          expires,
+          priority,
+          partPad: SHEET_PART_PAD,
+          heightRatio: SHEET_MAX_HEIGHT_RATIO,
+        };
+        stillsAsked.set(key, job);
+        pending[key] = pendingStill(job);
+        jobs.push(job);
+      }
+      if (removed) await store.setSetting(setting, JSON.stringify(have));
+      if (jobs.length || removed) ++stillsRevision;
+      if (jobs.length && !takeStills(jobs)) {
+        for (const { key, attempt } of jobs) {
+          delete pending[key];
+          failStill(key, attempt);
+        }
+      }
+      return { pending, stills, revision: stillsRevision };
+    });
+  }
+
   async function takeStillsFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
-    if (!takeStills) return ok({ asked: 0, taking: false });
-    const raw: unknown[] = Array.isArray(body?.cells) ? body.cells.slice(0, MAX_STILLS_ASKED) : [];
-    const posts = await store.listPosts({ designId: design.id });
-    const rev = (await systemFor(design.project))?.rev ?? 0;
-    const have = readStills(await store.getSetting(stillsSetting(design.id)));
-    const now = Date.now();
-    const jobs: StillJob[] = [];
-    for (const r of raw) {
-      const got = await stillCell(design, posts, r, rev);
-      if (isResult(got)) continue;
-      const key = stillKey(got.cell);
-      if (have[key] || now - (stillsAsked.get(key) ?? 0) < STILL_ASKED_MS) continue;
-      const surface = postAtVersion(got.post, got.cell.version)?.surfaces.findIndex(
-        (x) => x.kind === "html",
-      );
-      if (surface === undefined || surface < 0) continue;
-      stillsAsked.set(key, now);
-      jobs.push({
-        ...got.cell,
-        design: design.id,
-        surface,
-        width: design.widths[0] ?? 820,
-        key,
-      });
-    }
-    for (const [k, at] of stillsAsked) if (now - at > STILL_ASKED_MS) stillsAsked.delete(k);
-    if (jobs.length) takeStills(jobs);
-    return ok({ asked: jobs.length, taking: true });
+    const raw = Array.isArray(body?.cells) ? body.cells.slice(0, MAX_STILLS_ASKED) : [];
+    return ok(
+      await enqueueStills(design, await store.listPosts({ designId: design.id }), raw, "visible"),
+    );
   }
 
-  // A still the host made. Kept under the cell it is of, so long as that cell is still what
-  // the design shows: a version rewritten or a system changed since refuses it.
+  async function currentStill(design: Design, key: string, attempt: string) {
+    const job = stillsAsked.get(key);
+    if (!job || job.design !== design.id || job.attempt !== attempt) return null;
+    const post = await store.getPost(job.postId);
+    const cell = await stillCell(design, post ?? undefined, job, await systemFor(design.project));
+    if (
+      !post ||
+      !cell ||
+      stillKey(cell) !== key ||
+      (job.priority === "warm" && job.version !== shownVersion(design, post))
+    ) {
+      failStill(key, attempt);
+      return null;
+    }
+    return stillsAsked.get(key)?.attempt === attempt ? post : null;
+  }
+
+  async function stillWorkFlow(ref: unknown, body: any): Promise<FlowResult> {
+    const design = await resolveDesign(ref);
+    if (isResult(design)) return design;
+    expiredStills();
+    const { key, attempt } = body ?? {};
+    if (body?.failed === true) {
+      if (stillsAsked.get(key)?.design === design.id) failStill(key, attempt);
+      return ok({});
+    }
+    const current = await currentStill(design, key, attempt);
+    const job = stillsAsked.get(key);
+    if (!current || !job || job.attempt !== attempt) return ok({ current: false });
+    job.started = true;
+    return ok({ current: true });
+  }
+
   async function putStillFlow(ref: unknown, body: any): Promise<FlowResult> {
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
-    const posts = await store.listPosts({ designId: design.id });
-    const rev = (await systemFor(design.project))?.rev ?? 0;
-    const got = await stillCell(design, posts, body, rev);
-    if (isResult(got)) return got;
-    if ((body?.rewrites ?? 0) !== got.cell.rewrites) {
-      return fail(409, `${got.post.alternative} has changed since this still was taken`);
-    }
-    if (body?.system !== rev) {
-      return fail(409, `${design.project}'s system has changed since this still was taken`);
+    const { key, attempt } = body ?? {};
+    if (typeof key !== "string" || typeof attempt !== "string") {
+      return fail(400, "a still needs a key and attempt");
     }
     if (typeof body?.data !== "string") return fail(400, '"data" must be the image, base64');
     let data: Uint8Array;
@@ -2016,24 +2159,35 @@ export function createApp({
     if (!contentType.startsWith("image/") || contentType === "image/svg+xml") {
       return fail(415, "a still is a raster image");
     }
-    const up = await uploadAsset({
-      data,
-      contentType,
-      filename: "still.jpg",
-      session: got.post.sessionId,
+    const setting = stillsSetting(design.id);
+    return serialDecision(setting, async () => {
+      expiredStills();
+      const post = await currentStill(design, key, attempt);
+      if (!post) return fail(409, "this still is no longer pending");
+      const up = await uploadAsset({
+        data,
+        contentType,
+        filename: "still.jpg",
+        session: post.sessionId,
+      });
+      if ("error" in up) return fail(up.status, up.error);
+      const latest = await store.getDesign(design.id);
+      if (!latest || !(await currentStill(latest, key, attempt))) {
+        return fail(409, "this still no longer matches the render");
+      }
+      const now = readStills(await store.getSetting(setting));
+      await store.setSetting(setting, JSON.stringify(withStill(now, key, up.asset.id)));
+      stillsAsked.delete(key);
+      bus.broadcast({
+        type: "stills-updated",
+        designId: design.id,
+        key,
+        asset: up.asset.id,
+        attempt,
+        revision: ++stillsRevision,
+      });
+      return ok({ key, asset: up.asset.id });
     });
-    if ("error" in up) return fail(up.status, up.error);
-    const key = stillKey(got.cell);
-    await serialDecision(stillsSetting(design.id), async () => {
-      const now = readStills(await store.getSetting(stillsSetting(design.id)));
-      await store.setSetting(
-        stillsSetting(design.id),
-        JSON.stringify(withStill(now, key, up.asset.id)),
-      );
-    });
-    stillsAsked.delete(key);
-    bus.broadcast({ type: "stills-updated", designId: design.id });
-    return ok({ key, asset: up.asset.id });
   }
 
   function checkSurfaces(surfaces: Surface[]): FlowResult | null {
@@ -2205,6 +2359,20 @@ export function createApp({
       out.set(post.id, { key: instancesKey(composed), list });
     }
     return out;
+  }
+
+  async function sheetInstanceHistory(design: Design, posts: Post[]) {
+    if (isProduct(design)) return {};
+    const map: Record<string, Record<number, string>> = {};
+    for (const post of posts) {
+      for (const entry of post.history) {
+        const page = entry.surfaces.find((s) => s.kind === "html");
+        if (page?.kind !== "html" || !hasInstanceTags(page.html)) continue;
+        const rendered = await composedHtml(design.project, design.slug, page.html);
+        (map[post.id] ??= {})[entry.version] = instancesKey(rendered);
+      }
+    }
+    return map;
   }
 
   // The components the given versions of a design include, nested ones too, each at
@@ -2526,7 +2694,79 @@ export function createApp({
   // `swaps` spliced into the alternative's latest (or `from`) version.
   async function publishFlow(body: any, ctx: FlowContext): Promise<FlowResult> {
     const result = await publishWrite(body, ctx);
-    return body?.sheet === undefined ? result : withSheet(result, body.sheet);
+    if (body?.sheet !== undefined) return withSheet(result, body.sheet);
+    warmPublishedRow(result);
+    return result;
+  }
+
+  const sheetKnobSetting = (id: string) => `sheetKnob:${id}`;
+
+  function warmPublishedRow(result: FlowResult, knob?: string) {
+    const out = result.body as {
+      design?: { id: string };
+      post?: { id: string; version: number };
+      withdrawn?: unknown;
+    };
+    if (result.status >= 300 || !out.design || !out.post || out.withdrawn) return;
+    const { id } = out.design;
+    const { id: postId, version } = out.post;
+    if (!takeStills) return;
+    setTimeout(() => {
+      void warmSheetRow(id, postId, version, knob).catch((err) =>
+        console.warn("[mockpit] sheet warming", err),
+      );
+    }, 0);
+  }
+
+  async function warmSheetRow(id: string, postId: string, version: number, knob?: string) {
+    const design = await store.getDesign(id);
+    if (!design || isProduct(design) || design.archivedAt) return;
+    const path = knob ?? (await store.getSetting(sheetKnobSetting(id)));
+    if (!path) return;
+    const posts = await store.listPosts({ designId: id });
+    const post = posts.find((p) => p.id === postId);
+    if (!post || post.version !== version || shownVersion(design, post) !== version) return;
+    const frames = posts.filter((p) => p.state === post.state && isLive(p.status));
+    const config = sheetKnobs(design.knobs, frames).get(path);
+    const columns = config && choices(config)?.slice(0, MAX_SHEET_COLUMNS);
+    if (!columns || columns.length < 2) return;
+    const system = await systemFor(design.project);
+    const mode = await workspaceMode();
+    const settled = await settledViews(design, posts);
+    const stateParts = partsByState(design, posts);
+    const declared = (part: string) =>
+      stateParts.some(
+        (row) =>
+          (row.state === post.state || row.state === null) &&
+          row.parts.some((p) => p.name === part),
+      );
+    const base = await stillCell(
+      design,
+      post,
+      {
+        version,
+        mode,
+        palette: null,
+        part: sheetCrop({ [path]: "" }, declared),
+      },
+      system,
+    );
+    if (!base) return;
+    await enqueueStills(
+      design,
+      posts,
+      columns.map(({ value }) => ({
+        ...base,
+        knobs: resolveKnobs({
+          knobs: { ...design.knobs, ...post.knobs },
+          asks: design.asks,
+          answers: {},
+          tuned: { [path]: value },
+          settled: settled.settledOn?.[post.alternative] ?? settled.settled,
+        }),
+      })),
+      "warm",
+    );
   }
 
   // `sheet` names a choice knob for the link to lay out: frames down, its values across.
@@ -2539,16 +2779,12 @@ export function createApp({
     const posts = design ? await store.listPosts({ designId: design.id }) : [];
     if (!design) return result;
     const knob = typeof raw === "string" ? raw.trim() : "";
-    const config = knob ? knobFor(knob, design, posts) : undefined;
-    const choiceKnobs = [
-      ...new Set([
-        ...Object.keys(design.knobs),
-        ...posts.flatMap((p) => Object.keys(p.knobs ?? {})),
-      ]),
-    ].filter((path) => {
-      const c = knobFor(path, design, posts);
-      return c !== undefined && (choices(c)?.length ?? 0) > 1;
-    });
+    const frames = posts.filter((p) => p.state === out.post.state && isLive(p.status));
+    const configs = sheetKnobs(design.knobs, frames);
+    const config = configs.get(knob);
+    const choiceKnobs = [...configs].flatMap(([path, cfg]) =>
+      (choices(cfg)?.length ?? 0) > 1 ? [path] : [],
+    );
     const why = isProduct(design)
       ? `"sheet": ${design.slug} is a ${design.kind}, and exploring happens in an idea; publish the frames to an idea for it and lay that out`
       : !knob
@@ -2561,6 +2797,8 @@ export function createApp({
     if (why) return { ...result, body: { ...out, nudges: [...(out.nudges ?? []), why] } };
     const url = new URL(out.url);
     url.searchParams.set("sheet", knob);
+    await store.setSetting(sheetKnobSetting(design.id), knob);
+    warmPublishedRow(result, knob);
     return { ...result, body: { ...out, url: url.toString() } };
   }
 
@@ -4335,6 +4573,8 @@ export function createApp({
     const lines = query.noDecisions ? null : await decisionLines(design.project);
     const list = lines?.length ? agentDecisionLog(lines, design.slug) : null;
     const instances = await instanceViews(design, posts);
+    const instanceHistory =
+      query.viewer && query.history ? await sheetInstanceHistory(design, posts) : undefined;
     const ideas = await ideasDecidingFor(design);
     const view = designDetailView(design, posts, {
       // The spec's third part: the design's own lines and those of the ideas for it,
@@ -4369,6 +4609,7 @@ export function createApp({
     return ok({
       ...(list ? { decisionLog: list } : {}),
       ...(query.viewer ? view : agentWords(view)),
+      ...(instanceHistory && Object.keys(instanceHistory).length ? { instanceHistory } : {}),
       ...(held ? { nudges: [held] } : {}),
       ...(await systemPalettesField(design.project, query.viewer === true)),
       pending: pendingOf(design),
@@ -4459,6 +4700,7 @@ export function createApp({
     const roles = (system?.color.roles ?? []).slice(0, 4).map((r) => r.name);
     return {
       systemRev: system?.rev ?? 0,
+      ...(viewer ? { defaultPalette: (system && defaultPalette(system)?.id) ?? null } : {}),
       ...(viewer && system && system.color.palettes.length
         ? {
             palettes: system.color.palettes.map((p) => ({
@@ -9691,6 +9933,9 @@ export function createApp({
   app.post("/api/designs/:id/stills/take", async (c) =>
     send(c, await takeStillsFlow(c.req.param("id"), await jsonBody(c), flowCtx(c))),
   );
+  app.post("/api/designs/:id/stills/work", async (c) =>
+    send(c, await stillWorkFlow(c.req.param("id"), await jsonBody(c))),
+  );
   app.post("/api/designs/:id/stills", async (c) =>
     send(c, await putStillFlow(c.req.param("id"), await jsonBody(c))),
   );
@@ -10749,7 +10994,7 @@ export function createApp({
       const project = design ? (await systemFor(design.project))?.knobs : undefined;
       const checked = checkKnobValues(
         raw,
-        { knobs: { ...project, ...design?.knobs } },
+        { knobs: { ...project, ...design?.knobs, ...post.knobs } },
         [post],
         "k",
       );
@@ -10917,7 +11162,10 @@ export function createApp({
         asset = await store.getAsset(id);
       }
     }
-    if (!asset) return c.text("Asset not found", 404);
+    if (!asset) {
+      c.header("Cache-Control", "no-store");
+      return c.text("Asset not found", 404);
+    }
     await store.touchAsset(asset.id);
     const { contentType, disposition } = assetServeHeaders(asset);
     c.header("Content-Type", contentType);

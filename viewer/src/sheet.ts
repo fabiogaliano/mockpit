@@ -10,7 +10,13 @@
 
 import { createEffect, createMemo, createSignal } from "solid-js";
 import { choices } from "../../server/knobs.ts";
-import type { StillCell } from "../../server/stills.ts";
+import {
+  MAX_SHEET_COLUMNS,
+  SHEET_WIDTH,
+  sheetCrop,
+  sheetKnobs,
+  type StillCell,
+} from "../../server/stills.ts";
 import type { KnobValue } from "../../server/types.ts";
 import { isLive } from "../../server/types.ts";
 import {
@@ -24,7 +30,6 @@ import {
 import { readonly } from "./host.ts";
 import {
   historyRow,
-  knobPart,
   type KnobContext,
   resolveKnobs,
   settledOf,
@@ -33,7 +38,7 @@ import {
 } from "./logic.ts";
 import type { Preview, SheetView, Tool } from "./onScreen.ts";
 import { designPath, navigate, SHEET_LOOKS } from "./route.ts";
-import { framePalette, frameMode, peekRev, systemRev } from "./systemRev.ts";
+import { framePalette, frameMode, peekRev } from "./systemRev.ts";
 import type { Stills } from "./stills.ts";
 
 // What a held preview's key starts with when it is a cell opened from the sheet.
@@ -41,7 +46,7 @@ const SHEET_HOLD = "sheet:";
 export const isSheetHold = (key: string) => key.startsWith(SHEET_HOLD);
 
 // Past this a cell is too small to tell anything by.
-export const MAX_COLUMNS = 12;
+export const MAX_COLUMNS = MAX_SHEET_COLUMNS;
 
 export interface SheetColumn {
   key: string;
@@ -111,8 +116,7 @@ export function createSheet(d: SheetDeps) {
   const choiceKnobs = createMemo<ChoiceKnob[]>(() => {
     const m = d.design();
     if (!m) return [];
-    const configs = new Map(Object.entries(m.knobs));
-    for (const v of frames()) for (const [p, c] of Object.entries(v.knobs ?? {})) configs.set(p, c);
+    const configs = sheetKnobs(m.knobs, frames());
     return [...configs].flatMap(([path, config]) => {
       const values = choices(config);
       return values && values.length > 1 ? [{ path, label: knobName(path), values }] : [];
@@ -171,13 +175,13 @@ export function createSheet(d: SheetDeps) {
   // The part a column's values all belong to, where the frame's state declares it.
   const cropTo = (state: string | null, values: Record<string, KnobValue>): string | null => {
     const m = d.design();
-    const parts = new Set(Object.keys(values).map(knobPart));
-    if (!m || parts.size !== 1) return null;
-    const [part] = parts;
-    const declared = m.parts.some(
-      (s) => (s.state === state || s.state === null) && s.parts.some((p) => p.name === part),
+    return sheetCrop(
+      values,
+      (part) =>
+        !!m?.parts.some(
+          (s) => (s.state === state || s.state === null) && s.parts.some((p) => p.name === part),
+        ),
     );
-    return part && declared ? part : null;
   };
 
   function cell(v: AlternativeView, col: SheetColumn): SheetCell | null {
@@ -197,30 +201,36 @@ export function createSheet(d: SheetDeps) {
     const knobs = resolveKnobs({ ...ctx, tuned });
     const rewrites = version === v.version ? (v.rewrites ?? 0) : 0;
     const mode = frameMode();
+    const palette = framePalette() ?? m.defaultPalette ?? null;
+    const e = version === v.version ? v.instancesKey : m.instanceHistory?.[v.postId]?.[version];
+    const width = m.widths[0] ?? SHEET_WIDTH;
     const part = cropTo(v.state, col.values);
     return {
       src: surfaceUrl(v.postId, surface, {
         version,
         mode,
         knobs,
-        e: v.instancesKey,
+        e,
         w: rewrites || undefined,
       }),
       knobs,
       part,
-      width: m.widths[0] ?? 820,
-      // A palette picked to view in, or an older system looked at, is drawn live.
+      width,
+      // Older system revisions can be inspected without changing current captures.
       still:
-        framePalette() === null && peekRev() === null
+        peekRev() === null
           ? {
               postId: v.postId,
               version,
-              rewrites,
-              e: v.instancesKey ?? "",
+              rewrites: version === v.version ? rewrites : -1,
+              e: e ?? "",
               knobs,
               part,
               mode,
-              system: systemRev() ?? 0,
+              palette,
+              surface,
+              width,
+              system: m.systemRev ?? 0,
             }
           : null,
     };
@@ -275,12 +285,20 @@ export function createSheet(d: SheetDeps) {
   const spread = (path: string) =>
     open({ knob: path, one: d.activeAlternative()?.alternative ?? null });
   const close = () => {
-    setPointed(null);
+    setPointedKey(null);
     setView(null);
   };
 
   // The cell under the pointer or the keyboard's focus, which P, M and X mark.
-  const [pointed, setPointed] = createSignal<{ v: AlternativeView; col: SheetColumn } | null>(null);
+  const [pointedKey, setPointedKey] = createSignal<{ post: string; column: string } | null>(null);
+  const row = (id: string) => rows().find((v) => v.postId === id);
+  const column = (key: string) => columns().find((col) => col.key === key);
+  const pointed = createMemo(() => {
+    const key = pointedKey();
+    const v = key && row(key.post);
+    const col = key && column(key.column);
+    return v && col ? { v, col } : null;
+  });
 
   // The cell opened from the sheet, and the sheet as it was laid out, which its neighbours
   // and the way back come from. It stands while the stage holds that cell.
@@ -363,7 +381,10 @@ export function createSheet(d: SheetDeps) {
     landing,
     setLanding,
     pointed,
-    setPointed,
+    pointedKey,
+    setPointedKey,
+    row,
+    column,
     stills: d.stills,
   };
 }
