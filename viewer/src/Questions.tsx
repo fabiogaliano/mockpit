@@ -6,7 +6,15 @@
 // the same one again sends it on. Sent answers fold into a read-only Answered
 // list, changed only through its "Change answer".
 
-import { createSignal, createUniqueId, For, type JSX, onCleanup, Show } from "solid-js";
+import {
+  createEffect,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  onCleanup,
+  Show,
+} from "solid-js";
 import { type Ask, type AskOption, type KnobValue, optionState } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
@@ -24,6 +32,7 @@ import {
 } from "./logic.ts";
 import type { AskField, DesignScreenState } from "./state.ts";
 import { Reason } from "./Reason.tsx";
+import { route } from "./route.ts";
 import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
@@ -245,6 +254,15 @@ export function AskBody(props: {
   let optsEl: HTMLDivElement | undefined;
   const moveCards = (change: () => void, gone?: Element | null) => flipCards(optsEl, change, gone);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
+  const sheetOpen = () => {
+    if (s.sheet.view()) return true;
+    const r = route();
+    return r.screen === "design" && !!r.sheet && !("value" in r.sheet && r.sheet.value);
+  };
+  const [preview, setPreview] = createSignal<string | null>(null);
+  createEffect(() => {
+    if (!sheetOpen()) setPreview(null);
+  });
   // Which answer's alternative Borrow or Move is open for.
   const [tool, setTool] = createSignal<{
     option: string;
@@ -382,6 +400,7 @@ export function AskBody(props: {
         <For each={s.shownOptions(props.ask)}>
           {(o, i) => {
             const pic = () => optionPicture(s, props.ask, o);
+            const showing = () => preview() === keyOf(o);
             const focus = () => {
               const p = pic();
               if (!p) return null;
@@ -394,7 +413,7 @@ export function AskBody(props: {
             const card = () => (
               <OptionCard
                 picture={
-                  pic() ? (
+                  (!sheetOpen() || showing()) && pic() ? (
                     <Thumb
                       first
                       width={s.frameW()}
@@ -416,16 +435,31 @@ export function AskBody(props: {
                 isNew={s.isNewOption(props.ask, o.id)}
                 data={o.id}
                 shortcut={i() < 9 ? String(i() + 1) : undefined}
-                onEnter={() => !props.still && s.setHoveredPreview(s.previewOf(props.ask, o.id))}
+                onEnter={() =>
+                  !sheetOpen() && !props.still && s.setHoveredPreview(s.previewOf(props.ask, o.id))
+                }
                 onLeave={() => s.hoveredPreview()?.key === keyOf(o) && s.setHoveredPreview(null)}
                 onHold={
-                  !props.still && s.previewOf(props.ask, o.id)
+                  !sheetOpen() && !props.still && s.previewOf(props.ask, o.id)
                     ? () => s.setHeldPreview(s.previewOf(props.ask, o.id))
                     : undefined
                 }
                 onChoose={() => s.choose(props.ask, o.id)}
                 compact={!props.beside}
                 actions={actionsOf(o)}
+                preview={
+                  sheetOpen() && pic() ? (
+                    <button
+                      type="button"
+                      class="lnk opt-preview"
+                      aria-label={`${showing() ? "Hide preview of" : "Preview"} ${o.label}`}
+                      aria-expanded={showing()}
+                      onClick={() => setPreview(showing() ? null : keyOf(o))}
+                    >
+                      {showing() ? "Hide preview" : "Preview"}
+                    </button>
+                  ) : undefined
+                }
                 below={toolsFor(o)}
               />
             );
@@ -906,6 +940,7 @@ function OptionCard(props: {
     onBorrow?: () => void;
     onMove?: (anchor: HTMLElement) => void;
   };
+  preview?: JSX.Element;
   // Under the card, inside its outline: what Borrow opened.
   below?: JSX.Element;
 }) {
@@ -1008,7 +1043,15 @@ function OptionCard(props: {
     </button>
   );
   const a = props.actions;
-  if (!a) return card;
+  if (!a)
+    return (
+      <Show when={props.preview} fallback={card}>
+        <div class="optw">
+          {card}
+          {props.preview}
+        </div>
+      </Show>
+    );
   // A key press is a quick cull: it skips the fade, so the next press lands at once.
   const byKey = (e: MouseEvent) => e.detail === 0;
   const c = a.comment;
@@ -1199,6 +1242,7 @@ function OptionCard(props: {
           </div>
         )}
       </Show>
+      {props.preview}
       {props.below}
     </div>
   );

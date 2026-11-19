@@ -306,6 +306,10 @@ export function DesignScreen(props: {
   );
   // A sheet's link opens on it, once the design has said what it can lay out.
   let sheetAsked: ReturnType<typeof route> | null = untrack(route);
+  const [openingSheet, setOpeningSheet] = createSignal(
+    sheetAsked.screen === "design" && !!sheetAsked.sheet,
+  );
+  const showingStage = () => !openingSheet() && !s.sheet.view();
   // The link was Focus's to open, so this entry is Focus's: the sheet leaving the address
   // must not take it to the Board.
   if (sheetAsked.screen === "design" && sheetAsked.sheet) {
@@ -314,10 +318,15 @@ export function DesignScreen(props: {
   }
   createEffect(() => {
     const r = sheetAsked;
-    if (r?.screen !== "design" || !r.sheet || !s.design() || !s.sheet.available()) return;
+    if (r?.screen !== "design" || !r.sheet || !s.design()) return;
+    if (!s.sheet.available()) {
+      setOpeningSheet(false);
+      return;
+    }
     sheetAsked = null;
     const at = r.sheet;
     untrack(() => s.sheet.open(at));
+    setOpeningSheet(false);
   });
   const nav = createFlowNav(s, props.project, props.slug, props.flow ?? null);
   // Played from the Board's ▶ or P: the flow full screen, ended back on the Board.
@@ -754,13 +763,16 @@ export function DesignScreen(props: {
                 />
               }
             >
-              <Show when={s.sheet.view()} fallback={<Stage s={s} onGoto={nav.follow} />}>
+              <Show when={showingStage()}>
+                <Stage s={s} onGoto={nav.follow} />
+              </Show>
+              <Show when={s.sheet.view()}>
                 <Sheet s={s} />
               </Show>
-              <Show when={!s.sheet.view() && sideRow()}>
+              <Show when={showingStage() && sideRow()}>
                 {(ask) => <SideBySide s={s} ask={ask()} />}
               </Show>
-              <Show when={!s.sheet.view() && !sideRow() && comparing() && s.stageStep()}>
+              <Show when={showingStage() && !sideRow() && comparing() && s.stageStep()}>
                 <CompareTwo
                   s={s}
                   before={comparing()!}
@@ -769,7 +781,7 @@ export function DesignScreen(props: {
                   onClose={() => setComparing(null)}
                 />
               </Show>
-              <Show when={m.ghosts() && !s.sheet.view()}>
+              <Show when={m.ghosts() && showingStage()}>
                 <Ghost s={s} nav={nav} by={-1} />
                 <Ghost s={s} nav={nav} by={1} />
               </Show>

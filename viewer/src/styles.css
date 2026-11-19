@@ -2504,6 +2504,10 @@ a {
   flex: 1;
   min-width: 0;
 }
+.opt-preview {
+  align-self: flex-start;
+  padding: 4px 8px;
+}
 .optw.kept {
   order: -1;
 }
