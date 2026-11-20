@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { stillCompatibility, stillKey } from "../../server/stills.ts";
 import { assetUrl, type AlternativeView } from "./api.ts";
-import { subjectOf } from "./frameActions.ts";
+import { canFrame, subjectOf } from "./frameActions.ts";
 import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { alternativeName } from "./logic.ts";
@@ -13,6 +13,20 @@ import { Thumb } from "./Thumb.tsx";
 
 const LIVE_LIMIT = 8;
 const LIFT_KEY = "mockpit.sheet.hoverLift";
+
+const COLOUR_SWATCHES = new Map([
+  ["apricot", "#ffbc97"],
+  ["deep blue", "#343e94"],
+]);
+
+function columnSwatch(col: SheetColumn, knob: string | null | undefined) {
+  if (!knob || !/(^|\.)colou?r$/.test(knob)) return;
+  const value = col.values[knob];
+  if (typeof value !== "string") return;
+  return (
+    COLOUR_SWATCHES.get(value.toLowerCase()) ?? (CSS.supports("color", value) ? value : undefined)
+  );
+}
 
 interface Picture {
   url: string;
@@ -122,8 +136,39 @@ export function Sheet(props: { s: DesignScreenState }) {
   const rowMain = (v: AlternativeView) =>
     s.frameKnobMark(v.state, v.alternative, at()?.knob ?? null) === "main";
   const setStarred = () => sh.frames().filter(rowMain).length;
-  const columns = createMemo(() => sh.columns().map((col) => col.key));
+  const subjectsOf = (col: SheetColumn) => sh.frames().map((v) => subjectOf({ v, col }));
+  const deletedColumns = createMemo(() => {
+    const deleted = new Set<string>();
+    if (!sh.frames().length) return deleted;
+    for (const col of sh.columns()) {
+      if (subjectsOf(col).every((subject) => s.markOf(subject) === "deleted")) deleted.add(col.key);
+    }
+    return deleted;
+  });
+  const [showDeleted, setShowDeleted] = createSignal(false);
+  const [deleting, setDeleting] = createSignal(false);
+  const activeColumns = () => sh.columns().length - deletedColumns().size;
+  const columns = createMemo(() =>
+    sh
+      .columns()
+      .filter((col) => showDeleted() || !activeColumns() || !deletedColumns().has(col.key))
+      .map((col) => col.key),
+  );
   const rowIds = createMemo(() => sh.rows().map((v) => v.postId));
+  let deletedToggle: HTMLButtonElement | undefined;
+  async function deleteColumn(col: SheetColumn, button: HTMLButtonElement) {
+    if (deleting()) return;
+    const doc = button.ownerDocument;
+    setDeleting(true);
+    try {
+      const removed = await s.deleteCells(subjectsOf(col), col.label);
+      if (removed && !button.isConnected && doc.activeElement === doc.body) {
+        deletedToggle?.focus({ preventScroll: true });
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }
   return (
     <div class="sheet" ref={(el) => (region = el)} role="region" aria-label="Sheet">
       <div class="sheet-bar" ref={(el) => (bar = el)} role="toolbar" aria-label="Sheet">
@@ -189,6 +234,18 @@ export function Sheet(props: { s: DesignScreenState }) {
         >
           Hover zoom
         </button>
+        <Show when={deletedColumns().size && activeColumns()}>
+          <button
+            type="button"
+            class="fchip"
+            classList={{ on: showDeleted() }}
+            aria-pressed={showDeleted()}
+            ref={(el) => (deletedToggle = el)}
+            onClick={() => setShowDeleted(!showDeleted())}
+          >
+            {`Deleted columns · ${deletedColumns().size}`}
+          </button>
+        </Show>
         <Show when={s.design()?.set && sh.frames().length}>
           <span class="sheet-progress num" title="Items with a Main choice on this knob">
             {`${setStarred()}/${sh.frames().length} ★`}
@@ -214,19 +271,67 @@ export function Sheet(props: { s: DesignScreenState }) {
       <div
         class="sheet-grid"
         classList={{ "lift-on": liftOn() }}
-        style={{ "grid-template-columns": `150px repeat(${columns().length}, minmax(0, 1fr))` }}
+        style={{
+          "grid-template-columns": `var(--sheet-label-width, 150px) repeat(${columns().length}, minmax(0, 1fr))`,
+        }}
       >
         <div />
         <For each={columns()}>
           {(key) => {
             const col = () => sh.column(key);
+            const swatch = () => {
+              const current = col();
+              return current && columnSwatch(current, at()?.knob);
+            };
+            const canDelete = () => {
+              const current = col();
+              const frame = sh.frames()[0];
+              return (
+                current &&
+                frame &&
+                activeColumns() > 1 &&
+                !deletedColumns().has(key) &&
+                canFrame(s, "delete", { v: frame, col: current })
+              );
+            };
+            const label = () => {
+              const current = col();
+              if (!current) return "";
+              const count = subjectsOf(current).filter(
+                (subject) => s.markOf(subject) !== "deleted",
+              ).length;
+              return `Delete ${current.label} column · ${count} ${count === 1 ? "cell" : "cells"}`;
+            };
             return (
               <div
                 class="sheet-h"
-                classList={{ mine: !!col()?.mine, hot: sh.pointedKey()?.column === key }}
+                classList={{
+                  mine: !!col()?.mine,
+                  hot: sh.pointedKey()?.column === key,
+                  "has-delete": !!canDelete(),
+                }}
                 title={col()?.label}
               >
-                {col()?.label}
+                <Show when={swatch()}>
+                  {(color) => (
+                    <span class="sheet-swatch" style={{ background: color() }} aria-hidden="true" />
+                  )}
+                </Show>
+                <span class="sheet-h-label">{col()?.label}</span>
+                <Show when={canDelete() && col()}>
+                  {(current) => (
+                    <button
+                      type="button"
+                      class="sheet-delete-column"
+                      title={label()}
+                      aria-label={label()}
+                      aria-disabled={deleting()}
+                      onClick={(e) => void deleteColumn(current(), e.currentTarget)}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                  )}
+                </Show>
               </div>
             );
           }}

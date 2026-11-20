@@ -9,7 +9,7 @@ import type {
   alternativeView,
 } from "../../server/apiViews.ts";
 import type { LookView } from "../../server/looks.ts";
-import type { MarkView } from "../../server/marks.ts";
+import type { MarkChange, MarkView } from "../../server/marks.ts";
 import type { StillRequestCell, StillsIndex, StillsRequest } from "../../server/stills.ts";
 import type { boardView } from "../../server/board.ts";
 import type { DecisionLine } from "../../server/decisionLog.ts";
@@ -328,6 +328,11 @@ export const api = {
     },
   ) =>
     call<{ marks: MarkView[] }>(`/api/designs/${encodeURIComponent(id)}/marks`, json("POST", body)),
+  markCells: (id: string, changes: MarkChange[]) =>
+    call<{ marks: MarkView[]; previous: MarkChange[] }>(
+      `/api/designs/${encodeURIComponent(id)}/marks`,
+      json("POST", { changes }),
+    ),
   saveLook: (
     id: string,
     body: { name: string } & ({ values: Record<string, KnobValue> } | { remove: true }),

@@ -139,7 +139,9 @@ import {
   framePicks,
   mainOf,
   mainValuesFor,
+  type MarkChange,
   MAX_MARKS,
+  markOn,
   marksOf,
   normalizeMarkKind,
   pickKey,
@@ -7806,8 +7808,14 @@ export function createApp({
   // in a look or some values, as a sheet cell shows it. Saved now and sent to no one: the
   // agent reads marks in `read`. A screen or a component holds what ships, so nothing on
   // it is picked.
-  async function marksFlow(ref: unknown, body: any, ctx: FlowContext): Promise<FlowResult> {
+  async function marksFlow(ref: unknown, body: unknown, ctx: FlowContext): Promise<FlowResult> {
     if (!ctx.viewer) return viewerOnly();
+    if (!isRecord(body)) return fail(400, "invalid JSON body");
+    const batch = Object.hasOwn(body, "changes");
+    const changes = batch ? body.changes : [body];
+    if (!Array.isArray(changes) || !changes.length || changes.length > MAX_MARKS) {
+      return fail(400, `expected 1 to ${MAX_MARKS} mark changes`);
+    }
     const found = await resolveDesign(ref);
     if (isResult(found)) return found;
     return serialDecision(found.id, async () => {
@@ -7816,44 +7824,49 @@ export function createApp({
       if (isProduct(design)) {
         return fail(409, `${design.slug} is a ${design.kind}: nothing on it is picked`);
       }
-      const rawKind = body?.mark;
-      const kind = rawKind === null ? null : normalizeMarkKind(rawKind);
-      if (rawKind !== null && kind === null) {
-        return fail(400, '"mark" is "main", "keep", "deleted" or null');
-      }
-      const state = stateArg(body?.state) ?? null;
-      const alternative = str(body?.alternative, MAX_LABEL);
-      if (!alternative) return fail(400, '"alternative" is required');
       const posts = await store.listPosts({ designId: design.id });
-      const post = posts.find((p) => p.state === state && p.alternative === alternative);
-      if (!post)
-        return fail(404, `${design.slug} has no ${state ? `${state}/` : ""}${alternative}`);
-      if (kind !== null && !isLive(post.status)) {
-        return fail(409, `${alternative} is archived: restore it to mark it`);
+      const knobs = { ...(await systemFor(design.project))?.knobs, ...design.knobs };
+      const at = new Date().toISOString();
+      const previous: MarkChange[] = [];
+      let marks = design.marks;
+      for (const change of changes) {
+        if (!isRecord(change)) return fail(400, "invalid mark change");
+        const kind = normalizeMarkKind(change.mark);
+        if (change.mark !== null && kind === null) {
+          return fail(400, '"mark" is "main", "keep", "deleted" or null');
+        }
+        const state = stateArg(change.state) ?? null;
+        const alternative = str(change.alternative, MAX_LABEL);
+        if (!alternative) return fail(400, '"alternative" is required');
+        const post = posts.find((p) => p.state === state && p.alternative === alternative);
+        if (!post)
+          return fail(404, `${design.slug} has no ${state ? `${state}/` : ""}${alternative}`);
+        if (kind !== null && !isLive(post.status)) {
+          return fail(409, `${alternative} is archived: restore it to mark it`);
+        }
+        const look = change.look === undefined ? undefined : str(change.look, MAX_LOOK_NAME);
+        if (change.look !== undefined && !look) return fail(400, '"look" is a look\'s name');
+        const values = checkKnobValues(change.values, { knobs }, [post], "values");
+        if (!values.ok) return fail(400, values.error);
+        const subject = {
+          state,
+          alternative,
+          ...(look ? { look } : {}),
+          ...(Object.keys(values.value).length ? { values: values.value } : {}),
+        };
+        if (batch) {
+          const before = markOn(marks, subject)?.kind ?? null;
+          if (before === kind || (change.ifDeleted === true && before !== "deleted")) continue;
+          previous.push({ ...subject, mark: before });
+        }
+        marks = withMark(marks, subject, kind, "user", at, { isSet: design.set });
       }
-      const look = body?.look === undefined ? undefined : str(body.look, MAX_LOOK_NAME);
-      if (body?.look !== undefined && !look) return fail(400, '"look" is a look\'s name');
-      const values = checkKnobValues(
-        body?.values,
-        { knobs: { ...(await systemFor(design.project))?.knobs, ...design.knobs } },
-        [post],
-        "values",
-      );
-      if (!values.ok) return fail(400, values.error);
-      const subject = {
-        state,
-        alternative,
-        ...(look ? { look } : {}),
-        ...(Object.keys(values.value).length ? { values: values.value } : {}),
-      };
-      const marks = withMark(design.marks, subject, kind, "user", new Date().toISOString(), {
-        isSet: design.set,
-      });
       if (marks.length > MAX_MARKS) return fail(400, `a design holds at most ${MAX_MARKS} marks`);
+      if (marks === design.marks) return ok({ marks: marksOf(design, posts), previous });
       const updated = await store.updateDesign(design.id, { marks });
       if (!updated) return fail(404, "design not found");
       bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
-      return ok({ marks: marksOf(updated, posts) });
+      return ok({ marks: marksOf(updated, posts), ...(batch ? { previous } : {}) });
     });
   }
 

@@ -8,7 +8,7 @@
 // marked or its question kept it. A new pick is written as a mark only.
 
 import type { AnswerStanding, Ask, AskOption, HiddenAnswer } from "../../server/types.ts";
-import { mainSlotKey, type MarkSubject, subjectKey } from "../../server/marks.ts";
+import { mainSlotKey, type MarkChange, type MarkSubject, subjectKey } from "../../server/marks.ts";
 import { hiddenAnswer, type StandingKind, withStanding } from "../../server/standings.ts";
 import {
   archivedAnswer,
@@ -163,6 +163,32 @@ export function createMarks(d: MarkDeps) {
         void setMark(subject, prev);
       },
     });
+  }
+
+  async function deleteCells(subjects: MarkSubject[], label: string): Promise<boolean> {
+    const current = design();
+    if (!current || readonly() || !subjects.length) return false;
+    const save = async (changes: MarkChange[]) => {
+      try {
+        const result = await api.markCells(current.id, changes);
+        const now = design();
+        if (now?.id === current.id) setDesign({ ...now, marks: result.marks });
+        return result.previous;
+      } catch (error) {
+        d.fail(error);
+        return null;
+      }
+    };
+    const previous = await save(subjects.map((subject) => ({ ...subject, mark: "deleted" })));
+    if (!previous?.length || design()?.id !== current.id) return false;
+    d.setToast({
+      text: `Deleted ${label} · ${previous.length} ${previous.length === 1 ? "cell" : "cells"}`,
+      undo: () => {
+        d.setToast(null);
+        void save(previous.map((change) => ({ ...change, ifDeleted: true })));
+      },
+    });
+    return true;
   }
 
   // What bookmarking an answer marks: its alternative, in each state it would be used in, or
@@ -338,6 +364,7 @@ export function createMarks(d: MarkDeps) {
     toggleKeep,
     toggleMain,
     deleteMark,
+    deleteCells,
     hiddenOf,
     isCarried,
     shownOptions,

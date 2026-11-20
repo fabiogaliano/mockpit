@@ -23,6 +23,9 @@ export const MAX_MARKS = 400;
 // What a mark is on: a frame, as it is or in a look or in some knob values.
 export type MarkSubject = Pick<Mark, "state" | "alternative" | "look" | "values">;
 
+/** One change to a mark. Undo only replaces a cell that is still deleted. */
+export type MarkChange = MarkSubject & { mark: StoredMarkKind | null; ifDeleted?: true };
+
 // Legacy workspaces stored "pick" before the Main/Keep/Delete lifecycle; normalize cleanly.
 export function normalizeMarkKind(kind: unknown): StoredMarkKind | null {
   if (kind === "main" || kind === "keep" || kind === "deleted") return kind;
