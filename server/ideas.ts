@@ -5,15 +5,63 @@
 // explores for it. Runtime-agnostic (no node imports).
 
 import type { DecisionLine } from "./decisionLog.ts";
+import { changedSinceUse, marksOf } from "./marks.ts";
+import { shownVersion } from "./ready.ts";
 import {
   type ApplyTo,
+  changedTo,
   type Design,
   type Gaps,
   isLive,
   type PostHead,
+  type Reply,
   type RuledOut,
   slugify,
 } from "./types.ts";
+
+/** The next action, if any, for an idea on the Board. */
+export type IdeaWork = "main" | "placement" | "changed" | "inProduct";
+
+/** A Use settles an idea only once its result has a place in the product. */
+export function ideaWorkOf(
+  idea: Design,
+  posts: PostHead[],
+  target: Design | null,
+  targetPosts: PostHead[],
+  lastUse: Reply | undefined,
+  awaitingPlacement: boolean,
+): IdeaWork | undefined {
+  const accepted = posts.filter((p) => p.status === "accepted");
+  const marks = marksOf(idea, posts);
+  if (!accepted.length) return marks.some((mark) => mark.kind === "main") ? "main" : undefined;
+  const picks = lastUse?.verdict?.picks;
+  if (
+    accepted.some((p) => changedTo(p) !== undefined) ||
+    (picks && changedSinceUse(picks, marks, { isSet: idea.set, rows: posts }))
+  )
+    return "changed";
+  if (awaitingPlacement) return "placement";
+  if (!target || target.archivedAt) return undefined;
+  const usedIn = lastUse?.usedIn;
+  const copies =
+    usedIn && (usedIn.targetId ? usedIn.targetId === target.id : usedIn.target === target.slug)
+      ? usedIn.copies
+      : [];
+  const landed = targetPosts.some((post) => {
+    if (!isLive(post.status)) return false;
+    const shown = shownVersion(target, post);
+    const source = post.copiedFrom;
+    if (source?.design === idea.id && shown >= (source.asVersion ?? 1)) return true;
+    return copies.some(
+      (copy) =>
+        copy.state === post.state &&
+        copy.alternative === post.alternative &&
+        copy.version === shown,
+    );
+  });
+  const placed = lastUse?.followUps?.apply?.targetId === target.id;
+  return landed || placed ? "inProduct" : undefined;
+}
 
 const tokens = (text: string) => slugify(text).split("-").filter(Boolean);
 

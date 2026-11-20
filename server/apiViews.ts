@@ -10,7 +10,8 @@ import { isKeptAlternative, keptAlternatives } from "./standings.ts";
 import { withAddedAnswers } from "./alternativeQuestion.ts";
 import type { DecisionLine } from "./decisionLog.ts";
 import { purposeLine, specView } from "./spec.ts";
-import { ideaStatus } from "./ideas.ts";
+import { ideaStatus, type IdeaWork } from "./ideas.ts";
+import { stalePoster } from "./posters.ts";
 import {
   type BuiltFrom,
   readyFields,
@@ -79,28 +80,20 @@ export const hydratedSurfaceView = (surface: Surface, index: number) => {
 // page runs as it did before posters. Applied to posts before any view reads them, so every
 // view agrees. Posts come from the store's cache: copied where changed, never written to.
 // The same goes for a still taken under another revision of the project's system.
-const otherMode = (s: { kind: string }, mode: Mode, rev: number | undefined) => {
-  const { posterMode: taken, posterSystem: under } = s as {
-    posterMode?: Mode;
-    posterSystem?: number;
-  };
-  if (s.kind !== "html" || taken === undefined) return false;
-  if (taken !== mode) return true;
-  if (rev === undefined) return false;
-  return under === undefined ? rev > 1 : under !== rev;
-};
-const surfacesFor = <S extends { kind: string }>(
+const surfacesFor = <S extends SurfaceHead>(
   surfaces: S[],
   mode: Mode,
   rev: number | undefined,
+  knobs?: string,
 ): S[] =>
-  surfaces.some((s) => otherMode(s, mode, rev))
+  surfaces.some((s) => stalePoster(s, mode, rev, knobs))
     ? surfaces.map((s) => {
-        if (!otherMode(s, mode, rev)) return s;
+        if (!stalePoster(s, mode, rev, knobs)) return s;
         const {
           poster: _poster,
           posterMode: _mode,
           posterSystem: _system,
+          posterKnobs: _knobs,
           ...rest
         } = s as S & {
           poster?: string;
@@ -111,18 +104,20 @@ const surfacesFor = <S extends { kind: string }>(
       })
     : surfaces;
 export const postersFor = <
-  S extends { kind: string },
-  P extends { surfaces: S[]; history: { surfaces: S[] }[] },
+  S extends SurfaceHead,
+  P extends { id: string; surfaces: S[]; history: { surfaces: S[] }[] },
 >(
   posts: P[],
   mode: Mode,
   // The project system's revision; undefined across projects, where it isn't one.
   rev?: number,
+  knobs?: (post: P) => string,
 ): P[] =>
   posts.map((p) => {
-    const surfaces = surfacesFor(p.surfaces, mode, rev);
+    const key = knobs?.(p);
+    const surfaces = surfacesFor(p.surfaces, mode, rev, key);
     const history = p.history.map((h) => {
-      const own = surfacesFor(h.surfaces, mode, rev);
+      const own = surfacesFor(h.surfaces, mode, rev, key);
       return own === h.surfaces ? h : { ...h, surfaces: own };
     });
     return surfaces === p.surfaces && history.every((h, i) => h === p.history[i])
@@ -508,6 +503,7 @@ export const designDetailView = (
     // The components it is built from, as their marks stand.
     builtFrom?: BuiltFrom[];
     idea?: IdeaPlace;
+    ideaWork?: IdeaWork;
     target?: IdeaTarget;
     // On a screen or a component: the ideas that are for it.
     ideasFor?: IdeaLink[];
@@ -533,6 +529,7 @@ const detailOf = (
     decisionsFrom?: string[];
     builtFrom?: BuiltFrom[];
     idea?: IdeaPlace;
+    ideaWork?: IdeaWork;
     target?: IdeaTarget;
     ideasFor?: IdeaLink[];
     usedFrom?: UsedFrom[];
@@ -546,6 +543,7 @@ const detailOf = (
   kind: design.kind,
   ...placeOf(design),
   ...opts.idea,
+  ...(opts.ideaWork ? { ideaWork: opts.ideaWork } : {}),
   ...(opts.target ? { target: opts.target } : {}),
   ...(opts.ideasFor?.length ? { ideasFor: opts.ideasFor } : {}),
   ...(opts.usedFrom?.length ? { usedFrom: opts.usedFrom } : {}),
@@ -623,6 +621,7 @@ export const treeNodeView = (
     builtFrom?: BuiltFrom[];
     idea?: IdeaPlace;
     ideasFor?: IdeaLink[];
+    ideaWork?: IdeaWork;
   },
 ) => {
   const posts = shipped(design, all);
@@ -636,6 +635,7 @@ const nodeOf = (design: Design, posts: PostHead[], extra: Parameters<typeof tree
   kind: design.kind,
   ...placeOf(design),
   ...extra.idea,
+  ...(extra.ideaWork ? { ideaWork: extra.ideaWork } : {}),
   ...(extra.ideasFor?.length ? { ideasFor: extra.ideasFor } : {}),
   ...(design.shortlist ? { shortlist: true } : {}),
   ...plannedOf(design, posts.length),

@@ -2021,7 +2021,9 @@ export function createDesignScreen(
         const v = alternatives().find(
           (x) => x.state === p.state && x.alternative === p.alternative,
         );
-        return v ? [{ state: p.state, alternative: p.alternative, version: versionOf(v) }] : [];
+        return v
+          ? [{ state: p.state, alternative: p.alternative, version: v.changedTo ?? versionOf(v) }]
+          : [];
       });
       const used = picked.length
         ? await api.use(m.id, { frames, ...outbox.toField() })
@@ -2029,7 +2031,7 @@ export function createDesignScreen(
       await Promise.all([loadDesign(), loadComments()]);
       if (used.reply) outbox.landed(used.reply.id);
       if (!picked.length) showVersion(one!);
-      const target = design()?.target?.title ?? used.usedIn?.target;
+      const target = used.usedIn ? (design()?.target?.title ?? used.usedIn.target) : undefined;
       const what =
         m.set && picked.length
           ? `set (${picked.length} items)`
@@ -2039,7 +2041,12 @@ export function createDesignScreen(
       const others = m.set ? [] : unpickedBeside(picked);
       const rest = others.length === 1 ? "the other one" : `the other ${others.length}`;
       setToast({
-        text: target ? `Using ${what} in ${target}` : `Using ${what}`,
+        text:
+          design()?.ideaWork === "placement"
+            ? "Awaiting placement"
+            : target
+              ? `Used in ${target}`
+              : `Using ${what}`,
         ...(others.length
           ? {
               action: {
@@ -2242,7 +2249,13 @@ export function createDesignScreen(
     const u = lastUse();
     return (
       !!u &&
-      changedSinceUse(u.picks, marks.marks(), { isSet: !!design()?.set, rows: alternatives() })
+      (changedSinceUse(u.picks, marks.marks(), { isSet: !!design()?.set, rows: alternatives() }) ||
+        u.picks.some((pick) => {
+          const frame = alternatives().find(
+            (v) => v.state === pick.state && v.alternative === pick.alternative,
+          );
+          return frame?.changedTo !== undefined && frame.changedTo > pick.version;
+        }))
     );
   };
   // Answered, a picked answer can take over: the one in use waits in its place, and the

@@ -135,6 +135,11 @@ export function Board(props: {
     (side()?.onShow ?? []).filter((n) => sectionOf(n) === "ideas"),
   );
   const ideasFor = (slug: string) => ideaNodes().filter((n) => n.for === slug);
+  const pageIdeas = createMemo(() => ideaNodes().filter((n) => !props.for || n.for === props.for));
+  const landed = createMemo(() => pageIdeas().filter((n) => n.ideaWork === "inProduct" && !n.open));
+  const working = createMemo(() => pageIdeas().filter((n) => n.ideaWork !== "inProduct" || n.open));
+  const [showLanded, setShowLanded] = createSignal(false);
+  createEffect(on([project, () => props.for], () => setShowLanded(false), { defer: true }));
 
   // The page on the canvas. A page asked for by name or by a design it holds is read once;
   // once here, a selection on it moves nothing.
@@ -370,9 +375,10 @@ export function Board(props: {
   // under it.
   const drawn = createMemo<Section[]>(() => {
     if (ideasPage())
-      return ideaNodes()
-        .filter((n) => !props.for || n.for === props.for)
-        .map((n) => gridSection(n, null));
+      return [
+        ...working(),
+        ...landed().filter((n) => showLanded() || n.slug === props.sel?.slug),
+      ].map((n) => gridSection(n, null));
     const isVariants = (slug: string) => !!nodes().get(slug)?.variants;
     const laid = pageDrawn().flatMap((s): Section[] => {
       if (s.kind !== "components") return [s];
@@ -1276,6 +1282,11 @@ export function Board(props: {
     firstQuestion,
     unfoldable,
     ideasFor,
+    productPath: (slug) => {
+      const target = nodes().get(slug)?.for;
+      const name = project();
+      return target && name ? designPath(name, target) : undefined;
+    },
     unfolded,
     setUnfolded,
     archivedOn,
@@ -1293,7 +1304,7 @@ export function Board(props: {
       <For each={sectionIds()}>{(id) => <RowSection c={sectionCtx} id={id} />}</For>
       <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
         <p class="bempty">
-          {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
+          {ideasPage() ? "No open ideas." : "Nothing is drawn on this page yet."}
         </p>
       </Show>
     </div>
@@ -1369,13 +1380,29 @@ export function Board(props: {
       >
         <div class="bcov">
           <span>
-            <b>{sections().length}</b>
-            {sections().length === 1 ? " idea" : " ideas"}
+            <b>{working().length}</b>
+            {working().length === 1 ? " open idea" : " open ideas"}
           </span>
-          <span>
-            <b>{ideaAsks()}</b>
-            {ideaAsks() === 1 ? " question" : " questions"}
-          </span>
+          <Show when={ideaAsks()}>
+            <span>
+              <b>{ideaAsks()}</b>
+              {ideaAsks() === 1 ? " question" : " questions"}
+            </span>
+          </Show>
+          <Show when={landed().length}>
+            <button
+              type="button"
+              class="bchip bidea-fold"
+              aria-expanded={showLanded()}
+              onClick={() => {
+                if (showLanded() && landed().some((n) => n.slug === props.sel?.slug)) select(null);
+                setShowLanded(!showLanded());
+              }}
+            >
+              In product · {landed().length}
+              <Icon name={showLanded() ? "up" : "down"} />
+            </button>
+          </Show>
           <Show when={props.for}>
             <a
               class="bcov-link"
@@ -1477,7 +1504,7 @@ export function Board(props: {
           <For each={sectionIds()}>{(id) => <SectionView c={sectionCtx} id={id} />}</For>
           <Show when={data() && !sections().length && (!ideasPage() || nodes().size)}>
             <p class="bempty">
-              {ideasPage() ? "No ideas to explore here." : "Nothing is drawn on this page yet."}
+              {ideasPage() ? "No open ideas." : "Nothing is drawn on this page yet."}
             </p>
           </Show>
         </div>

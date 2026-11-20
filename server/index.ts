@@ -11,6 +11,7 @@ import { createNodeExecutor } from "./codeRunner.ts";
 import { GUIDE_TOPICS } from "./designGuide.ts";
 import { GUIDE_PACKS } from "./guidance.ts";
 import { createFileLog } from "./logFile.ts";
+import type { PosterJob } from "./posters.ts";
 import { SqlStore } from "./sqlStore.ts";
 import { createSqliteStorage } from "./sqliteStorage.ts";
 
@@ -108,6 +109,7 @@ const networkHosts = () => {
 const poster = (await import(pathToFileURL(join(root, "bin", "poster.js")).href)) as {
   findBrowser(): string | null;
   queueStills(job: { base: string; token?: string; client: string; stills: StillJob[] }): boolean;
+  queuePoster(job: PosterJob & { base: string; token?: string; client: string }): void;
 };
 const selfHost =
   !hostname || hostname === "0.0.0.0" || hostname === "::"
@@ -115,13 +117,12 @@ const selfHost =
     : hostname.includes(":")
       ? `[${hostname}]`
       : hostname;
-const takeStills = (stills: StillJob[]) =>
-  poster.queueStills({
-    base: `http://${selfHost}:${port}`,
-    token: process.env.MOCKPIT_TOKEN,
-    client: "mockpit-stills",
-    stills,
-  });
+const posterHost = {
+  base: `http://${selfHost}:${port}`,
+  token: process.env.MOCKPIT_TOKEN,
+  client: "mockpit-stills",
+};
+const browser = poster.findBrowser();
 
 const app = createApp({
   store,
@@ -141,7 +142,8 @@ const app = createApp({
   executor: createNodeExecutor(),
   networkHosts,
   log: logPath ? createFileLog(logPath) : undefined,
-  takeStills: poster.findBrowser() ? takeStills : undefined,
+  takeStills: browser ? (stills) => poster.queueStills({ ...posterHost, stills }) : undefined,
+  takePoster: browser ? (job) => poster.queuePoster({ ...posterHost, ...job }) : undefined,
 });
 
 // Cloudflare compresses at its edge; a Node server reached over a network

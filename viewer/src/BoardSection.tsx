@@ -24,6 +24,13 @@ import { Icon } from "./icons.tsx";
 import { linkClick } from "./route.ts";
 import { phoneLayout } from "./viewport.ts";
 
+const ideaWorkLabel = {
+  main: "★ Main",
+  placement: "Awaiting placement",
+  changed: "Changed since Use",
+  inProduct: "In product",
+} as const;
+
 export const statusClass = (w: string) => (w === "Ready" ? "ok" : w === "Changed" ? "changed" : "");
 
 // What a section reads from the page it is on, and the switches it flips there.
@@ -41,6 +48,7 @@ export interface SectionCtx extends FrameCtx {
   firstQuestion: (s: Section) => string | null;
   unfoldable: (s: Section) => string | null;
   ideasFor: (slug: string) => TreeNode[];
+  productPath: (slug: string) => string | undefined;
   unfolded: () => ReadonlySet<string>;
   setUnfolded: (v: ReadonlySet<string>) => void;
   archivedOn: () => ReadonlySet<string>;
@@ -136,6 +144,30 @@ function SectionHead(props: { c: SectionCtx; s: () => Section }) {
                 () => (g().under && g().grid.idea ? "Idea" : g().grid.label),
                 () => (g().grid.idea ? "idea" : ""),
               )}
+              <Show when={g().grid.work}>
+                {(work) => (
+                  <Show
+                    when={work() === "inProduct" && c.productPath(g().grid.slug)}
+                    fallback={chip(
+                      () => ideaWorkLabel[work()],
+                      () => (work() === "changed" ? "changed" : "idea-work"),
+                    )}
+                  >
+                    {(path) => (
+                      <a
+                        class="bchip ok"
+                        href={path()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          linkClick(e, path());
+                        }}
+                      >
+                        In product ↗
+                      </a>
+                    )}
+                  </Show>
+                )}
+              </Show>
               <Show when={!g().grid.idea && c.designOf(g().grid.slug)?.status}>
                 {(w) => chip(w, () => statusClass(w()))}
               </Show>

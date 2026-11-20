@@ -79,6 +79,7 @@ import {
   systemFromDesignSettings,
 } from "./system.ts";
 import type { Mode } from "./themes.ts";
+import { stalePoster } from "./posters.ts";
 import { RULES_SETTING } from "./guidance.ts";
 import { normalizeMarks } from "./marks.ts";
 
@@ -146,6 +147,7 @@ const surfaceHeads = (surfaces: Surface[]): string =>
         ...(s.poster && s.posterMode && s.posterSystem !== undefined
           ? { posterSystem: s.posterSystem }
           : {}),
+        ...(s.poster && s.posterMode && s.posterKnobs ? { posterKnobs: s.posterKnobs } : {}),
         ...(/<mockpit-instance|data-swap/i.test(s.html) ? { marked: true } : {}),
       };
     }),
@@ -165,7 +167,11 @@ const SURFACE_HEADS_SQL = `CASE WHEN json_valid(surfaces) THEN (
   SELECT json_group_array(json(h)) FROM (
     SELECT '{"kind":' || json_quote(json_extract(value, '$.kind'))
       || CASE WHEN json_extract(value, '$.kind') = 'html' AND json_extract(value, '$.poster') <> ''
-           THEN ',"poster":' || json_quote(json_extract(value, '$.poster')) ELSE '' END
+           THEN ',"poster":' || json_quote(json_extract(value, '$.poster'))
+             || COALESCE(',"posterMode":' || (value -> '$.posterMode'), '')
+             || COALESCE(',"posterSystem":' || (value -> '$.posterSystem'), '')
+             || COALESCE(',"posterKnobs":' || (value -> '$.posterKnobs'), '')
+           ELSE '' END
       || CASE WHEN json_extract(value, '$.kind') = 'html'
              AND (json_extract(value, '$.html') LIKE '%<mockpit-instance%'
                OR json_extract(value, '$.html') LIKE '%data-swap%')
@@ -3138,32 +3144,42 @@ export class SqlStore implements Store {
     };
   }
 
-  async setPosterOnce(id: string, version: number, poster: string, mode?: Mode, system?: number) {
+  async setPosterOnce(
+    id: string,
+    version: number,
+    poster: string,
+    mode?: Mode,
+    system?: number,
+    knobs = "",
+    rewrites?: number,
+  ) {
     const post = await this.getPost(id);
-    if (!post || post.version !== version) return false;
-    const at = post.surfaces.findIndex((s) => s.kind === "html");
-    const page = post.surfaces[at];
+    if (!post || (rewrites !== undefined && (post.rewrites ?? 0) !== rewrites)) return false;
+    const original =
+      post.version === version
+        ? post.surfaces
+        : post.history.find((h) => h.version === version)?.surfaces;
+    if (!original) return false;
+    const at = original.findIndex((s) => s.kind === "html");
+    const page = original[at];
     if (!page || page.kind !== "html") return false;
-    // A still mockpit took under another system revision no longer shows, so a new
-    // one may take its place; an agent's own, or a current one, stays.
-    const stale =
-      page.posterMode !== undefined &&
-      system !== undefined &&
-      (page.posterSystem === undefined ? system > 1 : page.posterSystem !== system);
-    if (page.poster && !stale) return false;
-    const surfaces = post.surfaces.map((s, i) =>
+    if (page.poster && !stalePoster(page, mode, system, knobs)) return false;
+    const surfaces = original.map((s, i) =>
       i === at
         ? {
             ...page,
             poster,
             ...(mode ? { posterMode: mode } : {}),
             ...(mode && system !== undefined ? { posterSystem: system } : {}),
+            posterKnobs: mode && knobs ? knobs : undefined,
           }
         : s,
     );
     const wrote = this.writingPosts(post.design, [id], () => {
       this.sql.exec(
-        "UPDATE posts SET surfaces = ?, head = ? WHERE id = ? AND version = ?",
+        post.version === version
+          ? "UPDATE posts SET surfaces = ?, head = ? WHERE id = ? AND version = ?"
+          : "UPDATE post_versions SET surfaces = ?, head = ? WHERE postId = ? AND version = ?",
         JSON.stringify(surfaces),
         surfaceHeads(surfaces),
         id,

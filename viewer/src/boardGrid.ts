@@ -33,6 +33,7 @@ export interface Grid {
   cells: GridCell[];
   width: number | null;
   open: number;
+  work?: TreeNode["ideaWork"];
   live: number;
   archived: number;
 }
@@ -77,6 +78,7 @@ export function gridOf(node: TreeNode, titleOf: (slug: string) => string | undef
     cells,
     width: node.widths[0] ?? null,
     open: node.open,
+    ...(node.ideaWork ? { work: node.ideaWork } : {}),
     live: new Set(cells.filter((c) => !c.archived).map((c) => c.alternative)).size,
     archived: new Set(cells.filter((c) => c.archived).map((c) => c.alternative)).size,
   };

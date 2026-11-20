@@ -406,28 +406,24 @@ async function capture(port, job, signal) {
     if (!res.ok) throw new Error(`${path}: ${res.status}`);
     return res.json();
   };
-  const design = await get(`/api/designs/${encodeURIComponent(job.design)}`);
-  const alternative = (design.variants ?? design.alternatives)?.find(
-    (v) => v.postId === job.postId,
+  const route = `/api/designs/${encodeURIComponent(job.design)}/alternatives/${encodeURIComponent(job.postId)}/poster`;
+  const { needed, surface, mode, rewrites, system, knobs, width } = await get(
+    `${route}?version=${job.version}`,
   );
-  const page = alternative?.surfaces?.find((s) => s.kind === "html");
-  // Moved on already, or the agent's own still arrived: nothing to add.
-  const { mode } = await get("/api/theme");
-  if (!page || page.poster || alternative.version !== job.version) return;
-  const rewrites = alternative.rewrites ?? 0;
+  if (!needed) return;
   const query = new URLSearchParams({
-    surface: String(page.index),
+    surface: String(surface),
     ver: String(job.version),
     ...(mode ? { mode } : {}),
     ...(rewrites ? { w: String(rewrites) } : {}),
-    ...(design.systemRev ? { y: String(design.systemRev) } : {}),
+    ...(system ? { y: String(system) } : {}),
+    ...(knobs ? { k: knobs } : {}),
   });
-  const width = design.widths?.[0] ?? DEFAULT_WIDTH;
   const data = await shoot(
     port,
     job,
     `${job.base}/s/${encodeURIComponent(job.postId)}?${query}`,
-    width,
+    width ?? DEFAULT_WIDTH,
     { signal },
   );
   const asset = await post("/api/assets", {
@@ -436,17 +432,15 @@ async function capture(port, job, signal) {
     filename: "poster.jpg",
     session: job.session,
   });
-  await post(
-    `/api/designs/${encodeURIComponent(job.design)}/alternatives/${encodeURIComponent(job.postId)}/poster`,
-    {
-      version: job.version,
-      rewrites,
-      poster: asset.id,
-      mode,
-      system: design.systemRev ?? 0,
-      session: job.session,
-    },
-  );
+  await post(route, {
+    version: job.version,
+    rewrites,
+    poster: asset.id,
+    mode,
+    system,
+    knobs,
+    session: job.session,
+  });
 }
 
 // One sheet still, sent back with the cell it is of. The server refuses it if the frame or the

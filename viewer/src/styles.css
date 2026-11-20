@@ -9774,6 +9774,18 @@ a.ideas-row {
 .bchip.changed {
   color: var(--changed);
 }
+.bchip.idea-work {
+  color: var(--keep-ink);
+}
+.bidea-fold {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.bidea-fold svg {
+  width: 12px;
+  height: 12px;
+}
 /* An idea is a dashed section; unfolded under the design it is for, it is dimmed too, so
    the product reads first. */
 .bsec.idea {

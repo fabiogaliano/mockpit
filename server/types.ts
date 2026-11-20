@@ -124,6 +124,7 @@ export interface HtmlSurface {
   // With posterMode: the project system's revision it was taken under. Under any
   // other the page runs instead (absent: taken before systems, good through rev 1).
   posterSystem?: number;
+  posterKnobs?: string;
 }
 
 // A markdown surface is prose — explanations, plans, tradeoff write-ups. The
@@ -1582,6 +1583,8 @@ export interface Store {
     poster: string,
     mode?: Mode,
     system?: number,
+    knobs?: string,
+    rewrites?: number,
   ): Promise<boolean>;
   withdrawVersion(
     id: string,
@@ -1652,6 +1655,7 @@ export interface SurfaceHead {
   poster?: string;
   posterMode?: Mode;
   posterSystem?: number;
+  posterKnobs?: string;
   marked?: boolean;
 }
 

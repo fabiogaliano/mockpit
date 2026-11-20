@@ -1,4 +1,5 @@
 import { resolveKnobs } from "./knobValues.ts";
+import { posterKnobs, stalePoster, type PosterJob } from "./posters.ts";
 import { boardPages, boardView, pageOf } from "./board.ts";
 import { requestKey, valuesWords } from "./sendLines.ts";
 import { Hono, type Context } from "hono";
@@ -185,7 +186,7 @@ import {
 } from "./stills.ts";
 import { diffParts, type PartChanges, partsInSurfaces, spliceParts } from "./parts.ts";
 import { LIFT_ASK, liftedComponent, liftOf } from "./lift.ts";
-import { forNudge, gapsOf, likelyTarget, ruledOutOf, statesFor } from "./ideas.ts";
+import { forNudge, gapsOf, ideaWorkOf, likelyTarget, ruledOutOf, statesFor } from "./ideas.ts";
 import { areasShowing, isShared, sharedNudge, spansAreas } from "./library.ts";
 import { postToMarkdown } from "./postMarkdown.ts";
 import {
@@ -510,6 +511,7 @@ export interface AppOptions {
   // and sends back to POST /api/designs/:id/stills. Node hands them to the poster worker
   // (bin/poster.js); absent (the Worker), a sheet's cells stay live frames.
   takeStills?: (jobs: StillJob[]) => boolean;
+  takePoster?: (job: PosterJob) => void;
   // The event log (server/eventLog.ts): one entry per agent call, viewer write
   // and live-feed connection. The host decides where entries go (a JSONL file
   // on Node, Workers Logs on Cloudflare); absent, nothing is computed.
@@ -751,6 +753,7 @@ export function createApp({
   networkHosts,
   log,
   takeStills,
+  takePoster,
 }: AppOptions) {
   const app = new Hono();
   // The scripts topic carries the run API from runApi.ts, its one source.
@@ -1851,12 +1854,23 @@ export function createApp({
         (s.id !== undefined && pagesBefore.find((b) => b.id === s.id)) || pagesBefore[ordinal];
       let next: Surface = s;
       if (s.poster && old?.kind === "html" && old.html !== s.html && old.poster === s.poster) {
-        const { poster: _stale, posterMode: _mode, ...rest } = s;
+        const {
+          poster: _stale,
+          posterMode: _mode,
+          posterSystem: _system,
+          posterKnobs: _knobs,
+          ...rest
+        } = s;
         next = rest;
       }
       // The agent's own still names no mode, whatever the one it replaces did.
       if (ordinal === 0 && given) {
-        const { posterMode: _mode, ...rest } = next as HtmlSurface;
+        const {
+          posterMode: _mode,
+          posterSystem: _system,
+          posterKnobs: _knobs,
+          ...rest
+        } = next as HtmlSurface;
         next = { ...rest, poster: given };
       }
       ordinal++;
@@ -1876,37 +1890,49 @@ export function createApp({
     return out;
   }
 
-  // A still taken after the publish, by the CLI or the stdio server, once the page exists
-  // to be rendered. It adds a picture to the version, so it makes no new version and no
-  // rewrite, isn't the user's or a new word from the agent, and asks no frame to reload. It
-  // never replaces a poster, which is the agent's own or an earlier capture's, and a
-  // version amended or replaced while the browser worked refuses it: it shows an old page.
-  async function attachPosterFlow(ref: unknown, postId: string, body: any): Promise<FlowResult> {
+  // The worker and attach check need the same saved inputs, even if a Send lands during capture.
+  async function posterContext(ref: unknown, postId: string, version: number | undefined) {
     const design = await resolveDesign(ref);
     if (isResult(design)) return design;
     const post = await store.getPost(postId);
     if (!post || post.design !== design.id) return fail(404, "alternative not found");
+    const at = postAtVersion(post, version ?? post.version);
+    const surface = at?.surfaces.findIndex((s) => s.kind === "html") ?? -1;
+    const page = at?.surfaces[surface];
+    if (page?.kind !== "html") return fail(404, "HTML version not found");
+    const [mode, system, posts] = await Promise.all([
+      workspaceMode(),
+      systemFor(design.project),
+      store.listPosts({ designId: design.id }),
+    ]);
+    const { settled, settledOn } = await settledViews(design, posts);
+    const knobs = posterKnobs(design, post, settledOn?.[post.alternative] ?? settled);
+    return { design, post, page, surface, knobs, mode, system: system?.rev ?? 0 };
+  }
+
+  async function attachPosterFlow(ref: unknown, postId: string, body: any): Promise<FlowResult> {
+    const version = body?.version;
+    if (!Number.isInteger(version) || version < 1) return fail(400, "provide a version");
+    const context = await posterContext(ref, postId, version);
+    if (isResult(context)) return context;
+    const { design, post, page, system: rev, knobs } = context;
     const session = typeof body?.session === "string" ? body.session : "";
-    const rev = (await systemFor(design.project))?.rev ?? 0;
-    // A still mockpit took under an older system no longer shows; any agent's session
-    // may retake it, since a system write changes every alternative's look at once.
-    const page = post.surfaces.find((s) => s.kind === "html");
-    const retake =
-      page?.kind === "html" &&
-      !!page.poster &&
-      page.posterMode !== undefined &&
-      (page.posterSystem === undefined ? rev > 1 : page.posterSystem !== rev);
+    const mode = isMode(body?.mode) ? body.mode : undefined;
+    const retake = !!page.poster && stalePoster(page, mode, rev, knobs);
     if (
       publisherOf(post) !== session &&
       !(retake && session && (await store.getSession(session)))
     ) {
       return fail(403, `v${post.version} of ${post.alternative} was published by another session`);
     }
-    if (body?.version !== post.version || (body?.rewrites ?? 0) !== (post.rewrites ?? 0)) {
+    if ((!retake && version !== post.version) || (body?.rewrites ?? 0) !== (post.rewrites ?? 0)) {
       return fail(409, `${post.alternative} has changed since this still was taken`);
     }
     if (body?.system !== undefined && body.system !== rev) {
       return fail(409, `${design.project}'s system has changed since this still was taken`);
+    }
+    if (mode && (body?.knobs ?? "") !== knobs) {
+      return fail(409, `${post.alternative}'s knob values have changed since this still was taken`);
     }
     const poster = str(body?.poster, MAX_LABEL);
     if (!poster) return fail(400, '"poster" must be the asset id of an uploaded image');
@@ -1916,10 +1942,12 @@ export function createApp({
     }
     const attached = await store.setPosterOnce(
       post.id,
-      post.version,
+      version,
       poster,
-      isMode(body?.mode) ? body.mode : undefined,
+      mode,
       rev,
+      knobs,
+      post.rewrites ?? 0,
     );
     if (!attached) return fail(409, `${post.alternative} already has a poster`);
     bus.broadcast({ type: "design-updated", id: design.id, project: design.project });
@@ -2238,6 +2266,73 @@ export function createApp({
     const settled = settledValues(replies, design, posts);
     const settledOn = settledByAlternative(replies, design, posts, settled);
     return { settled, ...(Object.keys(settledOn).length ? { settledOn } : {}) };
+  }
+
+  const queuedPosters = new Map<string, number>();
+
+  async function posterViews<P extends PostHead>(
+    design: Design,
+    posts: P[],
+    mode: Mode,
+    rev?: number,
+  ): Promise<P[]> {
+    if (
+      !posts.some((p) =>
+        [p, ...p.history].some((v) =>
+          v.surfaces.some((s) => s.poster && s.posterMode !== undefined),
+        ),
+      )
+    )
+      return posts;
+    const replies = await replyPayloads(design.id);
+    const declarations = posts.map(({ alternative, knobs }) => ({ alternative, knobs }));
+    const settled = settledValues(replies, design, declarations);
+    const byAlternative = settledByAlternative(replies, design, declarations, settled);
+    const keys = new Map(
+      posts.map((p) => [p.id, posterKnobs(design, p, byAlternative[p.alternative] ?? settled)]),
+    );
+    const keyOf = (p: P) => keys.get(p.id) ?? "";
+    if (takePoster && rev !== undefined && !design.archivedAt) {
+      const now = Date.now();
+      for (const [key, until] of queuedPosters) if (until <= now) queuedPosters.delete(key);
+      for (const p of posts) {
+        if (!isLive(p.status)) continue;
+        const shown = shownVersion(design, shipped(design, [p])[0]);
+        const entries =
+          shown === p.version ? [p] : [p, ...p.history.filter((h) => h.version === shown)];
+        for (const v of entries) {
+          const page = v.surfaces.find((s) => s.kind === "html");
+          const knobs = keyOf(p);
+          if (!page?.poster || !stalePoster(page, mode, rev, knobs)) continue;
+          const key = JSON.stringify([p.id, v.version, p.rewrites, mode, rev, knobs]);
+          if (queuedPosters.has(key)) continue;
+          queuedPosters.set(key, now + 60_000);
+          takePoster({
+            design: design.id,
+            postId: p.id,
+            version: v.version,
+            session: p.publishedBy ?? p.sessionId,
+          });
+        }
+      }
+    }
+    return postersFor<SurfaceHead, P>(posts, mode, rev, keyOf);
+  }
+
+  async function posterHeads(
+    designs: Design[],
+    project: string | undefined,
+    mode: Mode,
+    rev?: number,
+  ) {
+    const heads = headsByDesign(await store.listPostHeads(project));
+    const entries = await Promise.all(
+      designs.map(
+        async (design) =>
+          [design.id, await posterViews(design, heads.get(design.id) ?? [], mode, rev)] as const,
+      ),
+    );
+    return new Map(entries);
   }
 
   // The design's looks and those the project's other designs hold that it has every
@@ -4239,12 +4334,11 @@ export function createApp({
     const project = str(query.project, MAX_TITLE);
     const designs = await store.listDesigns(project);
     const mode = await workspaceMode();
-    const heads = headsByDesign(
-      postersFor(
-        await store.listPostHeads(project),
-        mode,
-        project ? ((await systemFor(project))?.rev ?? 0) : undefined,
-      ),
+    const heads = await posterHeads(
+      designs,
+      project,
+      mode,
+      project ? ((await systemFor(project))?.rev ?? 0) : undefined,
     );
     const rows = [];
     const pending = [];
@@ -4346,7 +4440,7 @@ export function createApp({
     const mode = await workspaceMode();
     const system = await systemFor(project);
     const rev = system?.rev ?? 0;
-    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode, rev));
+    const heads = await posterHeads(designs, project, mode, rev);
     const nodes = [];
     const pending = [];
     // Each design's mark, for the designs built from it.
@@ -4362,6 +4456,7 @@ export function createApp({
       const t = id ? byId.get(id) : undefined;
       return t && isProduct(t) ? t : null;
     };
+    const postsOf = postsOnce();
     for (const m of designs) {
       const designHeads = heads.get(m.id) ?? [];
       // Only instances and swaps need the html: most of a workspace's bytes are
@@ -4371,7 +4466,7 @@ export function createApp({
         (p) => p.surfaces.some((x) => x.marked) || shownHead(m, p).some((x) => x.marked),
       );
       const posts = marked
-        ? postersFor(await store.listPosts({ designId: m.id }), mode, rev)
+        ? await posterViews(m, await store.listPosts({ designId: m.id }), mode, rev)
         : null;
       const views = posts ? await instanceViews(m, posts) : new Map<string, InstanceView>();
       // What it includes, from the versions it shows.
@@ -4389,6 +4484,7 @@ export function createApp({
           (await shownInstances(m, posts)).map((e) => e.slug),
         );
       const replies = await replyComments(m.id);
+      const target = productOf(m.for);
       const lastReplyAt = replies[replies.length - 1]?.createdAt;
       // Whose turn, for the viewer's covers. Not an agent's concern, and an ended
       // design's cover says nothing of the kind.
@@ -4415,7 +4511,21 @@ export function createApp({
                   )
                   .map((d) => ideaLink(d, heads.get(d.id) ?? [], m)),
               }
-            : { idea: ideaPlaceOf(m, productOf(m.for)) }),
+            : {
+                idea: ideaPlaceOf(m, target),
+                ...(query.viewer && m.kind === "idea"
+                  ? {
+                      ideaWork: await ideaWorkFor(
+                        m,
+                        designHeads,
+                        target,
+                        target ? (heads.get(target.id) ?? []) : [],
+                        replies,
+                        postsOf,
+                      ),
+                    }
+                  : {}),
+              }),
           ...(lastReplyAt ? { lastReplyAt } : {}),
           ...(lastSend
             ? {
@@ -4522,7 +4632,7 @@ export function createApp({
     const designs = await store.listDesigns(project);
     const mode = await workspaceMode();
     const rev = (await systemFor(project))?.rev ?? 0;
-    const heads = headsByDesign(postersFor(await store.listPostHeads(project), mode, rev));
+    const heads = await posterHeads(designs, project, mode, rev);
     const areas = await areasOf(project);
     const { pages } = boardPages({ areas, designs, heads });
     const slug = str(query.design, MAX_LABEL);
@@ -4588,6 +4698,31 @@ export function createApp({
     return (await replyComments(designId)).map((c) => c.payload as Reply);
   }
 
+  async function ideaWorkFor(
+    idea: Design,
+    posts: PostHead[],
+    target: Design | null,
+    targetPosts: PostHead[],
+    replies: Comment[],
+    postsOf: PostsOnce,
+  ) {
+    const use = replies.findLast(
+      (c) =>
+        c.payload?.verdict?.kind === "use" ||
+        c.payload?.usedIn ||
+        c.payload?.followUps?.apply ||
+        c.payload?.followUps?.placeFlow,
+    );
+    const apply = use?.payload?.followUps?.apply;
+    const awaiting =
+      use?.payload &&
+      ((apply &&
+        target?.id === apply.targetId &&
+        !!(await decisionFollowUps(use.payload, use.createdAt, postsOf)).followUps.apply) ||
+        (use.payload.followUps?.placeFlow && !!(await placeFlowOf(idea.id, use.createdAt))));
+    return ideaWorkOf(idea, posts, target, targetPosts, use?.payload ?? undefined, !!awaiting);
+  }
+
   async function getDesignFlow(
     ref: unknown,
     query: {
@@ -4601,7 +4736,8 @@ export function createApp({
   ): Promise<FlowResult> {
     const design = await resolveDesign(ref, query.project, query.session);
     if (isResult(design)) return design;
-    const posts = postersFor(
+    const posts = await posterViews(
+      design,
       await store.listPosts({ designId: design.id }),
       await workspaceMode(),
       (await systemFor(design.project))?.rev ?? 0,
@@ -4613,6 +4749,19 @@ export function createApp({
       query.viewer && query.history ? await sheetInstanceHistory(design, posts) : undefined;
     const ideas = await ideasDecidingFor(design);
     const ownRuledOut = query.viewer ? undefined : ruledOutOf(design, posts, lines ?? []).ruledOut;
+    const postsOf = postsOnce();
+    const target = query.viewer && design.kind === "idea" ? await targetOf(design) : null;
+    const ideaWork =
+      query.viewer && design.kind === "idea"
+        ? await ideaWorkFor(
+            design,
+            posts,
+            target,
+            target ? await postsOf(target) : [],
+            await replyComments(design.id),
+            postsOf,
+          )
+        : undefined;
     const view = designDetailView(design, posts, {
       // The spec's third part: the design's own lines and those of the ideas for it,
       // bounded as the list above is.
@@ -4631,6 +4780,7 @@ export function createApp({
       // ideas whose lines it holds besides the design's own.
       ...(query.viewer && ideas.length ? { decisionsFrom: ideas.map((i) => i.slug) } : {}),
       body: query.body,
+      ideaWork,
       history: query.history,
       ...(await settledViews(design, posts)),
       ...(await lookViews(design, posts)),
@@ -9988,6 +10138,22 @@ export function createApp({
   app.post("/api/designs/:id/stills", async (c) =>
     send(c, await putStillFlow(c.req.param("id"), await jsonBody(c))),
   );
+  app.get("/api/designs/:id/alternatives/:postId/poster", async (c) => {
+    const version = Number(c.req.query("version"));
+    if (!Number.isInteger(version) || version < 1) return send(c, fail(400, "provide a version"));
+    const context = await posterContext(c.req.param("id"), c.req.param("postId"), version);
+    if (isResult(context)) return send(c, context);
+    const { page, post, design, surface, mode, system, knobs } = context;
+    return c.json({
+      surface,
+      mode,
+      system,
+      knobs,
+      rewrites: post.rewrites ?? 0,
+      width: design.widths[0],
+      needed: page.poster ? stalePoster(page, mode, system, knobs) : version === post.version,
+    });
+  });
   app.post("/api/designs/:id/alternatives/:postId/poster", async (c) =>
     send(c, await attachPosterFlow(c.req.param("id"), c.req.param("postId"), await jsonBody(c))),
   );

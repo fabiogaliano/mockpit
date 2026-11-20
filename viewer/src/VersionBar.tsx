@@ -122,7 +122,11 @@ export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
   const into = () => s.design()?.target?.title;
   // Used as they stand: nothing to take again until a pick moves.
   const pickedUsed = () => !!s.lastUse() && !s.changedSinceUse();
-  const usedLabel = () => (into() ? `In use in ${into()}` : "In use");
+  const usedLabel = () => {
+    const work = s.design()?.ideaWork;
+    if (work === "placement") return "Awaiting placement";
+    return work === "inProduct" ? "In product" : "In use";
+  };
   const usedButton = () => (
     <button type="button" class="btn use on" disabled aria-label={usedLabel()}>
       <Icon name="check" />
