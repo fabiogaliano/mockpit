@@ -1,5 +1,11 @@
 # Changelog
 
+## 4.1.2
+
+### Patch Changes
+
+- 95b08b8: Delete an entire Sheet column from its header. Undo restores the cells and their previous marks in one step.
+
 ## 4.1.1
 
 ### Patch Changes
