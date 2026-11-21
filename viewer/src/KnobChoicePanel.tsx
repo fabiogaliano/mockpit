@@ -76,6 +76,8 @@ export function KnobChoicePanel(props: { s: DesignScreenState }) {
   const sh = s.sheet;
   const [savedOpen, setSavedOpen] = createSignal(false);
 
+  // A mouse only: a finger's pointerenter fires on the tap itself, so its preview flashes
+  // and iOS can take the tap as a hover, leaving the cell where it was.
   const previewCol = (h: Held, col: SheetColumn) => {
     if (sh.knobSide()) return;
     const c = sh.cell(h.v, col);
@@ -122,8 +124,8 @@ export function KnobChoicePanel(props: { s: DesignScreenState }) {
                       <div
                         class="krow"
                         classList={{ on: focused(), main: mark() === "main" }}
-                        onPointerEnter={() => previewCol(h(), col)}
-                        onPointerLeave={clearPreview}
+                        onPointerEnter={(e) => e.pointerType === "mouse" && previewCol(h(), col)}
+                        onPointerLeave={(e) => e.pointerType === "mouse" && clearPreview()}
                       >
                         <button
                           type="button"
@@ -207,8 +209,10 @@ export function KnobChoicePanel(props: { s: DesignScreenState }) {
                             <div
                               class="krow keep"
                               classList={{ on: focused() }}
-                              onPointerEnter={() => previewCol(h(), col)}
-                              onPointerLeave={clearPreview}
+                              onPointerEnter={(e) =>
+                                e.pointerType === "mouse" && previewCol(h(), col)
+                              }
+                              onPointerLeave={(e) => e.pointerType === "mouse" && clearPreview()}
                             >
                               <button
                                 type="button"
