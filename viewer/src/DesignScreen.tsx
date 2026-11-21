@@ -113,6 +113,7 @@ import {
   phoneLayout,
   setCanvasTop,
   setCardInset,
+  tabletLayout,
   win,
 } from "./viewport.ts";
 import { setPeek } from "./systemRev.ts";
@@ -1194,6 +1195,13 @@ function TopRow(props: {
     });
   });
   const archive = () => idea() && !s.design()?.archivedAt && !readonly();
+  const setSwitchable = () =>
+    !phoneLayout() &&
+    !props.reading &&
+    !readonly() &&
+    s.design()?.kind === "idea" &&
+    !s.design()?.archivedAt &&
+    s.inState(s.activeState()).filter((v) => isLive(v.status)).length > 1;
   const pill = () => (
     <Show
       when={
@@ -1254,16 +1262,7 @@ function TopRow(props: {
         <Show when={!phoneLayout() && !props.reading && s.sheet.available()}>
           <SheetSwitch s={s} />
         </Show>
-        <Show
-          when={
-            !phoneLayout() &&
-            !props.reading &&
-            !readonly() &&
-            s.design()?.kind === "idea" &&
-            !s.design()?.archivedAt &&
-            s.inState(s.activeState()).filter((v) => isLive(v.status)).length > 1
-          }
-        >
+        <Show when={setSwitchable() && !tabletLayout()}>
           <SetSwitch s={s} />
         </Show>
         <Show when={s.design()}>
@@ -1333,6 +1332,22 @@ function TopRow(props: {
                     <Icon name="info" />
                     About
                   </button>
+                  {/* A tablet's row has no room for Pick one | Keep all beside the bar. */}
+                  <Show when={setSwitchable() && tabletLayout()}>
+                    <button
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={!!s.design()?.set}
+                      title="Keep all items together as a set"
+                      onClick={() => {
+                        setMore(false);
+                        void s.setIdeaSet(!s.design()?.set);
+                      }}
+                    >
+                      <Icon name={s.design()?.set ? "check" : "layers"} />
+                      Keep all
+                    </button>
+                  </Show>
                   <Show when={props.m.outlining() && !props.m.statesShown() && !readonly()}>
                     <button
                       type="button"

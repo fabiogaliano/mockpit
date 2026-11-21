@@ -4876,6 +4876,12 @@ html:has(.design-screen) {
 .btn.use .sh {
   display: none;
 }
+/* A target's name can run long; the title holds all of it. */
+.btn.use .lbl {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .btn.use.on {
   border-color: var(--keep);
   background: var(--keep);
@@ -7166,6 +7172,13 @@ html:has(.design-screen) {
   }
   .mname .mcrumb {
     max-width: 100%;
+  }
+  /* The target's name gives way before the name of the design does. */
+  .fbar .btn.use .lbl.into {
+    display: none;
+  }
+  .fbar .btn.use .lbl.into + .sh {
+    display: inline;
   }
 }
 @media (max-width: 900px) {

@@ -192,10 +192,13 @@ export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
         class="btn use"
         classList={{ go: props.primary }}
         aria-label={into() ? `Use this version in ${into()}` : "Use this version"}
+        title={into() ? `Use in ${into()}` : undefined}
         disabled={!s.onStage()}
         onClick={() => void s.use()}
       >
-        <span class="lbl">{into() ? `Use in ${into()}` : "Use"}</span>
+        <span class="lbl" classList={{ into: !!into() }}>
+          {into() ? `Use in ${into()}` : "Use"}
+        </span>
         <span class="sh">Use</span>
       </button>
     );
