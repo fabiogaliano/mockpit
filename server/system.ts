@@ -1470,6 +1470,31 @@ function tokenDecls(token: Token): string {
     .join("");
 }
 
+// The repo's own custom properties every frame declares, and their names. Without the
+// Tailwind kit that is the raw block whole. With it, the compiled build can't be trusted
+// to declare them: init strips the entry's imports, a theme file often among them. So
+// the frame gets the block's constants instead, the values the same in both modes.
+// What changes with the mode is the palette's, so a palette switch still recolours it.
+export function repoFrameVars(system: System): { css: string; names: string[] } {
+  const raw = system.repo?.cssVars?.trim() ?? "";
+  if (!raw) return { css: "", names: [] };
+  const { light, dark } = repoCustomProps(raw);
+  if (system.kit !== "tailwind" || !system.repo?.tailwindCss?.trim()) {
+    return {
+      css: raw.includes("{") ? raw : `:root{${raw}}`,
+      names: [...new Set([...Object.keys(light), ...Object.keys(dark)])],
+    };
+  }
+  const moded = (name: string, v: string) =>
+    Object.hasOwn(dark, name) ||
+    Object.hasOwn(dark, /^var\(\s*--([\w-]+)\s*\)$/.exec(v.trim())?.[1] ?? "");
+  const kept = Object.entries(light).filter(([name, v]) => !moded(name, v) && isSafeValue(v));
+  return {
+    css: kept.length ? `:root{${kept.map(([name, v]) => decl(name, v)).join("")}}` : "",
+    names: kept.map(([name]) => name),
+  };
+}
+
 export interface SystemCss {
   // The project sheet, as written.
   sheet: string;
@@ -1484,7 +1509,7 @@ export interface SystemCss {
 }
 
 // The CSS a frame gets from the system. Repo-owned tokens aren't emitted: the
-// repo's raw block (or compiled Tailwind) declares them already; nor are the
+// repo's raw block declares them already (repoFrameVars); nor are the
 // repo palette's values while it is the one worn.
 export function systemCss(
   system: System,

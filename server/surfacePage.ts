@@ -2,7 +2,13 @@ import { scanSwaps, slotCss } from "./swaps.ts";
 import { CDN_ALLOWLIST, checkCdnUrl } from "./cdn.ts";
 import { CORE_CSS, KITS, kitAssets } from "./kits.ts";
 import { expandIcons, type IconResolver } from "./icons.ts";
-import { activePalette, CURRENT_CONTRACT, type System, systemCss } from "./system.ts";
+import {
+  activePalette,
+  CURRENT_CONTRACT,
+  repoFrameVars,
+  type System,
+  systemCss,
+} from "./system.ts";
 import { PARAGRAPH_TEXT_MAX, PARAGRAPHS_MAX, type ProjectKit } from "./types.ts";
 import {
   type Mode,
@@ -1348,13 +1354,10 @@ function systemAssets(
   const repo = system.repo;
   const tailwindCss = system.kit === "tailwind" ? (repo?.tailwindCss?.trim() ?? "") : "";
   const raw = tailwindCss ? "" : (repo?.cssVars?.trim() ?? "");
-  // `cssVars` is stored as the repo's raw block; accept either the full
-  // `:root{…}` text or a bare declaration list.
-  const vars = raw ? (raw.includes("{") ? raw : `:root{${raw}}`) : "";
+  const vars = repoFrameVars(system).css.replace(/<\/style/gi, "<\\/style");
   const kit = system.kit;
   // The browser build reads its input from the style tags present when its
-  // script runs, so the stylesheet goes first. Its compiled output already
-  // carries the repo's `:root` block, hence no `cssVars` beside it.
+  // script runs, so the stylesheet goes first.
   const tailwind =
     kit !== "tailwind"
       ? ""

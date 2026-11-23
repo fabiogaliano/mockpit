@@ -7,6 +7,7 @@ import { contrastRatio } from "./contrast.ts";
 import {
   declaredNames,
   isColorValue,
+  repoFrameVars,
   type Scale,
   scaleSteps,
   type System,
@@ -238,10 +239,18 @@ export function pageChecks(system: System, htmls: string[], what = "page"): stri
     ...system.tokens.filter((t) => t.owner !== "repo").map((t) => t.name),
     ...system.color.roles.map((r) => r.name),
   ]);
-  const redeclared = [...varsDeclared(bare)].filter((v) => own.has(v));
+  const declared = [...varsDeclared(bare)];
+  const redeclared = declared.filter((v) => own.has(v));
   if (redeclared.length)
     out.push(
       `${what} redeclares system names: ${firstOf(redeclared.map((v) => `--${v}`))}; change them in the system`,
+    );
+  // A copy of the repo's theme still renders, the page's values winning; it only goes stale.
+  const fromRepo = new Set(repoFrameVars(system).names);
+  const copiedRepo = declared.filter((v) => fromRepo.has(v) && !own.has(v));
+  if (copiedRepo.length)
+    out.push(
+      `${what} declares ${copiedRepo.length} name${copiedRepo.length === 1 ? "" : "s"} the repo's theme already gives every frame: ${firstOf(copiedRepo.map((v) => `--${v}`))}; drop the copy, and change them in the repo (then \`mockpit init\`)`,
     );
 
   // A rule copied from the sheet, same selector and same body, is the inlined

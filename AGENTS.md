@@ -147,7 +147,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   need (`kept` in its result). The user's Restore brings back everything else. A name has one
   owner (`nameOwners`): a write giving a token, scale step, text-token field, role or a name
   the repo declares a second owner fails, naming both.
-  `systemCss` builds what a frame wears; `systemAfterAnswers` is what a Send decides for
+  `systemCss` builds what a frame wears, after `repoFrameVars` (the repo's raw block, or on
+  the Tailwind kit its mode-independent constants, since init strips the entry's imports); `systemAfterAnswers` is what a Send decides for
   the project (a `palette` answer becomes the default, the old one kept; a `set` on a
   project knob settles it), written in the reply's transaction; `systemExport` hands it to
   code. The user's own changes (`POST /api/projects/:name/system/decide`, viewer only) are
