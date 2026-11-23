@@ -28,7 +28,13 @@ export interface McpFlows {
   tree: Flow<[query: { project?: string }]>;
   area: Flow<[query: { project?: string; area?: string }]>;
   decisions: Flow<[query: { project?: string }]>;
-  get: Flow<[ref: unknown, query: { project?: unknown; body?: boolean; history?: boolean }]>;
+  get: Flow<
+    [
+      ref: unknown,
+      query: { project?: unknown; body?: boolean; history?: boolean },
+      ctx: FlowContext,
+    ]
+  >;
   ask: Flow<[ref: unknown, body: any, ctx: FlowContext]>;
   exportDesign: Flow<
     [
@@ -163,11 +169,15 @@ export function registerMcp(app: Hono, deps: McpDeps) {
         }
         if (args.design === undefined) return unwrap(await flows.list({ project }));
         return unwrap(
-          await flows.get(args.design, {
-            project,
-            body: args.body === true,
-            history: args.history === true,
-          }),
+          await flows.get(
+            args.design,
+            {
+              project,
+              body: args.body === true,
+              history: args.history === true,
+            },
+            ctx,
+          ),
         );
       }
       case "feedback":

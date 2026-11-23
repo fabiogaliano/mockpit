@@ -132,6 +132,7 @@ const app = createApp({
   packs,
   userRules,
   authToken: process.env.MOCKPIT_TOKEN,
+  publicUrl: process.env.MOCKPIT_PUBLIC_URL,
   publicRead,
   // MOCKPIT_VERSION fakes the running version (manual testing of the
   // notice); set it to the empty string to disable the update check

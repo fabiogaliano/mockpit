@@ -187,6 +187,8 @@ environment:
   MOCKPIT_TOKEN    bearer token for a deployed instance
   CHROME_PATH      the browser for automatic posters; pointing nowhere turns them off
   MOCKPIT_HOST     address serve binds to (default: every interface)
+  MOCKPIT_PUBLIC_URL  where you open the viewer, for the links serve hands agents
+                   (e.g. https://my-mac.tailnet.ts.net:8228; default: the address they called)
   MOCKPIT_LOG      serve's event log file, or "off" (default ~/.mockpit/events.jsonl)
   MOCKPIT_SESSION  fixed session id (overrides auto-detection)
   MOCKPIT_AGENT    agent name used when creating sessions

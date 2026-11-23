@@ -26,7 +26,8 @@ every design at once.
 ## The loop
 
 Nothing waits for the user. Publish each alternative, tell the user in one line where to look,
-then end your turn. A question lives in the design (`ask`), never in chat. Never poll.
+with the write's `url` as it is (it opens Focus on that design; an `ask`'s opens on its
+question), then end your turn. A question lives in the design (`ask`), never in chat. Never poll.
 
 Declare structure only when designing a product's screens: `--kind screen` for a screen,
 `--flow <name> --step N` for states the user moves between, and each reusable component as its

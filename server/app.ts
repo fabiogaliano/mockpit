@@ -41,6 +41,7 @@ import {
   unknownTopicMessage,
 } from "./designGuide.ts";
 import { buildFeedbackBatches, type FeedbackBatch } from "./feedbackBatch.ts";
+import { designLink } from "./links.ts";
 import {
   type GuidePack,
   guidanceSections,
@@ -470,6 +471,10 @@ export interface AppOptions {
   // stripped routes like /api/sessions and /s/:id?surface=0; this prefix is only
   // used when the server/viewer generate browser-visible URLs.
   basePath?: BasePathHook;
+  // Where the user opens the viewer, when that isn't where agents reach the server (a
+  // tailnet or tunnel name in front of localhost): origin plus any base path. Only the
+  // viewer links a response carries use it; asset URLs stay on the agent's own origin.
+  publicUrl?: string;
   // When set, unauthenticated GET routes can be read without bypassing the
   // write token. "session" exposes only reads addressed by an unguessable id
   // (a design, a post's documents, a session's feed); "full" exposes every GET.
@@ -742,6 +747,7 @@ export function createApp({
   authenticate,
   authToken,
   basePath,
+  publicUrl,
   publicRead,
   screenshots,
   version,
@@ -758,6 +764,7 @@ export function createApp({
   takePoster,
 }: AppOptions) {
   const app = new Hono();
+  const publicLinkBase = publicUrl?.trim().replace(/\/+$/, "") || null;
   // The scripts topic carries the run API from runApi.ts, its one source.
   if (topics.scripts)
     topics = {
@@ -1097,8 +1104,10 @@ export function createApp({
     handedOff: Comment[],
     base: string,
   ): Promise<FeedbackBatch[]> {
-    const mine = own.length > 0 ? await buildFeedbackBatches(store, own, base) : [];
-    const theirs = handedOff.length > 0 ? await buildFeedbackBatches(store, handedOff, base) : [];
+    const links = linkBase(base);
+    const mine = own.length > 0 ? await buildFeedbackBatches(store, own, base, links) : [];
+    const theirs =
+      handedOff.length > 0 ? await buildFeedbackBatches(store, handedOff, base, links) : [];
     return withTargets(
       await withSpecNudges(
         await withFollowUps(
@@ -1644,14 +1653,9 @@ export function createApp({
     void notify(store, payload).catch((err) => console.warn("[mockpit] notify failed", err));
   }
 
-  const designUrl = (base: string, design: Design, post?: Post | null) => {
-    const url = `${base}/project/${encodeURIComponent(design.project)}/${encodeURIComponent(design.slug)}`;
-    if (!post) return url;
-    const q = new URLSearchParams();
-    if (post.state !== null) q.set("state", post.state);
-    q.set("alternative", post.alternative);
-    return `${url}?${q}`;
-  };
+  const linkBase = (base: string) => publicLinkBase ?? base;
+  const designUrl = (base: string, design: Design, post?: Post | null) =>
+    designLink(linkBase(base), design, post);
 
   // Project resolution for a session: explicit wins, then the cwd's basename,
   // then the single-workspace fallback.
@@ -4734,6 +4738,8 @@ export function createApp({
       history?: boolean;
       noDecisions?: boolean;
       viewer?: boolean;
+      // The agent's origin and base path, for the link it is handed.
+      base?: string;
     },
   ): Promise<FlowResult> {
     const design = await resolveDesign(ref, query.project, query.session);
@@ -4799,6 +4805,7 @@ export function createApp({
     return ok({
       ...(list ? { decisionLog: list } : {}),
       ...(query.viewer ? view : agentWords(view)),
+      ...(!query.viewer && query.base !== undefined ? { url: designUrl(query.base, design) } : {}),
       ...(instanceHistory && Object.keys(instanceHistory).length ? { instanceHistory } : {}),
       ...(held ? { nudges: [held] } : {}),
       ...(await systemPalettesField(design.project, query.viewer === true)),
@@ -9181,7 +9188,7 @@ export function createApp({
             description: kept ? { applied: false, text: kept.text } : { applied: true },
           }),
       designs: designs.length,
-      url: `${ctx.base}/project/${encodeURIComponent(project)}${areaName ? `?page=${encodeURIComponent(areaName)}` : ""}`,
+      url: `${linkBase(ctx.base)}/project/${encodeURIComponent(project)}${areaName ? `?page=${encodeURIComponent(areaName)}` : ""}`,
       ...(nudges.length ? { nudges } : {}),
       feedback: await feedbackFor(body.session, ctx.base),
     });
@@ -10015,6 +10022,7 @@ export function createApp({
         history: flag(c, "history"),
         noDecisions: withoutDecisions(c),
         viewer: isViewerRequest(c.req.raw),
+        base: flowCtx(c).base,
       }),
     );
   });
@@ -10627,7 +10635,7 @@ export function createApp({
             told: await systemTold(project),
           }
         : {}),
-      url: `${ctx.base}/project/${encodeURIComponent(project)}?sec=system`,
+      url: `${linkBase(ctx.base)}/project/${encodeURIComponent(project)}?sec=system`,
     };
   }
 
@@ -10734,7 +10742,7 @@ export function createApp({
           ...(keptOnRestore.length ? { kept: keptOnRestore } : {}),
           checks,
           ...derivedOf(current),
-          url: `${ctx.base}/project/${encodeURIComponent(project)}?sec=system`,
+          url: `${linkBase(ctx.base)}/project/${encodeURIComponent(project)}?sec=system`,
           feedback: await feedbackFor(body.session, ctx.base),
         });
       }
@@ -10752,7 +10760,7 @@ export function createApp({
         checks,
         ...derivedOf(saved),
         ...(checks.length ? { nudges: checks } : {}),
-        url: `${ctx.base}/project/${encodeURIComponent(project)}?sec=system`,
+        url: `${linkBase(ctx.base)}/project/${encodeURIComponent(project)}?sec=system`,
         feedback: await feedbackFor(body.session, ctx.base),
       });
     });
@@ -11533,7 +11541,7 @@ export function createApp({
     tree: (query) => treeFlow(query),
     area: (query) => areaFlow(query),
     decisions: (query) => decisionsFlow(query),
-    get: (ref, query) => getDesignFlow(ref, query),
+    get: (ref, query, ctx) => getDesignFlow(ref, { ...query, base: ctx.base }),
     ask: (ref, body, ctx) => askFlow(ref, body, ctx),
     exportDesign: (ref, query, ctx) => exportFlow(ref, query, ctx),
     say: (ref, body, ctx) => sayFlow(ref, body, ctx),

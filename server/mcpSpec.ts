@@ -531,6 +531,7 @@ const followUpsSchema = o({
 }).describe("What the decision now requires");
 const feedbackSchema = o({
   design: nullStr,
+  url: str.optional().describe("The design's link for the user"),
   reply: o({
     lines: strs.describe("The Send in words, one line each, as the user read it; a Use first"),
     asks: z.array(
@@ -622,7 +623,7 @@ const writeOutput = {
     .describe("Absent when planned: nothing is drawn yet"),
   planned: z.boolean().optional(),
   sessionId: str,
-  url: str.describe("Viewer link for the user"),
+  url: str.describe("The link to send the user: opens Focus on what this wrote"),
   parts: partsByState.optional(),
   partChanges: o({ vanished: strs, renamed: z.array(o({ from: str, to: str })) }).optional(),
   nudges: strs.optional(),

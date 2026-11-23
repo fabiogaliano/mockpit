@@ -5,6 +5,7 @@
 
 import { type Decisions, decisionsFor } from "./decisions.ts";
 import { ROUTED_NOTE } from "./handoff.ts";
+import { designLink } from "./links.ts";
 import { reactionLine, type SendAsk, sendLines, useLine } from "./sendLines.ts";
 import { standingOf, type StandingView, standingView } from "./standings.ts";
 import { archivedAnswer, optionStates, withAddedAnswers } from "./alternativeQuestion.ts";
@@ -140,6 +141,8 @@ export interface FeedbackBatch {
   project: string | null;
   design: string | null;
   title: string | null;
+  // The design's link to send the user (links.ts).
+  url?: string;
   reply: FeedbackReply | null;
   // What the user wrote in the thread, outside any Send.
   messages: FeedbackMessage[];
@@ -376,12 +379,14 @@ function mergeEdits(before: DesignEdit | undefined, edit: DesignEdit): DesignEdi
 // one. A design gets a fresh batch whenever a second reply arrives for it, so a
 // batch carries at most one reply and nothing is merged away. A comment whose
 // design is unknown still gets a batch — feedback is never dropped for want of
-// context. `base` (origin + base path) makes image URLs absolute.
+// context. `base` (origin + base path) makes image URLs absolute; `links` is where the
+// user opens the viewer.
 export function groupFeedback(
   comments: Comment[],
   designs: Map<string, Design>,
   posts: Map<string, Post[]>,
   base = "",
+  links = base,
 ): FeedbackBatch[] {
   const batches: FeedbackBatch[] = [];
   const open = new Map<string, FeedbackBatch>();
@@ -417,6 +422,7 @@ export function groupFeedback(
         project: design?.project ?? null,
         design: design?.slug ?? null,
         title: design?.title ?? null,
+        ...(design ? { url: designLink(links, design) } : {}),
         reply: null,
         messages: [],
         inUse: [],
@@ -533,6 +539,7 @@ export async function buildFeedbackBatches(
   store: Store,
   comments: Comment[],
   base: string,
+  links = base,
 ): Promise<FeedbackBatch[]> {
   const designs = new Map<string, Design>();
   const posts = new Map<string, Post[]>();
@@ -543,7 +550,7 @@ export async function buildFeedbackBatches(
     designs.set(c.designId, design);
     posts.set(c.designId, await store.listPosts({ designId: c.designId }));
   }
-  return groupFeedback(comments, designs, posts, base);
+  return groupFeedback(comments, designs, posts, base, links);
 }
 
 // Every image a list of batches carries, in order — what the MCP tiers attach

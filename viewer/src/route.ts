@@ -3,14 +3,16 @@
 // (`slug:state`, or `slug` for the whole design) the frame it opens fit to.
 // "/" is the Board of the most recently active project. A design's own link,
 // /project/:name/:slug with an optional `?state=`, lands on the Board too, fit to that
-// design or state and selected: it is the link agents and the viewer hand out. The
+// design or state and selected: it is the link the viewer hands out. The
 // Library's and Exploring's pages are `?sec=` inside the Board's frame: components,
 // shared, system, documents, archive and recent (`?show=`); ideas is a canvas of its own,
 // each idea a section (`?for=` narrows it to one design's).
 // Focus, the design's own screen, is the same address entered from the Board (Enter, a
 // double-click, Open) or from a question in Needs you: the history entry says so, never
-// the address, so every link anyone copies or sends lands on the Board, while Back,
-// Forward and a reload keep Focus. Focus keeps `?state=`, `?alternative=` and `?version=`
+// the address, so every link the viewer copies lands on the Board, while Back,
+// Forward and a reload keep Focus. The links agents send carry `?focus=1` (server/links.ts),
+// which opens Focus with no history behind it; Focus makes the entry its own and drops
+// the marker. Focus keeps `?state=`, `?alternative=` and `?version=`
 // current, reads `?owed=` and `?present=` once on entry, and goes to `?question=` whenever
 // the address names one.
 
@@ -109,7 +111,7 @@ export function parseRoute(pathname: string, base = "", search = "", focus = fal
   }
   if (seg[0] === "project" && seg[1]) {
     // A sheet's link is for laying frames out, which only Focus does.
-    if (seg[2] && !focus && !q.has("sheet")) {
+    if (seg[2] && !focus && !q.has("sheet") && q.get("focus") !== "1") {
       return board(dec(seg[1]), {
         slug: dec(seg[2]),
         ...(q.has("state") ? { state: q.get("state") } : {}),

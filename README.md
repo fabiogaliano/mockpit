@@ -63,8 +63,10 @@ mockpit feedback
 Two places. The **Board** lays a project out like a designer's file: a page per area, a section
 per flow, every frame under its name, a map of what's left to design, and a mark on what the
 agent just changed. **Focus** is one design, live, with its question, its spec and the agent's
-activity. Every link opens on the Board, fit to that design; Enter or a double-click opens
-Focus. Needs you lists what's waiting on you. On a phone the Board is rows you swipe, and Focus
+activity. A link an agent sends opens Focus on that design, on its question when one waits;
+the viewer's own links open on the Board, fit to that design, where Enter or a double-click opens
+Focus. If you open the viewer at another address than agents reach the server at (a tailnet name,
+a tunnel), start the server with `MOCKPIT_PUBLIC_URL=https://that-host:8228` so their links use it. Needs you lists what's waiting on you. On a phone the Board is rows you swipe, and Focus
 is one frame with the question in a sheet.
 
 <table>

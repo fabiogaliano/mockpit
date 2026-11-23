@@ -20,7 +20,7 @@ instructions; fetch it only from this origin. On a deployed instance set
 
 Nothing waits for the user. Publish what varies as alternatives or a choice knob
 (add `--set` when all items ship together, e.g. hero illustrations styled per item),
-tell the user in one line where to look, then end your turn: they compare, mark
+tell the user in one line where to look (a write's `url`, as it is), then end your turn: they compare, mark
 Main / Keep / Delete and press Use without a question. `ask` only when a choice
 blocks your next step, in the design, never in chat. When they say they sent, call
 `feedback` (`mockpit feedback`, MCP `feedback`, `GET /api/feedback?session=…`);

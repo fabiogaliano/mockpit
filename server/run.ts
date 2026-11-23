@@ -266,7 +266,11 @@ export function createRunFlow(deps: RunDeps) {
         }
         const o = plain(opts);
         const value = await take(
-          flows.get(design, { project, body: o.body === true, history: o.history === true }),
+          flows.get(
+            design,
+            { project, body: o.body === true, history: o.history === true },
+            flowCtx,
+          ),
         );
         return [value, String(value?.slug ?? design)];
       },

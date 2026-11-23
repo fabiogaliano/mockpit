@@ -528,8 +528,10 @@ titles are read out of context, on the Board and in Needs you.
 
 Nothing waits for the user. Publish, say where to look, end your turn; a question
 lives in the design, never in chat. Never poll. A write's \`url\` is
-where to look: it opens the Board, the user's map of the project, fit to that
-design or state, and they open it in Focus to decide.
+where to look: send it as it is, never one you build or rewrite. It opens Focus on
+that design, state and alternative, at its newest version; an \`ask\`'s opens on the
+first question waiting. \`read\` of a design and each \`feedback\` batch carry the
+design's \`url\` too.
 
 \`\`\`sh
 mockpit init                    # once per repo: the repo's tokens, kit, icons, starter

@@ -374,11 +374,15 @@ export function DesignScreen(props: {
     sheetAsked.screen === "design" && !!sheetAsked.sheet,
   );
   const showingStage = () => !openingSheet() && !s.sheet.view();
-  // The link was Focus's to open, so this entry is Focus's: the sheet leaving the address
-  // must not take it to the Board.
-  if (sheetAsked.screen === "design" && sheetAsked.sheet) {
+  // The link was Focus's to open, so this entry is Focus's: the sheet or the marker
+  // leaving the address must not take it to the Board.
+  {
     const w = host().window;
-    navigate(`${w.location.pathname}${w.location.search}`, { replace: true, focus: true });
+    const q = new URLSearchParams(w.location.search);
+    if (q.get("focus") === "1" || (sheetAsked.screen === "design" && sheetAsked.sheet)) {
+      q.delete("focus");
+      navigate(`${w.location.pathname}${q.size ? `?${q}` : ""}`, { replace: true, focus: true });
+    }
   }
   createEffect(() => {
     const r = sheetAsked;

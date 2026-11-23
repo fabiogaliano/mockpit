@@ -64,8 +64,8 @@ The loop never waits for the user:
    What every design shares (sheet, tokens, scales, palettes, project knobs) is the
    project's system: `mockpit system` reads and changes it, for every design at once
    (`mockpit guide --topic system`).
-4. Tell the user in one line where to look (a write's `url` opens the Board fit to the
-   design), then end your turn. A question lives in the design, never in chat. Never poll.
+4. Tell the user in one line where to look, with a write's `url` as it is (it opens Focus
+   on that design; an `ask`'s opens on its question), then end your turn. A question lives in the design, never in chat. Never poll.
 5. When the user says they sent (or a `mockpit watch` line wakes you), run
    `mockpit feedback`. Every write also returns `feedback`; read it, `reply.lines` first.
    A Use is an instruction to put its picks in the code. Empty `feedback` with a

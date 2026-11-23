@@ -71,9 +71,9 @@ consciously, not as a side effect):
   or a document, by what it contains, on the Ideas or Documents page). A plain publish of
   any kind still gets Focus + Activity + Use / New version, except a document (only written surfaces and pictures, no declared
   width), which opens in `Reader` with its paragraphs to comment on and no Use.
-- Two places: the Board to see, Focus to decide. A design always opens the same way: every
-  link, the agent's included, lands on the Board fit to that design or state, and Enter, a
-  double-click or Open ↵ opens Focus. The Board shows posters only; pages run live only in
+- Two places: the Board to see, Focus to decide. The viewer's own links land on the Board
+  fit to that design or state, and Enter, a double-click or Open ↵ opens Focus. A link an
+  agent sends opens Focus (`server/links.ts`, below). The Board shows posters only; pages run live only in
   Focus.
 - Archive tells the agent nothing, and nothing blocks a question. Ending a design or
   archiving an alternative writes nothing to the agent's stream and instructs no one:
@@ -87,6 +87,9 @@ Stances reversed knowingly, so nobody restores them by accident:
 - "Not doing: an infinite canvas" (2026-11-02). That canvas was to replace Home as the
   place to compare from. The Board is a map of the product instead, and comparing happens
   in Focus.
+- "Every link, the agent's included, lands on the Board" (2026-11-23): the user opens an
+  agent's link to look at or answer one design, often on an iPad, and the Board made them
+  find it again. Agents' links open Focus (`?focus=1`); the viewer's own still land on the Board.
 - "A design opens by what it is" (2026-11-06): Answers for a waiting question, a grid for
   a variants design, Studio for an idea. Opening differently by data was the top "where am
   I" problem, so a design now always opens on the Board.
@@ -461,14 +464,19 @@ Stances reversed knowingly, so nobody restores them by accident:
   - **Addresses** (`route.ts`). `/project/:p` is the Board: `?page=<area>` (absent: the
     first page), `?unsorted=1` for the screens no area claims, and `?sel=slug[:state]` with
     `?alt=` for the frame it opens fit to, selected. A design's own link,
-    `/project/:p/:slug[?state=]`, which agents and the viewer hand out, lands on the Board
-    too, fit to that design or state. An idea's lands on the Ideas page; a document or a
+    `/project/:p/:slug[?state=]`, which the viewer hands out, lands on the Board
+    too, fit to that design or state. With `?focus=1` (the links agents are handed,
+    `designLink` in `server/links.ts`: every write's, `read`'s and each feedback batch's
+    `url`, plus `owed=1` when questions wait and no place is named) it opens Focus, which
+    makes the entry its own and drops the marker; `MOCKPIT_PUBLIC_URL` (`publicUrl`) is the
+    origin those links name when the user opens the viewer elsewhere than agents call.
+    Without it, an idea's own link lands on the Ideas page; a document or a
     shared component, which no page draws, opens in Focus. The Library's and Exploring's
     pages are `?sec=components|shared|system|documents|archive|recent` inside the Board's
     frame, and `?sec=ideas` (`?for=` narrows it to one design's) is the Ideas canvas.
-    Focus is never in the address: the history entry carries it (`navigate(path, { focus
-    })`, `linkClick`), so every link anyone copies or sends lands on the Board, while Back,
-    Forward and a reload keep Focus. Old `?view=` and `?cols=` links mean nothing and land
+    Focus is never in the address past that marker: the history entry carries it
+    (`navigate(path, { focus })`, `linkClick`), so every link the viewer copies lands on the
+    Board, while Back, Forward and a reload keep Focus. Old `?view=` and `?cols=` links mean nothing and land
     on the Board.
   - **The Board** (`Board.tsx`, its sections `BoardSection.tsx` and frames `BoardFrame.tsx`,
     `boardLayout.ts`, `boardGrid.ts`; one read,
