@@ -4,7 +4,15 @@
 
 import { createSignal, For, Show } from "solid-js";
 import { Icon, type IconName } from "./icons.tsx";
-import { wideWidth, widthChoices, widthKind, widthLabel } from "./logic.ts";
+import {
+  deviceRows,
+  orientationOf,
+  tabletOrientations,
+  wideWidth,
+  widthChoices,
+  widthKind,
+  widthLabel,
+} from "./logic.ts";
 import { usePopover } from "./popover.ts";
 import { QrBody } from "./QrTool.tsx";
 import type { DesignScreenState } from "./state.ts";
@@ -15,7 +23,8 @@ export function previewNow(s: DesignScreenState) {
   const widths = () => widthChoices(s.design()?.widths ?? []);
   // One width is no choice: the label on the artboard already names it.
   const choosing = () => widths().length > 1;
-  const iconOf = (w: number): IconName => (w === wideWidth(widths()) ? "wide" : widthKind(w));
+  const iconOf = (w: number): IconName =>
+    orientationOf(w) ? "tablet" : w === wideWidth(widths()) ? "wide" : widthKind(w);
   const current = (): { icon: IconName; label: string } => {
     if (!choosing()) return { icon: "qr", label: "Open on a phone or iPad" };
     if (s.zoom() === "all") return { icon: "all", label: "Preview: All widths" };
@@ -54,20 +63,43 @@ export function PreviewPanel(props: {
     >
       <Show when={choosing()}>
         <div class="wmenu" role="menu" aria-label="Width">
-          <For each={widths()}>
-            {(w) => (
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={s.frameW() === w && s.zoom() !== "all"}
-                data-w={w}
-                onClick={() => choose(w)}
-              >
-                <Icon name={iconOf(w)} />
-                {widthLabel(w)}
-                <small>{w}</small>
-              </button>
-            )}
+          <For each={deviceRows(widths(), s.frameW())}>
+            {(w) => {
+              const on = () => s.frameW() === w && s.zoom() !== "all";
+              return orientationOf(w) ? (
+                <>
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={on()}
+                    data-w={w}
+                    onClick={() => {
+                      s.pickTablet();
+                      choose(s.frameW());
+                    }}
+                  >
+                    <Icon name="tablet" />
+                    Tablet
+                    <small>{w}</small>
+                  </button>
+                  <Show when={on() && tabletOrientations(s.design()?.widths ?? []).length > 1}>
+                    <Orientations s={s} />
+                  </Show>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={on()}
+                  data-w={w}
+                  onClick={() => choose(w)}
+                >
+                  <Icon name={iconOf(w)} />
+                  {widthLabel(w)}
+                  <small>{w}</small>
+                </button>
+              );
+            }}
           </For>
           <Show when={all()}>
             <button
@@ -102,6 +134,29 @@ export function PreviewPanel(props: {
           <QrBody s={s} />
         </div>
       </Show>
+    </div>
+  );
+}
+
+// Tablet's way round, under its row while it is the device on stage. A flip stays open
+// so the two can be compared.
+function Orientations(props: { s: DesignScreenState }) {
+  const s = props.s;
+  const now = () => orientationOf(s.frameW());
+  return (
+    <div class="seg wtilt" role="group" aria-label="Tablet orientation">
+      <For each={["portrait", "landscape"] as const}>
+        {(o) => (
+          <button
+            type="button"
+            classList={{ on: now() === o }}
+            aria-pressed={now() === o}
+            onClick={() => now() !== o && s.setTabletOrientation(o)}
+          >
+            {o === "portrait" ? "Portrait" : "Landscape"}
+          </button>
+        )}
+      </For>
     </div>
   );
 }

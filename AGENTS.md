@@ -578,6 +578,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     question's opening by itself while one waits, and there is no Side by side. From 700
     to 1099 px the canvas takes touch (one finger pans, two pinch, a double tap opens
     Focus), the rail slides in from ☰, and Focus's states column is pictures only.
+    Tablet is an iPad mini either way round: under its row in the width menu, Portrait
+    (744) and Landscape (1133) (`rotateTablet` in `logic.ts`). A touch screen wider than
+    tall opens it in landscape, and rotating follows, except after a flip by hand, which
+    holds until the device is turned to match it (`mockpit-tablet-flip:<id>`).
   - Also: `Thumb` (a shrunk sandboxed frame, frozen with `#small`), `flowNav.ts` (the
     declared flow around the design: the flow bar, neighbours across designs, Try's
     `data-goto`), `logic.ts` (pure rules), `tune.ts` (tunekit mounted via

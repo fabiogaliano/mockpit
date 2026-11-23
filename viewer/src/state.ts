@@ -48,6 +48,7 @@ import {
   builtinAsks,
   carryOver,
   defaultDeviceWidth,
+  deviceOrientation,
   DESKTOP_W,
   draftIsEmpty,
   frameKey,
@@ -66,6 +67,9 @@ import {
   lookValues,
   tunedWithLook,
   wearsLook,
+  openingWidth,
+  type Orientation,
+  orientationOf,
   overflowWidth,
   listedSteps,
   neighbourStep,
@@ -78,6 +82,9 @@ import {
   type Zoom,
   pickInDraft,
   readDeviceWidth,
+  rotateTablet,
+  tabletOrientations,
+  tabletWidth,
   setAskField,
   setAnswerComment,
   tuneVisible,
@@ -1280,6 +1287,23 @@ export function createDesignScreen(
   }
 
   const widthKey = (id: string) => `mockpit-width:${id}`;
+  // Set while Tablet shows the other way from how the device is held, flipped by hand.
+  const flipKey = (id: string) => `mockpit-tablet-flip:${id}`;
+  const [flipped, setFlipped] = createSignal(false);
+  const held = createMemo(() => deviceOrientation(win().w, win().h, coarse()));
+  function remember(key: string, value: string | null) {
+    try {
+      if (value === null) host().storage?.removeItem(key);
+      else host().storage?.setItem(key, value);
+    } catch {
+      // Storage full or denied: the choice still applies for this visit.
+    }
+  }
+  function keepFlip(on: boolean) {
+    setFlipped(on);
+    const id = design()?.id;
+    if (id) remember(flipKey(id), on ? "1" : null);
+  }
   // Keyed by id alone: a refetch or a resize must not undo the user's choice.
   createEffect(
     on(
@@ -1287,16 +1311,37 @@ export function createDesignScreen(
       (id) => {
         if (!id) return;
         let stored: string | null = null;
+        let flip = false;
         try {
           stored = host().storage?.getItem(widthKey(id)) ?? null;
+          flip = host().storage?.getItem(flipKey(id)) === "1";
         } catch {
           // Unreadable storage: fall back to the default width.
         }
         const declared = design()?.widths ?? [];
-        const picked = readDeviceWidth(stored, declared);
+        let picked = readDeviceWidth(stored, declared);
+        if (picked !== null) {
+          const r = rotateTablet(picked, untrack(held), flip, declared);
+          picked = r.w;
+          flip = r.flipped;
+        } else flip = false;
+        setFlipped(flip);
         setWidthPicked(picked !== null);
-        setFrameWSignal(picked ?? declared[0] ?? defaultDeviceWidth(win().w, coarse()));
+        setFrameWSignal(
+          picked ?? openingWidth(declared, defaultDeviceWidth(win().w, win().h, coarse())),
+        );
       },
+    ),
+  );
+  createEffect(
+    on(
+      held,
+      (o) => {
+        const r = rotateTablet(frameW(), o, flipped(), design()?.widths ?? []);
+        if (r.flipped !== flipped()) keepFlip(r.flipped);
+        if (r.w !== frameW()) setFrameWSignal(r.w);
+      },
+      { defer: true },
     ),
   );
   createEffect(() => {
@@ -1309,13 +1354,21 @@ export function createDesignScreen(
   function setFrameW(w: number) {
     setWidthPicked(true);
     setFrameWSignal(w);
+    if (flipped()) keepFlip(false);
     const id = design()?.id;
-    if (!id) return;
-    try {
-      host().storage?.setItem(widthKey(id), String(w));
-    } catch {
-      // Storage full or denied: the width still applies for this visit.
-    }
+    if (id) remember(widthKey(id), String(w));
+  }
+  // Tablet from the width menu: the way the device is held, where the design offers it.
+  function pickTablet() {
+    if (orientationOf(frameW())) return;
+    const offered = tabletOrientations(design()?.widths ?? []);
+    const o = offered.includes(held()) ? held() : offered[0];
+    if (o) setFrameW(tabletWidth(o));
+  }
+  // The hand flip: it holds against rotation only while it disagrees with the device.
+  function setTabletOrientation(o: Orientation) {
+    setFrameW(tabletWidth(o));
+    keepFlip(o !== held());
   }
 
   // The next question still owed after the ith on the state on stage: later on
@@ -2821,6 +2874,8 @@ export function createDesignScreen(
     reactPart: () => (tuning() ? null : tapped()),
     frameW,
     setFrameW,
+    pickTablet,
+    setTabletOrientation,
     zoom,
     setZoom,
     stageScale,

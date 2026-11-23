@@ -1574,12 +1574,62 @@ export const DESKTOP_W = 820;
 const PHONE_MAX = 600;
 const TABLET_MAX = 900;
 
-// A touch screen opens a design at the device width it can show at true size
-// (a phone at Phone, an iPad mini portrait at Tablet); a mouse at desktop width.
-export const defaultDeviceWidth = (winW: number, coarse: boolean): number => {
-  if (!coarse || winW > TABLET_MAX) return DESKTOP_W;
-  return winW <= PHONE_MAX ? DEVICE_WIDTHS[0].w : DEVICE_WIDTHS[1].w;
+// Tablet is an iPad mini, held either way: Tablet in the list is its portrait width,
+// and landscape is the same device turned, so it is no row of its own.
+export const TABLET_PORTRAIT_W = 744;
+export const TABLET_LANDSCAPE_W = 1133;
+export type Orientation = "portrait" | "landscape";
+export const tabletWidth = (o: Orientation): number =>
+  o === "landscape" ? TABLET_LANDSCAPE_W : TABLET_PORTRAIT_W;
+export const orientationOf = (w: number): Orientation | null =>
+  w === TABLET_PORTRAIT_W ? "portrait" : w === TABLET_LANDSCAPE_W ? "landscape" : null;
+
+// Only a touch screen is held one way or the other; a desktop window wider than tall is
+// still a desktop, so Tablet opens there in portrait as it always has.
+export const deviceOrientation = (winW: number, winH: number, coarse: boolean): Orientation =>
+  coarse && winW > winH ? "landscape" : "portrait";
+
+// The orientations Tablet can show: both on a design that names no widths, else those
+// whose width it names, so a design never opens at a width it didn't ask for.
+export function tabletOrientations(declared: readonly number[]): Orientation[] {
+  if (!declared.length) return ["portrait", "landscape"];
+  return (["portrait", "landscape"] as const).filter((o) => declared.includes(tabletWidth(o)));
+}
+
+// A touch screen opens a design at the device width it can show at true size (a phone
+// at Phone, an iPad mini at Tablet in the way it is held); a mouse at desktop width. An
+// iPad mini in landscape is wider than TABLET_MAX, so its short side is what tells it
+// from a bigger screen.
+export const defaultDeviceWidth = (winW: number, winH: number, coarse: boolean): number => {
+  if (!coarse) return DESKTOP_W;
+  if (winW <= PHONE_MAX) return DEVICE_WIDTHS[0].w;
+  if (winW <= TABLET_MAX) return TABLET_PORTRAIT_W;
+  if (winW > winH && winH > PHONE_MAX && winH <= TABLET_MAX) return TABLET_LANDSCAPE_W;
+  return DESKTOP_W;
 };
+
+// The width a design opens at with nothing remembered: the device's own when the
+// design names it, else the first the design names.
+export function openingWidth(declared: readonly number[], device: number): number {
+  if (!declared.length || declared.includes(device)) return device;
+  return declared[0];
+}
+
+// Rotating the iPad while Tablet is on turns the design with it, unless the user flipped
+// it by hand; that flip holds until the iPad is turned to match it, and from then on the
+// rotation leads again. Returns the width to show and whether a hand flip still holds.
+export function rotateTablet(
+  frameW: number,
+  turnedTo: Orientation,
+  flipped: boolean,
+  declared: readonly number[],
+): { w: number; flipped: boolean } {
+  const now = orientationOf(frameW);
+  if (!now) return { w: frameW, flipped: false };
+  if (flipped) return { w: frameW, flipped: now !== turnedTo };
+  const w = tabletOrientations(declared).includes(turnedTo) ? tabletWidth(turnedTo) : frameW;
+  return { w, flipped: false };
+}
 
 // A design wider than its frame (a board laid out for a desktop, opened at
 // phone width) is cut off on both sides when it centers itself. Unless the user
@@ -1595,7 +1645,9 @@ export function overflowWidth(frameW: number, r: PartsReport | undefined): numbe
 // one the design itself asks to be judged at.
 export function readDeviceWidth(raw: string | null, declared: number[] = []): number | null {
   const n = Number(raw);
-  return DEVICE_WIDTHS.some((d) => d.w === n) || declared.includes(n) ? n : null;
+  return DEVICE_WIDTHS.some((d) => d.w === n) || n === TABLET_LANDSCAPE_W || declared.includes(n)
+    ? n
+    : null;
 }
 
 // The kind of screen a width is drawn for, by the same breakpoints the
@@ -1612,9 +1664,22 @@ export function wideWidth(widths: readonly number[]): number | null {
 
 // A device width by name where it is one we know ("Phone 390"), else its px.
 export const widthLabel = (w: number): string => {
+  if (w === TABLET_LANDSCAPE_W) return "Tablet landscape";
   const d = DEVICE_WIDTHS.find((x) => x.w === w);
   return d ? d.label : `${w}`;
 };
+
+// The width menu's rows: a design's widths in its order, with Tablet's two
+// orientations as one row that shows the one on stage.
+export function deviceRows(widths: readonly number[], frameW: number): number[] {
+  const rows: number[] = [];
+  for (const w of widths) {
+    const o = orientationOf(w);
+    if (!o) rows.push(w);
+    else if (!rows.some((r) => orientationOf(r))) rows.push(orientationOf(frameW) ? frameW : w);
+  }
+  return rows;
+}
 
 // Every width on the canvas in the design's order, the live one in its place
 // (or first, when the user picked one the design does not name). Only "All widths"

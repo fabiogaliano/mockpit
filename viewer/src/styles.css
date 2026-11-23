@@ -4284,6 +4284,9 @@ html:has(.design-screen) {
   .wmenu > button:hover {
     background: var(--row);
   }
+  .wtilt button:not(.on):hover {
+    color: var(--t1);
+  }
 }
 .btn {
   display: inline-flex;
@@ -4396,6 +4399,26 @@ html:has(.design-screen) {
   margin-inline-start: auto;
   color: var(--t4);
   font-variant-numeric: tabular-nums;
+}
+.wtilt {
+  display: flex;
+  gap: 2px;
+  margin: 0 4px 4px 38px;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--row);
+}
+.wtilt button {
+  flex: 1;
+  min-height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--t4);
+}
+.wtilt button.on {
+  background: var(--fill);
+  color: var(--t1);
 }
 /* Focus's one bar: the tools, the version and its menu, Send (DesignScreen.tsx). */
 .fbar {
