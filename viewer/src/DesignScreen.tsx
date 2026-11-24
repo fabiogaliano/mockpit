@@ -71,7 +71,6 @@ import { AnswerPills } from "./Kept.tsx";
 import { canDesign, canFrame, runFrameAction } from "./frameActions.ts";
 import { AlternativeActs } from "./Alternatives.tsx";
 import { KnobSideBySide } from "./KnobChoicePanel.tsx";
-import { LooksStrip } from "./Looks.tsx";
 import { valueOfCol } from "./sheet.ts";
 import { Sheet } from "./Sheet.tsx";
 import { Present } from "./Present.tsx";
@@ -905,9 +904,6 @@ export function DesignScreen(props: {
           </Show>
           <SentNote s={s} slug={props.slug} />
           <Show when={s.design()}>
-            <Show when={!s.sheet.view() && !knobSideActive()}>
-              <LooksStrip s={s} />
-            </Show>
             <StateAsk s={s} />
             <Show when={phoneLayout()}>
               <Show when={reading()}>

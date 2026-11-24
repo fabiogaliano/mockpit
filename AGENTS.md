@@ -376,9 +376,11 @@ Stances reversed knowingly, so nobody restores them by accident:
   Send: `AnsweredLines` in the panel, each answered question one line that opens in place
   (its answer, Change answer, a kept screen's missing updates counted from `since`, Update
   now, `carried`), `AnswerPills` on the design's top edge
-  for questions answered in words. Looks (`Design.looks`, `server/looks.ts`) are the
-  strip under the frame (`Looks.tsx`) and Tune's Save as look (`POST /api/designs/:id/looks`,
-  the user's; an agent's come with a publish). A question whose answers have
+  for questions answered in words. Looks (`Design.looks`, `server/looks.ts`) are
+  **presets** to the user: a Presets row of chips at the top of the knobs, in Choices and in
+  Tune (`Looks.tsx` `PresetsRow`: a mouse on one shows the frame on stage in it, a click gives
+  the frame its values and flashes the rows it set, `data-knob-row`), ending in Save as preset
+  (`POST /api/designs/:id/looks`, the user's; an agent's come with a publish). A question whose answers have
   pictures keeps its answered card in the panel and its row in Side by side
   (`SideBySide.tsx`) instead: the pick outlined, the kept beside it, the archived folded.
   The old `starred` column is inert.
@@ -853,7 +855,7 @@ the finding needs.
   what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
   **instance** is an included component (`<mockpit-instance>`); a **frame** is an
   alternative as the viewer shows it, and a tune belongs to one; a **look** is a named set
-  of knob values; **Choices** is the panel where alternatives and choice knobs are picked, and its
+  of knob values (a **preset**, in every word the user reads; `looks` in the API and storage); **Choices** is the panel where alternatives and choice knobs are picked, and its
   **Sheet** button lays a choice knob out as a **Sheet** (frames down, values or looks across;
   Compare is only two versions in one frame); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
   **Bookmark / Keep** (`K`, `keep`, bookmark icon for runners-up), and **Delete** (`X`, `deleted`,

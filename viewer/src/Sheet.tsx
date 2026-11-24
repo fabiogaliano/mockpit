@@ -194,7 +194,7 @@ export function Sheet(props: { s: DesignScreenState }) {
               aria-pressed={at()?.knob === null}
               onClick={() => pick(null)}
             >
-              Looks
+              Presets
             </button>
           </Show>
         </div>

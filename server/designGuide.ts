@@ -740,7 +740,7 @@ every frame can wear: the user picks it in Choices, for every alternative at onc
 compares it on a Sheet: frames down, values across. A select only a click or motion shows
 takes \`"pictures": false\` and stays a dropdown in Tune.
 In an idea they mark **Main**, **Keep** (bookmark) or **Delete** (ruled out in \`target.ruledOut\`),
-save knob values as named **looks**, and press Use. Add \`--set\` (MCP/HTTP \`set: true\`) when
+save knob values as named **looks** (presets, to them), and press Use. Add \`--set\` (MCP/HTTP \`set: true\`) when
 all frames ship together (e.g. morphing illustrations): each frame keeps its own per-knob Main
 and all live frames ship on Use. Marks save at once and send to no one: \`read <slug>\` has
 them as \`marks\`. Ask only when a choice blocks your next step (which states to draw

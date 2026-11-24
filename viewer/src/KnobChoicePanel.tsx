@@ -232,7 +232,7 @@ export function KnobChoicePanel(props: { s: DesignScreenState }) {
         return (
           <div class="kpanel">
             <div class="kpanel-scroll">
-              <div class="kpanel-list" role="listbox" aria-label={h().at.knob ?? "Looks"}>
+              <div class="kpanel-list" role="listbox" aria-label={h().at.knob ?? "Presets"}>
                 <For each={parts().active}>
                   {(col) => {
                     const subj = () => subjectOf({ v: h().v, col });

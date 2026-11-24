@@ -275,7 +275,7 @@ export function createSheet(d: SheetDeps) {
     const m = d.design();
     const all = frames();
     if (!m || !all.length || readonly()) return;
-    const label = at.knob ? knobName(at.knob) : "Looks";
+    const label = at.knob ? knobName(at.knob) : "Presets";
     try {
       const res = await api.saveCopies({
         title: `${m.title} · ${label}`,

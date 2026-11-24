@@ -26,8 +26,9 @@ stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on an idea lan
 on that Sheet; a knob that can't be laid out leaves the link as it was, with a nudge.
 On hosts that support capture, it also starts capturing the published row in the background.
 
-A look is a named set of knob values, holding only the knobs it changes. The user saves
-them from Tune; yours come with a publish, `--looks '{"Big dots": {"marks": "dots",
+A look is a named set of knob values, holding only the knobs it changes; the user sees it
+as a preset, a chip above the knobs in Choices that previews on hover and applies on a
+click. The user saves them there or in Tune; yours come with a publish, `--looks '{"Big dots": {"marks": "dots",
 "size": 1.6}}'` (MCP and HTTP `"looks"`), checked against the knobs declared. Alone it adds
 them with no new version. A look is offered on every design that declares each knob it
 sets, and a look the user named stands against yours of that name (a nudge says so).

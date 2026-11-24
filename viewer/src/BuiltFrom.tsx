@@ -5,7 +5,7 @@
 
 import { createEffect, createMemo, createResource, For, Index, on, Show } from "solid-js";
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
-import { host, readonly } from "./host.ts";
+import { host } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import {
   designWidth,
@@ -16,7 +16,7 @@ import {
   versionName,
 } from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
-import { SaveLook } from "./Looks.tsx";
+import { PresetsRow } from "./Looks.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
@@ -206,10 +206,8 @@ export function BuiltFrom(props: {
           </div>
         </section>
       </Show>
-      <Show when={s.tool() === "tune" && !readonly() && parts().some((c) => c.paths.length)}>
-        <section>
-          <SaveLook s={s} />
-        </section>
+      <Show when={s.tool() === "tune"}>
+        <PresetsRow s={s} />
       </Show>
     </aside>
   );

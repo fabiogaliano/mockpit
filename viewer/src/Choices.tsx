@@ -17,6 +17,7 @@ import {
 import { isLive, recommendedAlternative } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
+import { PresetsRow } from "./Looks.tsx";
 import type { ChoiceGroup, Choices } from "./choices.ts";
 import { knobGroup } from "./choices.ts";
 import { knownSame, sameSignature, setKnownSame } from "./choicesSeen.ts";
@@ -34,11 +35,12 @@ type Value = { value: string; label: string };
 export function ChoicesList(props: { s: DesignScreenState; c: Choices }) {
   const c = props.c;
   return (
-    <Show when={c.hasAlternatives() || c.paths().length}>
+    <Show when={c.hasAlternatives() || c.paths().length || props.s.looksHere().length}>
       <div class="chs">
         <Show when={c.hasAlternatives()}>
           <AlternativesGroup s={props.s} c={c} />
         </Show>
+        <PresetsRow s={props.s} />
         <For each={c.paths()}>
           {(path) => (
             <Show when={c.group(path)}>
@@ -256,7 +258,7 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
     return waiting.length ? `${asked.length - waiting.length} of ${asked.length}` : null;
   };
   return (
-    <section class="chg" classList={{ shut: !open() }}>
+    <section class="chg" classList={{ shut: !open() }} data-knob-row={props.g.path}>
       <GroupHead
         c={c}
         id={id()}
@@ -450,7 +452,7 @@ function TileShell(props: {
 function ColourRow(props: { c: Choices; g: ChoiceGroup }) {
   const c = props.c;
   return (
-    <section class="chg row">
+    <section class="chg row" data-knob-row={props.g.path}>
       <div class="chg-h">
         <span class="chg-title">
           <b>{props.g.label}</b>

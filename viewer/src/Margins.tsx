@@ -105,7 +105,9 @@ export function createMargins(
   const leftHas = () => !sideBySide() && (statesShown() || ideasFor().length > 0);
   const altsHas = () => !closed() && !sideBySide() && alternativesHere().length > 1;
   const choices = createChoices(s);
-  const choicesHas = () => altsHas() || (!closed() && !sideBySide() && choices.paths().length > 0);
+  const choicesHas = () =>
+    altsHas() ||
+    (!closed() && !sideBySide() && (choices.paths().length > 0 || s.looksHere().length > 0));
   // What opens the panel by itself where it can stand: several alternatives, or a choice
   // knob new to this browser.
   const choicesWant = () => altsHas() || (choicesHas() && choices.newHere().length > 0);
@@ -573,7 +575,7 @@ export function RightMargin(props: {
     if (side === "knob") {
       const h = s.sheet.held();
       if (!h) return TITLES.knob;
-      const k = h.at.knob ? knobName(h.at.knob) : "Looks";
+      const k = h.at.knob ? knobName(h.at.knob) : "Presets";
       return `${k} · ${alternativeName(h.v.alternative)}`;
     }
     if (side === "talk") return m.choicesHas() ? "Choices" : TITLES.talk;
