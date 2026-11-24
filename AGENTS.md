@@ -566,7 +566,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     as it comes, then framed, once the group's stills are all in, on the box where they differ,
     `stillCrop.ts`, whole when that is most of the page, and where every value's still is the
     same picture, compared at full size, the group says there is no visible change on that frame
-    and its tiles are names only, still picked from; a tile waiting for its still shimmers,
+    and its tiles are names only, still picked from; a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
     the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
     and Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
     on a click, and keeps or rules out from its corner with the Sheet's cell marks. An

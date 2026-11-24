@@ -204,11 +204,14 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   const tileOf = (i: number): TilePicture => {
     const cell = cells()[i];
     if (!pictured() || !cell || unchanged()) return { kind: "none" };
-    const url = urls()[i];
-    if (url) return { kind: "shown", url, crop: crop() };
-    return c.stills.failed(cell)
-      ? { kind: "failed", retry: () => c.stills.want(cell, true, true) }
-      : { kind: "waiting" };
+    // As a Sheet cell does: its own still, else one of the same cell before its frame or the
+    // system changed, shown while its own is taken; an asset gone from the store is retaken.
+    const shot = c.stills.picture(cell);
+    const broken = shot ? () => c.stills.broken(shot.key, shot.asset) : () => undefined;
+    if (shot?.exact) return { kind: "shown", url: assetUrl(shot.asset), crop: crop(), broken };
+    if (c.stills.failed(cell))
+      return { kind: "failed", retry: () => c.stills.want(cell, true, true) };
+    return { kind: "waiting", older: shot ? assetUrl(shot.asset) : null, broken };
   };
   // How many of the open group's pictures are in, while any is still on its way.
   const progress = () => {
@@ -249,14 +252,18 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
 // taken. Each reads differently, so a tile waiting is never read as a value that draws nothing.
 type TilePicture =
   | { kind: "none" }
-  | { kind: "waiting" }
+  | { kind: "waiting"; older: string | null; broken: () => void }
   | { kind: "failed"; retry: () => void }
-  | { kind: "shown"; url: string; crop: CropBox | null };
+  | { kind: "shown"; url: string; crop: CropBox | null; broken: () => void };
 
 function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value; picture: TilePicture }) {
   const c = props.c;
   const path = () => props.g.path;
-  const shot = () => (props.picture.kind === "shown" ? props.picture : null);
+  const shot = () => {
+    const p = props.picture;
+    if (p.kind === "shown") return p;
+    return p.kind === "waiting" && p.older ? { url: p.older, crop: null, broken: p.broken } : null;
+  };
   const failed = () => (props.picture.kind === "failed" ? props.picture : null);
   return (
     <TileShell
@@ -299,6 +306,7 @@ function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value; picture: TilePi
                 decoding="async"
                 draggable={false}
                 classList={{ framed: !!s().crop }}
+                onError={() => s().broken()}
                 style={
                   s().crop
                     ? {

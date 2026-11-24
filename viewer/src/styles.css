@@ -11346,6 +11346,10 @@ button.bmc {
     var(--frame);
   animation: cht-wait 1.4s ease-in-out infinite;
 }
+/* An older picture of the same cell, while its own is taken. */
+.cht-pic.wait > img {
+  opacity: 0.5;
+}
 @keyframes cht-wait {
   from {
     background-position:
