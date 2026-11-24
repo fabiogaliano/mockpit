@@ -558,7 +558,12 @@ Stances reversed knowingly, so nobody restores them by accident:
     right one panel, there while a question is open (or something answered waits), a Sheet
     cell is open (`KnobChoicePanel.tsx`), or the state has choices: **Choices** (`Choices.tsx`,
     its rules in `choices.ts`) is one list, the open question first, then the alternatives
-    (titled Set on a Set idea, Variants on a variants design, archived ones folded), then the presets, then a
+    (titled Set on a Set idea, Variants on a variants design, archived ones folded under
+    "Archived · N", `ArchivedAlternatives`, also in a phone's History: each row with Restore and
+    an "add why" / "edit why" that writes its archive reason at any time, through
+    `POST /api/designs/:id/reason` as the note after archiving does, so the agent reads it as
+    it always has, the alternative's `archiveReason` on `read` and the reason in an idea's
+    `target.ruledOut`; `HiddenAnswers` rows do the same for an answer's why), then the presets, then a
     group per choice knob the frame on stage reads, the knobs that reshape it, then a folded
     Fine-tune holding every other knob it reads (`FineTune`: an action knob a ▶ that posts
     `action` to the frame on stage, which fires `mockpit:action`; a select declared

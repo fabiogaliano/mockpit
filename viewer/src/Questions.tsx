@@ -1362,6 +1362,11 @@ function HiddenAnswers(props: {
                     {(why) => <span class="hiddenans-why">{why()}</span>}
                   </Show>
                   <Show when={!readonly()}>
+                    <Reason
+                      value={s.hiddenOf(props.ask, o.id)?.why ?? null}
+                      link
+                      onSave={(why) => s.setAnswerWhy(props.ask, o, why)}
+                    />
                     <button
                       type="button"
                       class="optic hiddenans-back"

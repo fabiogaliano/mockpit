@@ -24,6 +24,7 @@ import { isLive, recommendedAlternative } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { PresetsRow } from "./Looks.tsx";
+import { Reason } from "./Reason.tsx";
 import type { ChoiceGroup, Choices, FineKnob } from "./choices.ts";
 import { FINE_GROUP, knobGroup } from "./choices.ts";
 import { canFrame, runFrameAction } from "./frameActions.ts";
@@ -546,8 +547,6 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
   const s = props.s;
   const c = props.c;
   const here = createMemo(() => s.alternatives().filter((v) => v.state === s.activeState()));
-  const archived = () => here().filter((v) => !isLive(v.status));
-  const [unfold, setUnfold] = createSignal(false);
   const used = () => s.inUse()?.alternative;
   const suggested = () => recommendedAlternative(s.design()?.asks ?? [], s.activeState());
   const title = () =>
@@ -669,40 +668,60 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
             }}
           </For>
         </div>
-        <Show when={archived().length}>
-          <button
-            type="button"
-            class="lm-fold"
-            aria-expanded={unfold()}
-            onClick={() => setUnfold(!unfold())}
-          >
-            {`Archived · ${archived().length}`}
-          </button>
-          <Show when={unfold()}>
-            <For each={archived()}>
-              {(v) => (
-                <div class="lm-archived" title={v.archiveReason ?? v.description}>
-                  <span>{alternativeName(v.alternative)}</span>
-                  <Show when={!readonly()}>
-                    <button
-                      type="button"
-                      class="vrestore"
-                      onClick={() =>
-                        void s
-                          .restoreAlternative(v.alternative, [s.activeState()])
-                          .then(() => s.setToast({ text: `Restored ${v.alternative}` }))
-                      }
-                    >
-                      Restore
-                    </button>
-                  </Show>
-                </div>
-              )}
-            </For>
-          </Show>
-        </Show>
+        <ArchivedAlternatives s={s} />
       </Show>
     </section>
+  );
+}
+
+// The state's archived alternatives, folded: each with why it went, which can be written or
+// changed here at any time, and Restore. In the Choices panel, and a phone's History.
+export function ArchivedAlternatives(props: { s: DesignScreenState }) {
+  const s = props.s;
+  const [unfold, setUnfold] = createSignal(false);
+  const archived = () =>
+    s.alternatives().filter((v) => v.state === s.activeState() && !isLive(v.status));
+  return (
+    <Show when={archived().length}>
+      <button
+        type="button"
+        class="lm-fold"
+        aria-expanded={unfold()}
+        onClick={() => setUnfold(!unfold())}
+      >
+        {`Archived · ${archived().length}`}
+      </button>
+      <Show when={unfold()}>
+        <For each={archived()}>
+          {(v) => (
+            <div class="lm-archived" title={v.description}>
+              <span class="lm-arch-text">
+                <span>{alternativeName(v.alternative)}</span>
+                <Show when={v.archiveReason}>{(why) => <span class="lm-why">{why()}</span>}</Show>
+              </span>
+              <Show when={!readonly()}>
+                <Reason
+                  value={v.archiveReason ?? null}
+                  link
+                  onSave={(why) => s.saveArchiveReason(v.alternative, why, v.state)}
+                />
+                <button
+                  type="button"
+                  class="vrestore"
+                  onClick={() =>
+                    void s
+                      .restoreAlternative(v.alternative, [v.state])
+                      .then(() => s.setToast({ text: `Restored ${v.alternative}` }))
+                  }
+                >
+                  Restore
+                </button>
+              </Show>
+            </div>
+          )}
+        </For>
+      </Show>
+    </Show>
   );
 }
 

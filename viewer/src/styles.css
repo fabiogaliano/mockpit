@@ -11446,6 +11446,32 @@ button.bmc {
 }
 /* What the stage holds: an alternative on it, or resting there to be held. */
 /* The alternatives: rows, a poster beside the name and what the agent says it is. */
+.lm-arch-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+.lm-why {
+  overflow: hidden;
+  color: var(--t4);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.reason-btn.link {
+  flex: none;
+  color: var(--t4);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.reason-btn.link:hover {
+  color: var(--t1);
+}
+.bparchived {
+  padding: 8px 12px 12px;
+}
 .chg-tiles.alts {
   grid-template-columns: minmax(0, 1fr);
 }

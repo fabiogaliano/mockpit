@@ -39,6 +39,8 @@ interface MarkDeps {
   optionKey: (ask: Ask, optionId: string) => string;
   setToast: (line: ToastLine | null) => void;
   leaveGhost: (line: GhostLine) => void;
+  // An archived alternative's reason, as the note it leaves saves it.
+  saveArchiveReason: (alternative: string, reason: string | null, state: string | null) => void;
   fail: (e: unknown) => void;
   asks: () => Ask[];
   activeState: () => string | null;
@@ -333,6 +335,21 @@ export function createMarks(d: MarkDeps) {
     });
   }
   const unhideAnswer = (ask: Ask, o: AskOption) => void setStanding(ask, o, "open");
+  // Why an archived answer went, written or changed any time after: where its why is kept,
+  // the question's standing for one hidden there, else its alternative's archive reason.
+  function setAnswerWhy(ask: Ask, o: AskOption, why: string | null) {
+    const m = design();
+    if (!m || readonly()) return;
+    if (hiddenAnswer(standingFor(ask), o.id)) {
+      void setStanding(ask, o, "hidden", why ?? undefined);
+      return;
+    }
+    if (!o.alternative) return;
+    for (const state of optionStates(ask, o, m)) {
+      const v = m.alternatives.find((x) => x.alternative === o.alternative && x.state === state);
+      if (v && v.status === "archived") d.saveArchiveReason(o.alternative, why, state);
+    }
+  }
 
   return {
     standingFor,
@@ -355,6 +372,7 @@ export function createMarks(d: MarkDeps) {
     shownOptions,
     hiddenOptions,
     hideAnswer,
+    setAnswerWhy,
     unhideAnswer,
   };
 }

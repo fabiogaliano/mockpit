@@ -9,6 +9,8 @@ export function Reason(props: {
   value: string | null | undefined;
   // What invites one when none is written, where a reason speaks for several things.
   empty?: string;
+  // A small "add why" / "edit why", the reason itself shown by the row it is on.
+  link?: boolean;
   onSave: (reason: string | null) => void;
 }) {
   const [said, setSaid] = createSignal(props.value ?? null);
@@ -34,11 +36,15 @@ export function Reason(props: {
           <button
             type="button"
             class="reason reason-btn"
-            classList={{ empty: !said() }}
+            classList={{ empty: !said(), link: !!props.link }}
             title={said() ? "Change the reason" : undefined}
             onClick={() => setWriting(true)}
           >
-            {said() ?? props.empty ?? "Add a reason"}
+            {props.link
+              ? said()
+                ? "edit why"
+                : "add why"
+              : (said() ?? props.empty ?? "Add a reason")}
           </button>
         </Show>
       }

@@ -15,6 +15,7 @@ import {
   widthKind,
 } from "./logic.ts";
 import { Spec, specShown } from "./Spec.tsx";
+import { ArchivedAlternatives } from "./Choices.tsx";
 import { Answered } from "./Questions.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { frameMode } from "./systemRev.ts";
@@ -86,6 +87,10 @@ export function BottomPanel(props: { s: DesignScreenState; onHeight: (h: number)
         <Switch>
           <Match when={tab() === "history"}>
             <History s={s} />
+            {/* A phone has no Choices panel: its archived alternatives, and their whys, are here. */}
+            <div class="bparchived">
+              <ArchivedAlternatives s={s} />
+            </div>
           </Match>
           <Match when={tab() === "spec"}>
             <Spec s={s} />
