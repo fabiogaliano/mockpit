@@ -166,9 +166,11 @@ import {
   checkKnobs,
   checkKnobValues,
   choices,
+  droppedKnobs,
   explicitKnob,
   knobFor,
   withDefault,
+  withoutDropped,
 } from "./knobs.ts";
 import {
   legacyStillRevision,
@@ -2994,7 +2996,10 @@ export function createApp({
     if (isResult(partEdits)) return partEdits;
     const swapEdits = editsArg(body, "swaps");
     if (isResult(swapEdits)) return swapEdits;
-    const knobs = checkKnobs(body.knobs);
+    // A path set to null takes that design knob away: knobs otherwise only ever add up, so
+    // one moved to alternativeKnobs would stay design-wide.
+    const dropKnobs = droppedKnobs(body.knobs);
+    const knobs = checkKnobs(withoutDropped(body.knobs, dropKnobs));
     if (!knobs.ok) return fail(400, knobs.error);
     const alternativeKnobs = checkKnobs(body.alternativeKnobs);
     if (!alternativeKnobs.ok) return fail(400, alternativeKnobs.error);
@@ -3239,6 +3244,7 @@ export function createApp({
             kind,
             title,
             knobs: knobs.value,
+            dropKnobs,
             looks,
             widths,
             area,
@@ -3469,6 +3475,7 @@ export function createApp({
           kind,
           title,
           knobs: knobs.value,
+          dropKnobs,
           looks,
           widths,
           area,
@@ -3514,6 +3521,7 @@ export function createApp({
           state,
           kind,
           knobs: knobs.value,
+          dropKnobs,
           looks,
           widths,
           area,
@@ -3568,6 +3576,7 @@ export function createApp({
         state,
         kind,
         knobs: knobs.value,
+        dropKnobs,
         looks,
         widths,
         area,
@@ -4183,6 +4192,7 @@ export function createApp({
       kind?: DesignKind;
       title?: string;
       knobs: Knobs;
+      dropKnobs?: string[];
       // The agent's looks, by name.
       looks?: Record<string, Record<string, KnobValue>>;
       widths?: number[];
@@ -4198,7 +4208,13 @@ export function createApp({
   ): Promise<Design> {
     // What an idea is for means nothing once it is a screen or a component.
     const product = !!w.kind && w.kind !== "idea";
-    const knobs = Object.keys(w.knobs).length ? { ...design.knobs, ...w.knobs } : undefined;
+    const dropped = (w.dropKnobs ?? []).filter((p) => Object.hasOwn(design.knobs, p));
+    const knobs =
+      Object.keys(w.knobs).length || dropped.length
+        ? Object.fromEntries(
+            Object.entries({ ...design.knobs, ...w.knobs }).filter(([p]) => !dropped.includes(p)),
+          )
+        : undefined;
     const merged = w.looks
       ? withLooks(design.looks, w.looks, "agent", new Date().toISOString())
       : null;

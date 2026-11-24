@@ -82,7 +82,7 @@ verbs:
       --for <slug>      an idea's screen or component: Use changes it
       --becomes <what>  an idea for nothing yet: screen|component|flow|system
       --source <path>   the code path that implements it
-      --knobs <json|file>  knobs in tunekit usePane shape, keyed by path
+      --knobs <json|file>  knobs in tunekit usePane shape, keyed by path; null drops one
       --alternative-knobs <json|file>  knobs this alternative alone has
       --looks <json|file>  named knob values: {"<name>": {"<path>": value}}; alone,
                         no new version
@@ -268,7 +268,7 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
   --becomes <what>   an idea for nothing yet: screen or component (Use makes
                      one from what is used), flow or system. "" clears
   --source <path>    the code path that implements it (apps/web/src/shell). "" clears
-  --knobs <json|file>  knobs in tunekit usePane shape
+  --knobs <json|file>  knobs in tunekit usePane shape; a path set to null drops that knob
   --alternative-knobs <json|file>  knobs this alternative alone has, same shape
   --looks <json|file>  looks, named sets of knob values the user can apply to any
                      frame with those knobs: {"Big dots, blue": {"marks": "dots"}}.

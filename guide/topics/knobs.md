@@ -38,7 +38,8 @@ sets, and a look the user named stands against yours of that name (a nudge says 
 Knobs use tunekit's `usePane` shape, keyed by path. `"size"` is global,
 `"body.size"` belongs to the `body` part. Design-wide knobs go in `--knobs` (MCP
 and HTTP `knobs`). Over MCP and HTTP, knobs only one alternative has go in
-`alternativeKnobs`.
+`alternativeKnobs`. Knobs add up across publishes; a path set to `null` drops that design
+knob, `--knobs '{"media": null}'`, as when it moves to one alternative's knobs.
 
 ```sh
 mockpit publish --design writer --state "Writing" --html w.html --knobs '{"body.size":[17,14,22,1]}'

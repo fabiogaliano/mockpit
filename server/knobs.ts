@@ -229,6 +229,21 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
   }
 }
 
+// The paths a publish's `knobs` sets to null: design knobs to take away.
+export function droppedKnobs(raw: unknown): string[] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return [];
+  return Object.entries(raw as Record<string, unknown>).flatMap(([path, v]) =>
+    v === null ? [path] : [],
+  );
+}
+
+export function withoutDropped(raw: unknown, dropped: string[]): unknown {
+  if (!dropped.length) return raw;
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter(([path]) => !dropped.includes(path)),
+  );
+}
+
 export function checkKnobs(raw: unknown): Checked<Knobs> {
   if (raw === undefined || raw === null) return { ok: true, value: {} };
   if (typeof raw !== "object" || Array.isArray(raw)) {
