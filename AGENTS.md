@@ -555,7 +555,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     cell is open (`KnobChoicePanel.tsx`), or the state has choices: **Choices** (`Choices.tsx`,
     its rules in `choices.ts`) is one list, the open question first, then the alternatives
     (titled Set on a Set idea, Variants on a variants design, archived ones folded), then a
-    group per choice knob the frame on stage reads (`readsKnob` in `logic.ts`, from the
+    group per choice knob the frame on stage reads (a select declared `pictures: false` is
+    none: it stays Tune's dropdown, and no Sheet lays it out) (`readsKnob` in `logic.ts`, from the
     viewer read's `reads`, `server/knobReads.ts`: the served page, instances expanded,
     mentions `k-<path>`, `data-k-bind` or `dataset.k<Path>`, or it is a part's swaps; a page listening for
     `mockpit:knobs`, or one that can't be told, reads them all). Each group folds, showing its

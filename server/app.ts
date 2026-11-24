@@ -2947,7 +2947,7 @@ export function createApp({
         : config === undefined
           ? `"sheet": ${design.slug} has no knob "${knob}"${choiceKnobs.length ? `; its choice knobs: ${choiceKnobs.join(", ")}` : ""}`
           : (choices(config)?.length ?? 0) < 2
-            ? `"sheet": "${knob}" isn't a choice knob (a select or image knob with options)${choiceKnobs.length ? `; these are: ${choiceKnobs.join(", ")}` : ""}`
+            ? `"sheet": "${knob}" isn't a choice knob (a select or image knob with options${explicitKnob(config).type === "select" ? ', without "pictures": false' : ""})${choiceKnobs.length ? `; these are: ${choiceKnobs.join(", ")}` : ""}`
             : null;
     if (why) return { ...result, body: { ...out, nudges: [...(out.nudges ?? []), why] } };
     const url = new URL(out.url);

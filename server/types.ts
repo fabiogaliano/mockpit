@@ -252,6 +252,9 @@ export interface SelectKnob {
   type: "select";
   value?: string;
   options: KnobOption[];
+  // false: a dropdown in Tune, never pictured. For what a still can't show, such as how a
+  // page moves on a click, whose every value would draw the same picture.
+  pictures?: false;
 }
 export interface ColorKnob {
   type: "color";

@@ -123,12 +123,16 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
       if (k.value !== undefined && !optionValues(options.value).includes(k.value)) {
         return { ok: false, error: `${name} value is not one of its options` };
       }
+      if (k.pictures !== undefined && typeof k.pictures !== "boolean") {
+        return { ok: false, error: `${name} pictures must be true or false` };
+      }
       return {
         ok: true,
         value: {
           type: "select",
           options: options.value,
           ...(k.value === undefined ? {} : { value: k.value }),
+          ...(k.pictures === false ? { pictures: false as const } : {}),
         },
       };
     }
@@ -385,9 +389,11 @@ export function checkKnobValues(
 }
 
 // A choice knob's values with the words the user reads, or null for a continuous one:
-// what a sheet lays out across. Sliders are left out until they spread as steps.
+// what a sheet lays out across. Sliders are left out until they spread as steps, and a
+// select declared without pictures stays Tune's dropdown.
 export function choices(config: KnobConfig): { value: string; label: string }[] | null {
   const knob = explicitKnob(config);
+  if (knob.type === "select" && knob.pictures === false) return null;
   const options =
     knob.type === "select" || knob.type === "image" || knob.type === "color"
       ? knob.options

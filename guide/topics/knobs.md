@@ -45,21 +45,21 @@ knob, `--knobs '{"media": null}'`, as when it moves to one alternative's knobs.
 mockpit publish --design writer --state "Writing" --html w.html --knobs '{"body.size":[17,14,22,1]}'
 ```
 
-| shape                                                                 | control        |
-| --------------------------------------------------------------------- | -------------- |
-| `[17, 14, 22, 1]` (default, min, max, step?) or a number              | slider         |
-| `true` / `false`                                                      | toggle         |
-| `"#2a6"`, `"oklch(…)"`, `"linear-gradient(…)"`                        | colour         |
-| any other string                                                      | text           |
-| `{ "type": "select", "options": ["top", "bottom"], "value"? }`        | select         |
-| `{ "type": "color", "value"?, "gradient"?, "contrast"?, "options"? }` | colour         |
-| `{ "type": "text", "value"?, "placeholder"? }`                        | text           |
-| `{ "type": "slider", "value", "min", "max", "step"? }`                | slider         |
-| `{ "type": "toggle", "value" }`                                       | toggle         |
-| `{ "type": "spring", "stiffness"?, "damping"?, "mass"?, … }`          | spring         |
-| `{ "type": "easing", "duration", "ease": [x1, y1, x2, y2] }`          | easing         |
-| `{ "type": "pad", "x"?: [d, min, max], "y"?: …, "labels"? }`          | 2-D pad        |
-| `{ "type": "image", "options"?: [...], "value"? }`                    | image (select) |
+| shape                                                                       | control        |
+| --------------------------------------------------------------------------- | -------------- |
+| `[17, 14, 22, 1]` (default, min, max, step?) or a number                    | slider         |
+| `true` / `false`                                                            | toggle         |
+| `"#2a6"`, `"oklch(…)"`, `"linear-gradient(…)"`                              | colour         |
+| any other string                                                            | text           |
+| `{ "type": "select", "options": ["top", "bottom"], "value"?, "pictures"? }` | select         |
+| `{ "type": "color", "value"?, "gradient"?, "contrast"?, "options"? }`       | colour         |
+| `{ "type": "text", "value"?, "placeholder"? }`                              | text           |
+| `{ "type": "slider", "value", "min", "max", "step"? }`                      | slider         |
+| `{ "type": "toggle", "value" }`                                             | toggle         |
+| `{ "type": "spring", "stiffness"?, "damping"?, "mass"?, … }`                | spring         |
+| `{ "type": "easing", "duration", "ease": [x1, y1, x2, y2] }`                | easing         |
+| `{ "type": "pad", "x"?: [d, min, max], "y"?: …, "labels"? }`                | 2-D pad        |
+| `{ "type": "image", "options"?: [...], "value"? }`                          | image (select) |
 
 For a colour the user can both edit and compare, publish a colour knob with
 a CSS colour as its value and named CSS colours in `options` to seed the Sheet.
@@ -67,6 +67,10 @@ For example, `{"type":"color","value":"#24354d","options":[{"label":"Deep blue",
 Have the frame use the colour value directly so it can draw user-added colours.
 In a question where every option sets this one colour knob, the user can add another
 colour to compare and choose it explicitly before Send.
+
+A select is a choice knob, pictured in Choices and on the Sheet. `"pictures": false` keeps
+it a dropdown in Tune: for what a still can't show, such as which way a thing is tossed on
+a click, whose every value would draw the same picture.
 
 Select and image options are strings or `{value, label}`. Colour values may not
 use `url(…)` or `image(…)`. Every value is checked against the declaration

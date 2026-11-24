@@ -109,6 +109,10 @@ export function paneControl(cfg: KnobConfig, palette?: ColorPalette): PaneConfig
   if (cfg.type === "color" && cfg.value !== undefined && !safeColor(cfg.value)) {
     return { type: "text", value: cfg.value };
   }
+  if (cfg.type === "select") {
+    const { pictures: _pictures, ...select } = cfg;
+    return select as PaneConfig[string];
+  }
   return cfg as PaneConfig[string];
 }
 

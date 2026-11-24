@@ -54,7 +54,8 @@ The loop never waits for the user:
    for each design in `instanceIn`, and anything else touching another design, publish
    an idea for it with one question, never a direct change. `read` lists open ones.
 3. Publish what varies as alternatives or a choice knob (`--knobs`, a `select` the user
-   picks from in Choices or compares on a Sheet); add `--set` on an idea when all items ship together (each
+   picks from in Choices or compares on a Sheet; `"pictures": false` keeps one a dropdown
+   in Tune, for what only motion or a click shows); add `--set` on an idea when all items ship together (each
    item gets its own per-knob `★ Main` and all live items ship on Use). The user compares,
    marks Main / Bookmark (`keep`) / Delete (`deleted`, surfaced silently in `ruledOut`),
    saves looks and presses Use without a question. `mockpit ask` only when a choice blocks
