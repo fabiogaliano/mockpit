@@ -561,8 +561,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     `mockpit:knobs`, or one that can't be told, reads them all). Each group folds, showing its
     pick while folded (the user's own fold kept per design per browser; else a new group is
     open, the alternatives are while nothing is new, a group alone is: `choiceFolds`), with a
-    picture tile per value (a Sheet still, `stills.ts`; the label alone until one exists) and
-    Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
+    picture tile per value (a Sheet still, `stills.ts`, asked for ahead of all other stills as
+    `lead` while its group is open on the frame on stage, never while folded; framed, once the
+    group's stills are all in, on the box where they differ, `stillCrop.ts`, whole when that is
+    most of the page) and Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
     on a click, and keeps or rules out from its corner with the Sheet's cell marks. An
     alternative's tile reads as a question's answer does (a rest of `HOLD_MS` holds it, a click
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
@@ -574,7 +576,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     panel can stand beside the design. Tune keeps the fine knobs the page reads (`tuneKnobs`,
     `tuneListed`), opening on its group when it has only one; or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
-    when it would take the design below 80%). On an idea, the frame on stage carries
+    when it would take the design below 80%; Choices, once open on a desktop, stands beside
+    the design however small that leaves it, though it opens by itself only past 80%). On an idea, the frame on stage carries
     a pill over its top corner, in the caption and always there, and a sheet cell one on hover
     (`MarkPill.tsx`: Main, Bookmark/Keep, then Comment, More like this, then Delete; keys M, K, X),
     with Borrow, Copy to… and Move to… behind the ⋯ at the stage pill's end

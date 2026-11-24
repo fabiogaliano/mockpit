@@ -203,13 +203,17 @@ export function createMargins(
     ),
   );
 
-  const fit = createMemo(() =>
-    !active()
-      ? { left: false, right: false }
-      : sideBySide()
-        ? { left: false, right: side() !== null }
-        : fitWith(leftHas() && !folded()),
-  );
+  // Choices open on a desktop stands beside the design however wide it is: the design fits
+  // the room left rather than being covered, and the left margin stands only if both fit.
+  // It still opens by itself only where it fits at MARGIN_MIN_SCALE (side above).
+  const choicesBeside = () =>
+    !tabletLayout() && (side() === "alts" || (side() === "talk" && choicesHas()));
+  const fit = createMemo(() => {
+    if (!active()) return { left: false, right: false };
+    if (sideBySide()) return { left: false, right: side() !== null };
+    const f = fitWith(leftHas() && !folded());
+    return choicesBeside() && !f.right ? { left: false, right: true } : f;
+  });
   const leftDocked = () => fit().left;
   const rightDocked = () => fit().right;
   const leftTab = () => active() && leftHas() && !leftDocked();

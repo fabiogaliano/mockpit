@@ -39,6 +39,8 @@ export function createStills(designId: () => string | undefined) {
   let disposed = false;
   const eventStamps = new Map<string, { serial: number; revision: number }>();
   const wanted = new Map<string, StillRequestCell>();
+  // What the user is choosing between now: asked for first, and taken first.
+  const leading = new Set<string>();
   const requestRevisions = new Map<string, number>();
   const requesting = new Set<string>();
   const window = host().window;
@@ -213,9 +215,11 @@ export function createStills(designId: () => string | undefined) {
   async function flush() {
     const id = designId();
     const owner = generation;
-    const cells = [...wanted].slice(0, MAX_STILLS_ASKED);
+    const lead = [...wanted].filter(([key]) => leading.has(key));
+    const cells = (lead.length ? lead : [...wanted]).slice(0, MAX_STILLS_ASKED);
     for (const [key] of cells) {
       wanted.delete(key);
+      leading.delete(key);
       requesting.add(key);
     }
     if (!id || !cells.length) return;
@@ -226,6 +230,7 @@ export function createStills(designId: () => string | undefined) {
         id,
         cells.map(([, cell]) => cell),
         AbortSignal.timeout(TIMEOUT_MS),
+        lead.length > 0,
       );
     } catch {
       // A dropped request leaves its visible cells available for Retry.
@@ -239,13 +244,22 @@ export function createStills(designId: () => string | undefined) {
     if (wanted.size) void flush();
   }
 
-  const want = (cell: StillCell, retry = false) => {
+  const want = (cell: StillCell, retry = false, lead = false) => {
     if (readonly() || capability() !== "capture") return;
     const key = stillKey(cell);
-    if (requesting.has(key) || wanted.has(key) || pending[key]?.priority === "visible") return;
+    if (lead && wanted.has(key)) leading.add(key);
+    const waits = pending[key]?.priority;
+    if (
+      requesting.has(key) ||
+      wanted.has(key) ||
+      waits === "lead" ||
+      (waits === "visible" && !lead)
+    )
+      return;
     const asset = assets[key];
     if (!retry && (failures[key] || (asset && broken[key] !== asset))) return;
     wanted.set(key, retry && asset ? { ...cell, retryAsset: asset } : cell);
+    if (lead) leading.add(key);
     if (retry) void flush();
     else {
       window.clearTimeout(askTimer);

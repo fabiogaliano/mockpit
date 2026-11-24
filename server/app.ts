@@ -730,6 +730,9 @@ const titleFromSlug = (slug: string) =>
 
 // One still to make: the frame's document at these values, cropped to the part when one is
 // named, sent back with the cell it is of.
+// Lower goes first: a still asked for at a lower rank than it waits at is not queued again.
+const rank = (p: StillPending["priority"]) => (p === "lead" ? 0 : p === "visible" ? 1 : 2);
+
 export interface StillJob extends StillCell, StillPending {
   design: string;
   key: string;
@@ -2110,7 +2113,9 @@ export function createApp({
           removed = true;
         }
         const before = stillsAsked.get(key);
-        if (before && (before.started || priority === "warm" || before.priority === "visible")) {
+        // Asked again ahead of where it waits (lead over visible, either over warm), it is
+        // queued again there; the job it leaves behind finds its attempt gone and is skipped.
+        if (before && (before.started || rank(priority) >= rank(before.priority))) {
           pending[key] = pendingStill(before);
           continue;
         }
@@ -2148,7 +2153,12 @@ export function createApp({
     if (isResult(design)) return design;
     const raw = Array.isArray(body?.cells) ? body.cells.slice(0, MAX_STILLS_ASKED) : [];
     return ok(
-      await enqueueStills(design, await store.listPosts({ designId: design.id }), raw, "visible"),
+      await enqueueStills(
+        design,
+        await store.listPosts({ designId: design.id }),
+        raw,
+        body?.lead === true ? "lead" : "visible",
+      ),
     );
   }
 

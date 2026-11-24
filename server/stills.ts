@@ -91,7 +91,8 @@ export const MAX_SHEET_COLUMNS = 12;
 export interface StillPending {
   attempt: string;
   expires: number;
-  priority: "visible" | "warm";
+  // "lead": what the user is choosing between right now, before anything else visible.
+  priority: "lead" | "visible" | "warm";
 }
 
 /** The index can be reconciled with the live feed by its revision. */

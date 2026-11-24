@@ -4,7 +4,16 @@
 // tile per value, which a mouse on it previews on the stage, a click picks, and its corner
 // keeps or rules out. A colour with options is one row of swatches.
 
-import { createEffect, createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Index,
+  type JSX,
+  Show,
+} from "solid-js";
 import { isLive, recommendedAlternative } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
@@ -16,6 +25,7 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { ALTERNATIVES_GROUP, alternativeName, safeColor, type VersionStep } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
+import { type CropBox, groupCrop } from "./stillCrop.ts";
 import { posterShown } from "./systemRev.ts";
 
 type Value = { value: string; label: string };
@@ -142,11 +152,32 @@ function TileMarks(props: {
   );
 }
 
+// A tile's picture is this wide per unit high, whatever it frames, so the tiles keep their
+// size as their stills come in.
+const TILE_RATIO = 5 / 2;
+
 function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   const c = props.c;
   const id = () => knobGroup(props.g.path);
+  const open = () => c.isOpen(id());
+  // Folded, a group asks for nothing; open, its stills go before any other.
+  const cells = createMemo(() =>
+    open() ? c.shown(props.g).map((v) => c.cellOf(props.g.path, v)?.still ?? null) : [],
+  );
+  createEffect(() => {
+    for (const cell of cells()) if (cell && !c.stills.of(cell)) c.stills.want(cell, false, true);
+  });
+  const urls = () => cells().map((cell) => (cell ? c.stills.of(cell) : null));
+  // Framed once every still is in (or won't be), so no tile re-frames as the others arrive.
+  const settled = () =>
+    cells().length > 0 && cells().every((cell, i) => !cell || !!urls()[i] || c.stills.failed(cell));
+  const [crop] = createResource(
+    () => (settled() ? urls().filter((u): u is string => !!u) : null),
+    (list) => groupCrop(list, TILE_RATIO).then((box) => ({ box })),
+  );
+  const pictured = () => c.stills.capability() === "capture";
   return (
-    <section class="chg" classList={{ shut: !c.isOpen(id()) }}>
+    <section class="chg" classList={{ shut: !open() }}>
       <GroupHead
         c={c}
         id={id()}
@@ -155,19 +186,37 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         current={c.valueLabel(props.g)}
         compare={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
-      <Show when={c.isOpen(id())}>
+      <Show when={open()}>
         <div class="chg-tiles">
-          <For each={c.shown(props.g)}>{(v) => <KnobTile c={c} g={props.g} v={v} />}</For>
+          <Index each={c.shown(props.g)}>
+            {(v, i) => (
+              <KnobTile
+                c={c}
+                g={props.g}
+                v={v()}
+                pictured={pictured() && !!cells()[i]}
+                url={crop() ? (urls()[i] ?? null) : null}
+                crop={crop()?.box ?? null}
+              />
+            )}
+          </Index>
         </div>
       </Show>
     </section>
   );
 }
 
-function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value }) {
+function KnobTile(props: {
+  c: Choices;
+  g: ChoiceGroup;
+  v: Value;
+  // A picture is coming: its place is kept until it does.
+  pictured: boolean;
+  url: string | null;
+  crop: CropBox | null;
+}) {
   const c = props.c;
   const path = () => props.g.path;
-  const still = createMemo(() => c.cellOf(path(), props.v)?.still ?? null);
   return (
     <TileShell
       label={props.v.label}
@@ -182,15 +231,39 @@ function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value }) {
           : undefined
       }
     >
-      <Show when={still()}>{(st) => <Still c={c} cell={st()} />}</Show>
+      <Show when={props.pictured || props.url}>
+        <span class="cht-pic">
+          <Show when={props.url}>
+            {(u) => (
+              <img
+                src={u()}
+                alt=""
+                decoding="async"
+                draggable={false}
+                classList={{ framed: !!props.crop }}
+                style={
+                  props.crop
+                    ? {
+                        width: `${100 / props.crop.w}%`,
+                        height: `${100 / props.crop.h}%`,
+                        left: `${(-props.crop.x / props.crop.w) * 100}%`,
+                        top: `${(-props.crop.y / props.crop.h) * 100}%`,
+                      }
+                    : undefined
+                }
+              />
+            )}
+          </Show>
+        </span>
+      </Show>
     </TileShell>
   );
 }
 
 type StillCell = NonNullable<NonNullable<ReturnType<Choices["cellOf"]>>["still"]>;
 
-// The frame in a value, once a still of it is made: asked for as the Sheet's cells are, and
-// nothing in its place until then.
+// An alternative in the values it wears, once a still of it is made: asked for as the
+// Sheet's cells are, and nothing in its place until then.
 function Still(props: { c: Choices; cell: StillCell }) {
   const src = () => props.c.stills.of(props.cell);
   createEffect(() => {

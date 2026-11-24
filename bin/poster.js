@@ -523,7 +523,8 @@ async function stillWork(job, failed, signal = AbortSignal.timeout(2000)) {
 }
 
 const isStill = (name) => name.endsWith("-still.job");
-const isVisible = (name) => name.startsWith("visible-") && isStill(name);
+const isLead = (name) => name.startsWith("lead-") && isStill(name);
+const isVisible = (name) => (name.startsWith("visible-") || isLead(name)) && isStill(name);
 
 async function stillShot(port, job, tab) {
   const remaining = job.still.expires - Date.now();
@@ -604,7 +605,9 @@ async function work() {
       for (;;) {
         const names = jobsIn(dir);
         const board = !runningBoard && names.find((name) => !isStill(name));
-        const foreground = names.filter(isVisible);
+        // What the user is choosing between goes first, ahead of a row already begun.
+        const lead = names.filter(isLead);
+        const foreground = lead.length ? lead : names.filter(isVisible);
         const stills = foreground.length ? foreground : names.filter(isStill);
         const inRow = row ? stills.find((name) => name.endsWith(`-${row}-still.job`)) : null;
         // A Board capture gets a lane whenever it is waiting. The other lanes take
