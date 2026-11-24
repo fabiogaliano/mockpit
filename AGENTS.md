@@ -583,7 +583,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     was changed and no marks on a knob's values (Main, Keep and Delete stay on alternatives and
     on Sheet cells, where comparing is the point). The
     alternatives lead, as a list: a row each, its poster (the one picture of its version,
-    already taken; the panel asks for none) beside its name and description. Rows are one height, the
+    already taken; the panel asks for none) beside its name; its description is the row's
+    title and the version caption on stage, not text in the row. Rows are one height, the
     name on one line (whole in the title), and the marks sit over the poster's corner, whose
     place stays with no poster, so nothing a hover shows covers or moves the words. A row reads as
     a question's answer does (a rest of `HOLD_MS` holds it, a click

@@ -538,7 +538,8 @@ function newestOf(s: DesignScreenState, alternative: string): VersionStep | unde
     .at(-1);
 }
 
-// The state's alternatives, first and as a list: each a row with its poster and what it is.
+// The state's alternatives, first and as a list: each a row with its poster and name, what
+// the agent says it is in the row's title and the version caption on stage.
 // Read as a question's answers are: a mouse on one previews it, a
 // rest holds it on stage, a click makes it Main (where there is a Main to make; else it only
 // goes on stage), and the agent's suggestion wears an answer's mark. Archived ones fold
@@ -622,14 +623,9 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
                       ruleOut: canOut() ? () => runFrameAction(s, "delete", { v }) : undefined,
                     }}
                     extra={
-                      <>
-                        <Show when={v.description}>
-                          {(d) => <span class="cht-desc">{d()}</span>}
-                        </Show>
-                        <Show when={used() === v.alternative}>
-                          <small>In use</small>
-                        </Show>
-                      </>
+                      <Show when={used() === v.alternative}>
+                        <small>In use</small>
+                      </Show>
                     }
                   >
                     <span

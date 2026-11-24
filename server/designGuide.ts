@@ -673,7 +673,8 @@ declare geometry; the viewer measures it.
 Publish the design alone, laid out for the width it ships at: no captions,
 side notes, labels or rationale beside it (they shrink the design on a phone).
 Say what an alternative is in \`--description "System font, thin bars; feels like a tool"\`;
-the viewer shows it on the alternative and its option. Name the widths the user
+the viewer shows it as the alternative's caption on the stage, its tooltip in the list
+and on its option. Name the widths the user
 ships to once, \`--widths 390,1280\`, and the design is shown at each, side by
 side; without them the viewer picks one for the screen it is on. The Board shows
 each page's poster, a still, and Focus runs it live: the CLI and stdio MCP take one

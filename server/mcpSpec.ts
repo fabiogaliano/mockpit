@@ -50,7 +50,7 @@ const field = {
   withdraw: "Take the latest version back, before the user acts on it",
   fork: 'Start this new alternative from a sibling, "alternative" or "alternative@N": alone a copy, with parts/swaps an edited one',
   prompt: "What prompted this version; usually omit",
-  description: "What this alternative is; shown beside it, never in the html",
+  description: "What this alternative is: its caption; never in the html",
   widths: "Widths it ships at, side by side: [390,1280]",
   kind: "Only for the product's screens: screen, or component (a reusable design screens include). With no body it plans one. Omit for ideas, diagrams, reviews",
   area: 'Product area in the project\'s words, a page of the Board. "" clears',

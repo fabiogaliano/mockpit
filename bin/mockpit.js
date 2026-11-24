@@ -93,7 +93,7 @@ verbs:
                         user has acted on it (one request, one version)
       --withdraw        take the latest version back, under the same rule
       --prompt <text>   what prompted this version
-      --description <text>  one line on what this alternative is, shown beside it
+      --description <text>  one line on what this alternative is: its caption and tooltip
       --widths <list>   device widths to show it at, e.g. 390,1280
       --flow <name> [--step <N>]  make this state step N of a flow (0 takes
                         it out); with no html it only places the state
@@ -281,8 +281,8 @@ mockpit publish --design <slug> [--state s] [--alternative v] --withdraw
                      its latest); alone it copies v, with --parts/--swaps it
                      edits the copy
   --prompt <text>    what prompted this version
-  --description <text>  one line on what this alternative is, shown beside it (never
-                     inside the design)
+  --description <text>  one line on what this alternative is, its caption on the stage
+                     and its tooltip in the list (never inside the design)
   --widths <list>    device widths the design is judged at, side by side, e.g.
                      390,1280 (the ones the user ships to)
   --flow <name>      a flow this state is a step of: the states the user moves

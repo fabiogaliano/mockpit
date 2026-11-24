@@ -11508,15 +11508,6 @@ button.bmc {
   left: 93px;
   transform: translateX(-100%);
 }
-.cht-desc {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  color: var(--t4);
-  font-size: 12px;
-  line-height: 1.35;
-}
 .cht-at {
   position: absolute;
   inset: 2px;
