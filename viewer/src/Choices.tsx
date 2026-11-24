@@ -19,6 +19,7 @@ import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import type { ChoiceGroup, Choices } from "./choices.ts";
 import { knobGroup } from "./choices.ts";
+import { knownSame, sameSignature, setKnownSame } from "./choicesSeen.ts";
 import { canFrame, runFrameAction } from "./frameActions.ts";
 import { createHold } from "./holdPreview.ts";
 import { readonly } from "./host.ts";
@@ -168,7 +169,18 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   const cells = createMemo(() =>
     open() ? c.shown(props.g).map((v) => c.cellOf(props.g.path, v)?.still ?? null) : [],
   );
+  // Known to draw one picture on this frame as it stands: its stills aren't asked for again.
+  const signature = createMemo(() => {
+    const cell = cells().find((x) => !!x);
+    return cell ? sameSignature(cell, props.g.path) : null;
+  });
+  const remembered = () => {
+    const d = c.designId();
+    const sig = signature();
+    return !!d && !!sig && knownSame(d, sig);
+  };
   createEffect(() => {
+    if (remembered()) return;
     for (const cell of cells()) if (cell && !c.stills.of(cell)) c.stills.want(cell, false, true);
   });
   const urls = () => cells().map((cell) => (cell ? c.stills.of(cell) : null));
@@ -204,7 +216,15 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
     const l = look();
     return l && l.key === judged()?.key ? l : null;
   };
-  const unchanged = () => !!current()?.same;
+  createEffect(() => {
+    const l = current();
+    const d = c.designId();
+    const sig = signature();
+    if (l && d && sig) setKnownSame(d, sig, l.same);
+  });
+  // Without this group's stills, its verdict from before stands, names only.
+  const fromBefore = () => !current() && remembered();
+  const unchanged = () => fromBefore() || !!current()?.same;
   // The same but for a live canvas: its scene may differ by the value, so the tiles stay.
   const outsideCanvas = () => {
     const l = current();
@@ -216,7 +236,9 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   };
   const tileOf = (i: number): TilePicture => {
     const cell = cells()[i];
-    if (!pictured() || !cell || (unchanged() && !outsideCanvas())) return { kind: "none" };
+    if (!pictured() || !cell || fromBefore() || (unchanged() && !outsideCanvas())) {
+      return { kind: "none" };
+    }
     // As a Sheet cell does: its own still, else one of the same cell before its frame or the
     // system changed, shown while its own is taken; an asset gone from the store is retaken.
     const shot = c.stills.picture(cell);
@@ -228,7 +250,7 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   };
   // How many of the open group's pictures are in, while any is still on its way.
   const progress = () => {
-    if (!pictured()) return null;
+    if (!pictured() || fromBefore()) return null;
     const asked = cells().filter((cell): cell is StillCell => !!cell);
     const waiting = asked.filter((cell) => !c.stills.of(cell) && !c.stills.failed(cell));
     return waiting.length ? `${asked.length - waiting.length} of ${asked.length}` : null;
@@ -251,6 +273,20 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
             {outsideCanvas()
               ? `No visible change on ${alternativeName(c.frame()?.alternative ?? "")} outside its live canvas, at rest.`
               : `No visible change on ${alternativeName(c.frame()?.alternative ?? "")} at rest: every value draws the same picture.`}
+            <Show when={fromBefore() && pictured() && !readonly()}>
+              {" "}
+              <button
+                type="button"
+                class="chg-again"
+                onClick={() => {
+                  const d = c.designId();
+                  const sig = signature();
+                  if (d && sig) setKnownSame(d, sig, false);
+                }}
+              >
+                Check again
+              </button>
+            </Show>
           </p>
         </Show>
         <div class="chg-tiles">

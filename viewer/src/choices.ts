@@ -198,6 +198,7 @@ export function createChoices(s: DesignScreenState) {
   };
 
   return {
+    designId: () => s.design()?.id,
     frame,
     hasAlternatives,
     groups,

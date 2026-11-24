@@ -569,7 +569,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     whose scene never draws twice alike, to the JPEG blocks they reach; where every value's
     still is the same picture, compared at full size, the group says there is no visible change
     on that frame and its tiles are names only, still picked from (the same but for a live
-    canvas: it says so, and the pictures stay); a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
+    canvas: it says so, and the pictures stay). That verdict is kept per browser
+    (`choicesSeen.ts` `sameSignature`: the frame's version and the other knobs' values, not
+    the mode, palette or system), and while it stands the group's stills aren't asked for
+    again, with Check again to ask; a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
     the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
     and Sheet; a colour with options is a row of swatches. A tile previews under a mouse, picks
     on a click, and keeps or rules out from its corner with the Sheet's cell marks. An

@@ -6,6 +6,7 @@
 // unfolded by hand, which win over the panel's own rule.
 
 import { createSignal } from "solid-js";
+import type { StillCell } from "../../server/stills.ts";
 import { host } from "./host.ts";
 
 interface Known {
@@ -84,4 +85,48 @@ export function ownFolds(design: string): Record<string, boolean> {
 
 export function setOwnFold(design: string, group: string, open: boolean) {
   write(foldKey(design), { ...read<Record<string, boolean>>(foldKey(design)), [group]: open });
+}
+
+// Choice groups whose every value drew one picture on a frame, by design: a signature of the
+// frame's version and the other knobs' values (`sameSignature`), so the group's stills aren't
+// asked for again when only the mode, palette or system changes, and are once the frame
+// changes or another knob's value does, which can make this one matter. Newest last, capped.
+const sameKey = (design: string) => `mockpit:choices-same:${design}`;
+const MAX_SAME = 200;
+
+const sameList = (design: string): string[] => {
+  const v = read<unknown>(sameKey(design));
+  return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+};
+
+export function knownSame(design: string, signature: string): boolean {
+  void rev();
+  return sameList(design).includes(signature);
+}
+
+export function setKnownSame(design: string, signature: string, same: boolean) {
+  const list = sameList(design);
+  if (list.includes(signature) === same) return;
+  const rest = list.filter((s) => s !== signature);
+  write(sameKey(design), same ? [...rest, signature].slice(-MAX_SAME) : rest);
+}
+
+// What a group's verdict is kept under: the frame as drawn, and every knob value but the
+// group's own, any of which can make this knob matter. The mode, palette and system are left
+// out: what a knob draws seldom hangs on them, they change often, and the panel's Check
+// again asks anew.
+export function sameSignature(cell: StillCell, path: string): string {
+  const { [path]: _own, ...others } = cell.knobs;
+  return JSON.stringify([
+    cell.postId,
+    cell.version,
+    cell.rewrites,
+    cell.e,
+    cell.part,
+    cell.width,
+    path,
+    Object.keys(others)
+      .sort()
+      .map((k) => [k, others[k]]),
+  ]);
 }

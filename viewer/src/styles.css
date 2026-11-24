@@ -11279,6 +11279,14 @@ button.bmc {
   font-size: 13px;
   line-height: 1.4;
 }
+.chg-again {
+  color: var(--t2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.chg-again:hover {
+  color: var(--t1);
+}
 .chg-tiles {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
