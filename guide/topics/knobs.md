@@ -11,8 +11,8 @@ listening for `mockpit:knobs` shows every knob.
 
 A choice knob is a `select`, `image` or `color` with options, or a part's swaps. Publish what
 varies across renders as one, not as a question: it shows in the Choices panel beside the
-design, under any open question and the alternatives, as a picture of the frame in each
-value (a colour as swatches), marked new until the user acts on it. Picking a value there
+design, under any open question and the alternatives, as its values by name, each shown on
+the design while the user points at it (a colour as swatches), marked new until the user acts on it. Picking a value there
 applies it to every live alternative of the state that has the knob, so each frame's
 `tunedOn` carries it; Tune keeps only the fine knobs. Its Sheet button lays it out as a Sheet: the
 frame in every value, then every frame in every value (frames down, values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it

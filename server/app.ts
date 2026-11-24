@@ -181,12 +181,7 @@ import {
   SHEET_PART_PAD,
   sheetCrop,
   sheetKnobs,
-  checkStillMasks,
-  masksOf,
-  readStillMasks,
   readStills,
-  stillMasksSetting,
-  withStillMasks,
   type StillCell,
   type StillPending,
   type StillRequestCell,
@@ -738,7 +733,7 @@ const titleFromSlug = (slug: string) =>
 // One still to make: the frame's document at these values, cropped to the part when one is
 // named, sent back with the cell it is of.
 // Lower goes first: a still asked for at a lower rank than it waits at is not queued again.
-const rank = (p: StillPending["priority"]) => (p === "lead" ? 0 : p === "visible" ? 1 : 2);
+const rank = (p: StillPending["priority"]) => (p === "visible" ? 0 : 1);
 
 export interface StillJob extends StillCell, StillPending {
   design: string;
@@ -2047,10 +2042,6 @@ export function createApp({
     return serialDecision(stillsSetting(design.id), async () => {
       expiredStills();
       const stills = readStills(await store.getSetting(stillsSetting(design.id)));
-      const masks = masksOf(
-        readStillMasks(await store.getSetting(stillMasksSetting(design.id))),
-        stills,
-      );
       const revs = new Set(
         Object.keys(stills)
           .map(legacyStillRevision)
@@ -2073,7 +2064,6 @@ export function createApp({
       );
       return ok({
         stills,
-        masks,
         pending,
         legacyPalettes,
         taking: !!takeStills,
@@ -2101,10 +2091,9 @@ export function createApp({
       expiredStills();
       const pending: Record<string, StillPending> = {};
       const stills: Record<string, string> = {};
-      if (!takeStills) return { pending, stills, masks: {}, revision: stillsRevision };
+      if (!takeStills) return { pending, stills, revision: stillsRevision };
       const system = await systemFor(design.project);
       const have = readStills(await store.getSetting(setting));
-      const haveMasks = readStillMasks(await store.getSetting(stillMasksSetting(design.id)));
       const jobs: StillJob[] = [];
       let removed = false;
       for (const r of raw) {
@@ -2126,8 +2115,8 @@ export function createApp({
           removed = true;
         }
         const before = stillsAsked.get(key);
-        // Asked again ahead of where it waits (lead over visible, either over warm), it is
-        // queued again there; the job it leaves behind finds its attempt gone and is skipped.
+        // Asked again ahead of where it waits (visible over warm), it is queued again there;
+        // the job it leaves behind finds its attempt gone and is skipped.
         if (before && (before.started || rank(priority) >= rank(before.priority))) {
           pending[key] = pendingStill(before);
           continue;
@@ -2156,7 +2145,7 @@ export function createApp({
           failStill(key, attempt);
         }
       }
-      return { pending, stills, masks: masksOf(haveMasks, stills), revision: stillsRevision };
+      return { pending, stills, revision: stillsRevision };
     });
   }
 
@@ -2166,12 +2155,7 @@ export function createApp({
     if (isResult(design)) return design;
     const raw = Array.isArray(body?.cells) ? body.cells.slice(0, MAX_STILLS_ASKED) : [];
     return ok(
-      await enqueueStills(
-        design,
-        await store.listPosts({ designId: design.id }),
-        raw,
-        body?.lead === true ? "lead" : "visible",
-      ),
+      await enqueueStills(design, await store.listPosts({ designId: design.id }), raw, "visible"),
     );
   }
 
@@ -2226,8 +2210,6 @@ export function createApp({
     if (!contentType.startsWith("image/") || contentType === "image/svg+xml") {
       return fail(415, "a still is a raster image");
     }
-    const masks = checkStillMasks(body?.masks);
-    if (!masks) return fail(400, '"masks" must be boxes {x, y, w, h} in fractions of the still');
     const setting = stillsSetting(design.id);
     return serialDecision(setting, async () => {
       expiredStills();
@@ -2244,18 +2226,14 @@ export function createApp({
       if (!latest || !(await currentStill(latest, key, attempt))) {
         return fail(409, "this still no longer matches the render");
       }
-      const now = withStill(readStills(await store.getSetting(setting)), key, up.asset.id);
-      await store.setSetting(setting, JSON.stringify(now));
-      const masksSetting = stillMasksSetting(design.id);
-      const was = readStillMasks(await store.getSetting(masksSetting));
-      await store.setSetting(masksSetting, JSON.stringify(withStillMasks(was, now, key, masks)));
+      const now = readStills(await store.getSetting(setting));
+      await store.setSetting(setting, JSON.stringify(withStill(now, key, up.asset.id)));
       stillsAsked.delete(key);
       bus.broadcast({
         type: "stills-updated",
         designId: design.id,
         key,
         asset: up.asset.id,
-        masks,
         attempt,
         revision: ++stillsRevision,
       });

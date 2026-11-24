@@ -4,7 +4,6 @@ import {
   legacyStillCompatibility,
   MAX_STILLS_ASKED,
   olderStillCompatibility,
-  type StillBox,
   type StillCell,
   stillCompatibility,
   stillKey,
@@ -28,8 +27,6 @@ export function createStills(designId: () => string | undefined) {
   const [legacyPalettes, setLegacyPalettes] = createSignal<Record<number, string | null>>({});
   const [indexError, setIndexError] = createSignal(false);
   const [assets, setAssets] = createStore<Record<string, string | undefined>>({});
-  // A still's live canvases; none recorded for one taken before they were.
-  const [masks, setMasks] = createStore<Record<string, StillBox[] | undefined>>({});
   const [pending, setPending] = createStore<Record<string, StillPending | undefined>>({});
   const [failures, setFailures] = createStore<Record<string, boolean | undefined>>({});
   const [broken, setBroken] = createStore<Record<string, string | undefined>>({});
@@ -42,8 +39,6 @@ export function createStills(designId: () => string | undefined) {
   let disposed = false;
   const eventStamps = new Map<string, { serial: number; revision: number }>();
   const wanted = new Map<string, StillRequestCell>();
-  // What the user is choosing between now: asked for first, and taken first.
-  const leading = new Set<string>();
   const requestRevisions = new Map<string, number>();
   const requesting = new Set<string>();
   const window = host().window;
@@ -87,7 +82,6 @@ export function createStills(designId: () => string | undefined) {
       }
       indexRevision = index.revision;
       const next: Record<string, string | undefined> = { ...index.stills };
-      const nextMasks: Record<string, StillBox[] | undefined> = { ...index.masks };
       const work: Record<string, StillPending | undefined> = { ...index.pending };
       for (const key of new Set([...eventStamps.keys(), ...requestRevisions.keys()])) {
         if (
@@ -95,7 +89,6 @@ export function createStills(designId: () => string | undefined) {
           (requestRevisions.get(key) ?? 0) > index.revision
         ) {
           next[key] = assets[key];
-          nextMasks[key] = masks[key];
           work[key] = pending[key];
         }
       }
@@ -111,7 +104,6 @@ export function createStills(designId: () => string | undefined) {
         }
         setLegacyPalettes(index.legacyPalettes);
         setAssets(reconcile(next));
-        setMasks(reconcile(nextMasks));
         setPending(reconcile(work));
         setCapability(index.taking ? "capture" : "live");
         setIndexError(false);
@@ -137,7 +129,6 @@ export function createStills(designId: () => string | undefined) {
     window.clearTimeout(expiryTimer);
     setLegacyPalettes({});
     setAssets(reconcile({}));
-    setMasks(reconcile({}));
     setPending(reconcile({}));
     setFailures(reconcile({}));
     setBroken(reconcile({}));
@@ -166,7 +157,6 @@ export function createStills(designId: () => string | undefined) {
           if (event.type === "stills-updated") {
             setBroken(event.key, undefined);
             setAssets(event.key, event.asset);
-            setMasks(event.key, event.masks);
             setFailures(event.key, undefined);
           } else {
             setFailures(event.key, true);
@@ -211,10 +201,7 @@ export function createStills(designId: () => string | undefined) {
     const asset = result?.stills[key];
     const job = result?.pending[key];
     const wasBroken = !!asset && broken[key] === asset;
-    if (asset) {
-      setAssets(key, asset);
-      setMasks(key, result?.masks[key]);
-    }
+    if (asset) setAssets(key, asset);
     if (job) {
       setAssets(key, undefined);
       setBroken(key, undefined);
@@ -226,11 +213,9 @@ export function createStills(designId: () => string | undefined) {
   async function flush() {
     const id = designId();
     const owner = generation;
-    const lead = [...wanted].filter(([key]) => leading.has(key));
-    const cells = (lead.length ? lead : [...wanted]).slice(0, MAX_STILLS_ASKED);
+    const cells = [...wanted].slice(0, MAX_STILLS_ASKED);
     for (const [key] of cells) {
       wanted.delete(key);
-      leading.delete(key);
       requesting.add(key);
     }
     if (!id || !cells.length) return;
@@ -241,7 +226,6 @@ export function createStills(designId: () => string | undefined) {
         id,
         cells.map(([, cell]) => cell),
         AbortSignal.timeout(TIMEOUT_MS),
-        lead.length > 0,
       );
     } catch {
       // A dropped request leaves its visible cells available for Retry.
@@ -255,22 +239,13 @@ export function createStills(designId: () => string | undefined) {
     if (wanted.size) void flush();
   }
 
-  const want = (cell: StillCell, retry = false, lead = false) => {
+  const want = (cell: StillCell, retry = false) => {
     if (readonly() || capability() !== "capture") return;
     const key = stillKey(cell);
-    if (lead && wanted.has(key)) leading.add(key);
-    const waits = pending[key]?.priority;
-    if (
-      requesting.has(key) ||
-      wanted.has(key) ||
-      waits === "lead" ||
-      (waits === "visible" && !lead)
-    )
-      return;
+    if (requesting.has(key) || wanted.has(key) || pending[key]?.priority === "visible") return;
     const asset = assets[key];
     if (!retry && (failures[key] || (asset && broken[key] !== asset))) return;
     wanted.set(key, retry && asset ? { ...cell, retryAsset: asset } : cell);
-    if (lead) leading.add(key);
     if (retry) void flush();
     else {
       window.clearTimeout(askTimer);
@@ -286,8 +261,6 @@ export function createStills(designId: () => string | undefined) {
     },
     want,
     failed: (cell: StillCell) => !!failures[stillKey(cell)],
-    // The live canvases of the cell's own still, or undefined while none are recorded.
-    masks: (cell: StillCell) => masks[stillKey(cell)],
     pending: (cell: StillCell) => !!pending[stillKey(cell)],
     broken: (key: string, asset: string) => {
       if (assets[key] !== asset) return;

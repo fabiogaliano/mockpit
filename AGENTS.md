@@ -562,21 +562,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     viewer read's `reads`, `server/knobReads.ts`: the served page, instances expanded,
     mentions `k-<path>`, `data-k-bind` or `dataset.k<Path>`, or it is a part's swaps; a page listening for
     `mockpit:knobs`, or one that can't be told, reads them all). Each group folds, showing its
-    pick while folded (the user's own fold kept per design per browser; else a new group is
-    open, the alternatives are while nothing is new, a group alone is: `choiceFolds`), with a
-    picture tile per value (a Sheet still, `stills.ts`, asked for ahead of all other stills as
-    `lead` while its group is open on the frame on stage, never while folded; each shown whole
-    as it comes, then framed, once the group's stills are all in, on the box where they differ,
-    `stillCrop.ts`, whole when that is most of the page, leaving out the stills' live canvases,
-    whose scene never draws twice alike, to the JPEG blocks they reach; where every value's
-    still is the same picture, compared at full size, the group says there is no visible change
-    on that frame and its tiles are names only, still picked from (the same but for a live
-    canvas: it says so, and the pictures stay). That verdict is kept per browser
-    (`choicesSeen.ts` `sameSignature`: the frame's version and the other knobs' values, not
-    the mode, palette or system), and while it stands the group's stills aren't asked for
-    again, with Check again to ask; a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
-    the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
-    and Sheet; a colour with options is a row of swatches. A tile previews under a mouse and picks
+    pick while folded (open unless the user folded it, kept per design per browser:
+    `choiceFolds`), with a chip per value, by name, and Sheet; a colour with options is a row
+    of swatches. The panel asks for no stills: a mouse on a value shows it on the stage, full
+    size and at once, and the Sheet is where values are pictured side by side. A chip previews under a mouse and picks
     on a click: the stage is the answer, and Send carries what it shows, with no count of what
     was changed and no marks on a knob's values (Main, Keep and Delete stay on alternatives and
     on Sheet cells, where comparing is the point). An
@@ -639,9 +628,6 @@ Stances reversed knowingly, so nobody restores them by accident:
   write that changed something leaves a retake: the worker queues the project's latest live
   alternatives that show no still now, and a still mockpit took under another revision may be
   replaced, by any session (`setPosterOnce`); an agent's own poster never is. Built-ins only.
-  A Sheet still also records where its page drew live canvases (WebGL, WebGPU, handed to a
-  worker; marked before the page's scripts run), sent as `masks` with it and kept beside the
-  design's stills (`still-masks:<id>`, `StillMasks` in `server/stills.ts`).
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
 - `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewPanel`, with the widths, from Focus's tool strip: a local encoder, and

@@ -41,9 +41,8 @@ const canonical = (v: unknown): string =>
 export const stillCompatibility = (c: StillCell): string =>
   canonical([c.postId, c.surface, c.width, c.mode, c.palette, c.part, canonical(c.knobs)]);
 
-// Bumped when a capture draws the same cell differently: 2 records the page's live canvases
-// (stillMasks) and loads the blob: textures a model fetches. An older still stays the cell's
-// picture while its own is taken.
+// Bumped when a capture draws the same cell differently: 2 loads the blob: textures a model
+// fetches. An older still stays the cell's picture while its own is taken.
 const STILL_CAPTURE = 2;
 
 /** The exact identity adds the content that renders those settings. */
@@ -96,14 +95,12 @@ export const MAX_SHEET_COLUMNS = 12;
 export interface StillPending {
   attempt: string;
   expires: number;
-  // "lead": what the user is choosing between right now, before anything else visible.
-  priority: "lead" | "visible" | "warm";
+  priority: "visible" | "warm";
 }
 
 /** The index can be reconciled with the live feed by its revision. */
 export interface StillsIndex {
   stills: Stills;
-  masks: StillMasks;
   taking: boolean;
   pending: Record<string, StillPending>;
   legacyPalettes: Record<number, string | null>;
@@ -114,7 +111,7 @@ export interface StillsIndex {
 export type StillRequestCell = StillCell & { retryAsset?: string };
 
 /** Every requested key is either cached, pending, or absent from both. */
-export type StillsRequest = Pick<StillsIndex, "stills" | "masks" | "pending" | "revision">;
+export type StillsRequest = Pick<StillsIndex, "stills" | "pending" | "revision">;
 
 export const stillsSetting = (designId: string) => `stills:${designId}`;
 // Past this a design's oldest stills go: twelve columns of a few dozen frames, twice over.
@@ -124,65 +121,6 @@ export const MAX_STILLS_ASKED = 120;
 
 // key → asset id, oldest first.
 export type Stills = Record<string, string>;
-
-// Where a still's page drew a live canvas (WebGL, WebGPU, or one handed to a worker), in
-// fractions of the still. Such a canvas draws a moving scene, never twice alike, so what
-// differs inside it between two stills is the moment, not the value: the viewer leaves it
-// out when it frames or judges a knob's stills. A 2-D canvas is not one: what it draws
-// follows the page, as markup does.
-export interface StillBox {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
-// key → its live canvases, for stills taken since they were recorded: none is [].
-export type StillMasks = Record<string, StillBox[]>;
-export const stillMasksSetting = (designId: string) => `still-masks:${designId}`;
-const MAX_MASKS = 16;
-
-export function readStillMasks(raw: string | null): StillMasks {
-  if (!raw) return {};
-  try {
-    const v: unknown = JSON.parse(raw);
-    return v && typeof v === "object" && !Array.isArray(v) ? (v as StillMasks) : {};
-  } catch {
-    return {};
-  }
-}
-
-const unit = (n: unknown): n is number => typeof n === "number" && n >= 0 && n <= 1;
-
-/** A capture's boxes, or null when they aren't boxes inside the still. */
-export function checkStillMasks(raw: unknown): StillBox[] | null {
-  if (raw === undefined) return [];
-  if (!Array.isArray(raw) || raw.length > MAX_MASKS) return null;
-  const out: StillBox[] = [];
-  for (const b of raw) {
-    if (!b || typeof b !== "object") return null;
-    const { x, y, w, h } = b as Record<string, unknown>;
-    if (![x, y, w, h].every(unit)) return null;
-    out.push({ x: x as number, y: y as number, w: w as number, h: h as number });
-  }
-  return out;
-}
-
-/** The masks with one still's, kept only for stills the design still has. */
-export function withStillMasks(
-  masks: StillMasks,
-  stills: Stills,
-  key: string,
-  boxes: StillBox[],
-): StillMasks {
-  const out: StillMasks = {};
-  for (const k of Object.keys(stills)) if (masks[k]) out[k] = masks[k];
-  if (stills[key]) out[key] = boxes;
-  return out;
-}
-
-/** The masks of these stills only. */
-export const masksOf = (masks: StillMasks, stills: Stills): StillMasks =>
-  Object.fromEntries(Object.keys(stills).flatMap((k) => (masks[k] ? [[k, masks[k]]] : [])));
 
 export function readStills(raw: string | null): Stills {
   if (!raw) return {};

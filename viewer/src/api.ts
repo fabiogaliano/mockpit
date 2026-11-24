@@ -343,9 +343,9 @@ export const api = {
     call<{ looks: LookView[] }>(`/api/designs/${encodeURIComponent(id)}/looks`, json("POST", body)),
   stills: (id: string, signal: AbortSignal) =>
     call<StillsIndex>(`/api/designs/${encodeURIComponent(id)}/stills`, { signal }),
-  takeStills: (id: string, cells: StillRequestCell[], signal: AbortSignal, lead = false) =>
+  takeStills: (id: string, cells: StillRequestCell[], signal: AbortSignal) =>
     call<StillsRequest>(`/api/designs/${encodeURIComponent(id)}/stills/take`, {
-      ...json("POST", { cells, ...(lead ? { lead } : {}) }),
+      ...json("POST", { cells }),
       signal,
     }),
   reply: (

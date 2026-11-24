@@ -153,10 +153,6 @@ export function createChoices(s: DesignScreenState) {
     label: v.label,
     values: { [path]: v.value },
   });
-  const cellOf = (path: string, v: { value: string; label: string }) => {
-    const f = frame();
-    return f ? s.sheet.cell(f, column(path, v)) : null;
-  };
   const markOf = (path: string, v: { value: string; label: string }) => {
     const f = frame();
     return f ? s.markOf(subjectOf({ v: f, col: column(path, v) })) : null;
@@ -192,7 +188,6 @@ export function createChoices(s: DesignScreenState) {
     pick,
     preview,
     unpreview,
-    cellOf,
     markOf,
     shown,
     canCompare,

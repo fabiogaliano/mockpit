@@ -1,36 +1,23 @@
 // The Choices panel's list, under the open question if there is one: the state's
-// alternatives, then each choice knob the frame on stage reads (choices.ts). Every group is
-// the same thing: a heading that folds it, showing the current pick while folded, and a
-// tile per value, which a mouse on it previews on the stage, a click picks, and its corner
-// keeps or rules out. A colour with options is one row of swatches.
+// alternatives, the presets, then each choice knob the frame on stage reads (choices.ts).
+// Every group is the same thing: a heading that folds it, showing the current pick while
+// folded, and its values, which a mouse on one previews on the stage and a click picks. An
+// alternative is a picture of it; a knob's value a name; a colour with options a swatch.
 
-import {
-  createEffect,
-  createMemo,
-  createResource,
-  createSignal,
-  For,
-  Index,
-  type JSX,
-  Show,
-} from "solid-js";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { isLive, recommendedAlternative } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { PresetsRow } from "./Looks.tsx";
 import type { ChoiceGroup, Choices } from "./choices.ts";
 import { knobGroup } from "./choices.ts";
-import { knownSame, sameSignature, setKnownSame } from "./choicesSeen.ts";
 import { canFrame, runFrameAction } from "./frameActions.ts";
 import { createHold } from "./holdPreview.ts";
 import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { ALTERNATIVES_GROUP, alternativeName, safeColor, type VersionStep } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
-import { type CropBox, groupLook } from "./stillCrop.ts";
 import { posterShown } from "./systemRev.ts";
-
-type Value = { value: string; label: string };
 
 export function ChoicesList(props: { s: DesignScreenState; c: Choices }) {
   const c = props.c;
@@ -159,104 +146,13 @@ function TileMarks(props: {
   );
 }
 
-// A tile's picture is this wide per unit high, whatever it frames, so the tiles keep their
-// size as their stills come in.
-const TILE_RATIO = 5 / 2;
-
+// A knob's values as chips, by name: a mouse on one shows it on the stage, full size and at
+// once, which no picture at tile size could; a click sets it. The Sheet is where values are
+// pictured side by side.
 function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   const c = props.c;
   const id = () => knobGroup(props.g.path);
   const open = () => c.isOpen(id());
-  // Folded, a group asks for nothing; open, its stills go before any other.
-  const cells = createMemo(() =>
-    open() ? c.shown(props.g).map((v) => c.cellOf(props.g.path, v)?.still ?? null) : [],
-  );
-  // Known to draw one picture on this frame as it stands: its stills aren't asked for again.
-  const signature = createMemo(() => {
-    const cell = cells().find((x) => !!x);
-    return cell ? sameSignature(cell, props.g.path) : null;
-  });
-  const remembered = () => {
-    const d = c.designId();
-    const sig = signature();
-    return !!d && !!sig && knownSame(d, sig);
-  };
-  createEffect(() => {
-    if (remembered()) return;
-    for (const cell of cells()) if (cell && !c.stills.of(cell)) c.stills.want(cell, false, true);
-  });
-  const urls = () => cells().map((cell) => (cell ? c.stills.of(cell) : null));
-  const pictured = () => c.stills.capability() === "capture";
-  // Each still shows as it comes, whole; once every one is in (or won't be) they are framed
-  // on what differs, so a tile re-frames once rather than as each of the others arrives.
-  const settled = () =>
-    cells().length > 0 && cells().every((cell, i) => !cell || !!urls()[i] || c.stills.failed(cell));
-  // Framed, and judged: a knob the page names but whose every value draws the same picture
-  // here changes nothing on this frame, which a row of identical tiles would only hide.
-  const judged = createMemo(() => {
-    if (!settled()) return null;
-    const shots = cells().map((cell) => (cell ? c.stills.picture(cell) : null));
-    const stills = cells().flatMap((cell, i) => {
-      const p = shots[i];
-      return cell && p?.exact
-        ? [{ url: assetUrl(p.asset), asset: p.asset, masks: c.stills.masks(cell) }]
-        : [];
-    });
-    const complete = stills.length === shots.length;
-    const masked = stills.some((p) => p.masks?.length);
-    return {
-      stills,
-      complete,
-      key: `${complete}:${masked}:${stills.map((p) => p.asset).join(",")}`,
-    };
-  });
-  const [look] = createResource(judged, (src) =>
-    groupLook(src.stills, TILE_RATIO, src.complete).then((l) => ({ ...l, key: src.key })),
-  );
-  // A resource keeps its last value while its source changes: only a look of these stills.
-  const current = () => {
-    const l = look();
-    return l && l.key === judged()?.key ? l : null;
-  };
-  createEffect(() => {
-    const l = current();
-    const d = c.designId();
-    const sig = signature();
-    if (l && d && sig) setKnownSame(d, sig, l.same);
-  });
-  // Without this group's stills, its verdict from before stands, names only.
-  const fromBefore = () => !current() && remembered();
-  const unchanged = () => fromBefore() || !!current()?.same;
-  // The same but for a live canvas: its scene may differ by the value, so the tiles stay.
-  const outsideCanvas = () => {
-    const l = current();
-    return !!l && l.same && l.masked;
-  };
-  const crop = () => {
-    const l = current();
-    return l && !l.same ? l.box : null;
-  };
-  const tileOf = (i: number): TilePicture => {
-    const cell = cells()[i];
-    if (!pictured() || !cell || fromBefore() || (unchanged() && !outsideCanvas())) {
-      return { kind: "none" };
-    }
-    // As a Sheet cell does: its own still, else one of the same cell before its frame or the
-    // system changed, shown while its own is taken; an asset gone from the store is retaken.
-    const shot = c.stills.picture(cell);
-    const broken = shot ? () => c.stills.broken(shot.key, shot.asset) : () => undefined;
-    if (shot?.exact) return { kind: "shown", url: assetUrl(shot.asset), crop: crop(), broken };
-    if (c.stills.failed(cell))
-      return { kind: "failed", retry: () => c.stills.want(cell, true, true) };
-    return { kind: "waiting", older: shot ? assetUrl(shot.asset) : null, broken };
-  };
-  // How many of the open group's pictures are in, while any is still on its way.
-  const progress = () => {
-    if (!pictured() || fromBefore()) return null;
-    const asked = cells().filter((cell): cell is StillCell => !!cell);
-    const waiting = asked.filter((cell) => !c.stills.of(cell) && !c.stills.failed(cell));
-    return waiting.length ? `${asked.length - waiting.length} of ${asked.length}` : null;
-  };
   return (
     <section class="chg" classList={{ shut: !open() }} data-knob-row={props.g.path}>
       <GroupHead
@@ -265,131 +161,34 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         title={props.g.label}
         isNew={c.isNew(props.g.path)}
         current={c.valueLabel(props.g)}
-        status={progress()}
         sheet={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
       <Show when={open()}>
-        <Show when={unchanged()}>
-          <p class="chg-note">
-            {/* At rest: a value may still change how the page moves, which a still can't show. */}
-            {outsideCanvas()
-              ? `No visible change on ${alternativeName(c.frame()?.alternative ?? "")} outside its live canvas, at rest.`
-              : `No visible change on ${alternativeName(c.frame()?.alternative ?? "")} at rest: every value draws the same picture.`}
-            <Show when={fromBefore() && pictured() && !readonly()}>
-              {" "}
+        <div class="chips-row" role="group" aria-label={props.g.label}>
+          <For each={c.shown(props.g)}>
+            {(v) => (
               <button
                 type="button"
-                class="chg-again"
-                onClick={() => {
-                  const d = c.designId();
-                  const sig = signature();
-                  if (d && sig) setKnownSame(d, sig, false);
-                }}
+                class="chc"
+                classList={{ on: c.isPicked(props.g.path, v.value) }}
+                aria-pressed={c.isPicked(props.g.path, v.value)}
+                disabled={readonly()}
+                onPointerEnter={(e) => e.pointerType === "mouse" && c.preview(props.g, v)}
+                onPointerLeave={(e) =>
+                  e.pointerType === "mouse" && c.unpreview(props.g.path, v.value)
+                }
+                onFocus={() => c.preview(props.g, v)}
+                onBlur={() => c.unpreview(props.g.path, v.value)}
+                onClick={() => c.pick(props.g.path, v.value)}
               >
-                Check again
+                {v.label}
               </button>
-            </Show>
-          </p>
-        </Show>
-        <div class="chg-tiles">
-          <Index each={c.shown(props.g)}>
-            {(v, i) => <KnobTile c={c} g={props.g} v={v()} picture={tileOf(i)} />}
-          </Index>
+            )}
+          </For>
         </div>
       </Show>
     </section>
   );
-}
-
-// A tile's picture as it stands: none to come (no capture here), on its way, taken, or not
-// taken. Each reads differently, so a tile waiting is never read as a value that draws nothing.
-type TilePicture =
-  | { kind: "none" }
-  | { kind: "waiting"; older: string | null; broken: () => void }
-  | { kind: "failed"; retry: () => void }
-  | { kind: "shown"; url: string; crop: CropBox | null; broken: () => void };
-
-function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value; picture: TilePicture }) {
-  const c = props.c;
-  const path = () => props.g.path;
-  const shot = () => {
-    const p = props.picture;
-    if (p.kind === "shown") return p;
-    return p.kind === "waiting" && p.older ? { url: p.older, crop: null, broken: p.broken } : null;
-  };
-  const failed = () => (props.picture.kind === "failed" ? props.picture : null);
-  return (
-    <TileShell
-      label={props.v.label}
-      on={c.isPicked(path(), props.v.value)}
-      kept={false}
-      onEnter={() => c.preview(props.g, props.v)}
-      onLeave={() => c.unpreview(path(), props.v.value)}
-      onPick={() => c.pick(path(), props.v.value)}
-      over={
-        <Show when={failed()}>
-          {(f) => (
-            <button
-              type="button"
-              class="cht-retry"
-              aria-label={`Retry the picture of ${props.v.label}`}
-              onClick={() => f().retry()}
-            >
-              Retry
-            </button>
-          )}
-        </Show>
-      }
-    >
-      <Show when={props.picture.kind !== "none"}>
-        <span
-          class="cht-pic"
-          classList={{ wait: props.picture.kind === "waiting", failed: !!failed() }}
-        >
-          <Show when={shot()}>
-            {(s) => (
-              <img
-                src={s().url}
-                alt=""
-                decoding="async"
-                draggable={false}
-                classList={{ framed: !!s().crop }}
-                onError={() => s().broken()}
-                style={
-                  s().crop
-                    ? {
-                        width: `${100 / s().crop!.w}%`,
-                        height: `${100 / s().crop!.h}%`,
-                        left: `${(-s().crop!.x / s().crop!.w) * 100}%`,
-                        top: `${(-s().crop!.y / s().crop!.h) * 100}%`,
-                      }
-                    : undefined
-                }
-              />
-            )}
-          </Show>
-          <Show when={props.picture.kind === "waiting"}>
-            <span class="sr-only">Taking its picture</span>
-          </Show>
-          <Show when={failed()}>
-            <span class="cht-why">Couldn't take its picture</span>
-          </Show>
-        </span>
-      </Show>
-    </TileShell>
-  );
-}
-
-type StillCell = NonNullable<NonNullable<ReturnType<Choices["cellOf"]>>["still"]>;
-
-// An alternative in the values it wears, once a still of it is made: asked for as the
-// Sheet's cells are, and nothing in its place until then.
-function Still(props: { c: Choices; cell: StillCell }) {
-  const src = () => props.c.stills.of(props.cell);
-  createEffect(() => {
-    if (!src()) props.c.stills.want(props.cell);
-  });
-  return <PosterPic url={src()} />;
 }
 
 function TileShell(props: {
@@ -537,17 +336,12 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
                 onHold: () => show,
                 held: onStage,
               });
-              // Its picture in the values it wears now: its poster while nothing of the
-              // draft changes it, else (or with no poster) a still of it as it stands.
-              const tuned = () => Object.keys(s.draft()?.tunedOn[v.alternative] ?? {}).length > 0;
+              // Its poster, the one picture of its version already taken: the panel asks for
+              // none of its own, and the stage shows it as it stands.
               const poster = () => {
                 const id = posterShown(step()?.poster);
                 return id ? assetUrl(id) : null;
               };
-              const cell = () =>
-                tuned() || !poster()
-                  ? s.sheet.cell(v, { key: "now", label: "", values: {} })?.still
-                  : null;
               const canKeep = () => canFrame(s, "keep", { v });
               const canOut = () => canFrame(s, "delete", { v });
               return (
@@ -588,9 +382,7 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
                       classList={{ held: onStage(), resting: hold.resting() }}
                       aria-hidden="true"
                     />
-                    <Show when={cell()} fallback={<PosterPic url={poster()} />}>
-                      {(st) => <Still c={c} cell={st()} />}
-                    </Show>
+                    <PosterPic url={poster()} />
                     {/* One corner, one mark: once it is the Main, the suggestion has been
                         answered. */}
                     <Show

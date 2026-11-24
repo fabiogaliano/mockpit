@@ -1156,20 +1156,14 @@ export function choiceWrites(
   };
 }
 
-// Which of the panel's groups stand open. The user's own fold or unfold wins; otherwise a
-// new group is open, the alternatives are while nothing is new, and a group alone is.
+// Which of the panel's groups stand open: every one, being a row of names, unless the user
+// folded it.
 export const ALTERNATIVES_GROUP = "alternatives";
 export function choiceFolds(
   groups: { id: string; isNew: boolean }[],
   own: Record<string, boolean>,
 ): Record<string, boolean> {
-  const anyNew = groups.some((g) => g.isNew);
-  return Object.fromEntries(
-    groups.map((g) => [
-      g.id,
-      own[g.id] ?? (g.isNew || (g.id === ALTERNATIVES_GROUP && !anyNew) || groups.length === 1),
-    ]),
-  );
+  return Object.fromEntries(groups.map((g) => [g.id, own[g.id] ?? true]));
 }
 
 // The components Tune can select: "Look" (the page and its global knobs), then
