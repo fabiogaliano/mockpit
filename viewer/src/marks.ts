@@ -329,7 +329,6 @@ export function createMarks(d: MarkDeps) {
       label: o.label,
       frames: o.alternative ? [{ state: d.activeState(), alternative: o.alternative }] : [],
       answer: { ask: ask.id, option: o.id },
-      undo: () => void setStanding(ask, o, "open"),
       saveReason: (why) => void setStanding(ask, o, "hidden", why ?? undefined),
     });
   }

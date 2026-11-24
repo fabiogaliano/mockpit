@@ -263,14 +263,8 @@ export function createDesignScreen(
   const [ghostHeld, holdGhost] = createSignal(false);
   let ghostPlaces = 0;
   const ghostPlace = (by: 1 | -1) => void (ghostPlaces += by);
-  function leaveGhost(line: Omit<GhostLine, "undo"> & { undo: () => void }) {
-    const g: GhostLine = {
-      ...line,
-      undo: () => {
-        setGhost(null);
-        line.undo();
-      },
-    };
+  function leaveGhost(line: GhostLine) {
+    const g: GhostLine = { ...line };
     holdGhost(false);
     setGhost(g);
     // With no place for it on screen it says nothing: what was archived waits under
@@ -2532,7 +2526,6 @@ export function createDesignScreen(
       leaveGhost({
         label,
         frames,
-        undo,
         // After the archive lands: the server only keeps a reason for what has gone.
         saveReason: (reason) =>
           void done.then(() => {

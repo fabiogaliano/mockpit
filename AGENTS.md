@@ -609,7 +609,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     full height, pins and comments built from the blocks they report; `PlannedStage` where
     nothing is drawn; `Outlines` offers the missing states (`StateAsk`). Hide is per
     version and dims in place; archive is per alternative and per design: an alternative's
-    leaves its ghost where it was, and waits under Archived to be restored, with no toast.
+    leaves its ghost where it was (`ArchivedGhost.tsx`: it says so, takes a reason, fades; no
+    Undo), and waits under Archived to be restored, with no toast.
     Nothing a knob or a preset changes has an undo either: each changed knob carries a dot and
     ↺ Reset on its own row (`changed`, `reset` in `choices.ts`: back to what the agent sent),
     and Send's list says the changes in plain words (`sendLines`: "Photo stack: arrange fan").
