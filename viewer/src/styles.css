@@ -2638,6 +2638,11 @@ a {
   text-align: left;
   white-space: nowrap;
 }
+.optmenu hr {
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
 .optmenu .icon {
   width: 15px;
   height: 15px;
@@ -11180,10 +11185,6 @@ button.bmc {
 .altp-w {
   position: relative;
 }
-/* What a row's ⋯ opens drops over the rows under it. */
-.altp-w:focus-within {
-  z-index: 4;
-}
 .altp-row {
   position: relative;
   display: flex;
@@ -11295,8 +11296,8 @@ button.bmc {
   height: 10px;
   fill: currentColor;
 }
-/* The frame's actions take the row's end, over the name. */
-.altp-w > .altacts {
+/* Bookmark and Delete take the row's end, over the name. */
+.altp-acts {
   position: absolute;
   top: 2px;
   right: 2px;
@@ -11306,59 +11307,43 @@ button.bmc {
   align-items: center;
   padding: 0 2px 0 28px;
   border-radius: 0 8px 8px 0;
+  pointer-events: none;
 }
-.altp-w .altacts-row {
-  flex-wrap: nowrap;
+.altp-acts .markpill {
   gap: 1px;
-}
-.altp-w .markpill {
   padding: 0;
   background: none;
   box-shadow: none;
 }
-.altp-w .altacts-more .ib {
-  width: 26px;
-  height: 24px;
-  border-radius: 6px;
-}
-.altp-w .altacts-more .ib svg {
-  width: 16px;
-  height: 16px;
-}
-.altp-w .optmenu {
-  top: calc(100% + 4px);
-  right: 0;
+.altp-acts .markpill i {
+  display: none;
 }
 @media (hover: hover) {
   .altp-w:hover .altp-row {
     background: var(--row-hover);
   }
-  .altp-w > .altacts {
+  .altp-acts {
     opacity: 0;
-    pointer-events: none;
     transition: opacity 120ms ease;
   }
-  .altp-w:hover > .altacts,
-  .altp-w:focus-within > .altacts {
+  .altp-w:hover > .altp-acts,
+  .altp-w:focus-within > .altp-acts {
     background: linear-gradient(to right, transparent, var(--row-hover) 24px);
     opacity: 1;
   }
   /* Only the buttons take the pointer: the fade between them and the name is the row's. */
-  .altp-w:hover > .altacts .altacts-row,
-  .altp-w:focus-within > .altacts .altacts-row {
+  .altp-w:hover .markpill,
+  .altp-w:focus-within .markpill {
     pointer-events: auto;
   }
-  .altp-w:focus-within:not(:hover) > .altacts {
+  .altp-w:focus-within:not(:hover) > .altp-acts {
     background: linear-gradient(to right, transparent, var(--row) 24px);
   }
 }
-/* Without hover the actions always show, so a row keeps the two it has room for: the
-   rest are on the frame once it is on stage. */
+/* Without hover the actions always show, so the name makes room for them. */
 @media (hover: none) {
-  .altp-w .markpill .del,
-  .altp-w .markpill .mp-ask,
-  .altp-w .markpill i {
-    display: none;
+  .altp-acts .markpill {
+    pointer-events: auto;
   }
   .altp:not(.pics) .altp-row {
     padding-right: 64px;
@@ -11398,7 +11383,7 @@ button.bmc {
 .altp.pics .altp-text {
   padding: 0 8px;
 }
-.altp.pics .altp-w > .altacts {
+.altp.pics .altp-acts {
   top: 9px;
   right: 9px;
   bottom: auto;

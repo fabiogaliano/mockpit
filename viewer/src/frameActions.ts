@@ -105,12 +105,13 @@ export function subjectOf(f: FrameRef): MarkSubject {
   return Object.keys(col.values).length ? { ...base, values: col.values } : base;
 }
 
+// Marks, then what is asked of the agent, then Delete at the end, away from Bookmark.
 const ORDER: FrameActionId[] = [
   "main",
   "keep",
-  "delete",
-  "more",
   "comment",
+  "more",
+  "delete",
   "borrow",
   "copy",
   "move",

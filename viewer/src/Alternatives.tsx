@@ -6,7 +6,7 @@
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 import { isLive, recommendedAlternative } from "../../server/types.ts";
 import { alternativesView, setAlternativesView } from "./answersView.ts";
-import { type AlternativeView, assetUrl } from "./api.ts";
+import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { readonly } from "./host.ts";
 import { canFrame, frameActions, type FrameRef, hasActs, runFrameAction } from "./frameActions.ts";
@@ -19,6 +19,8 @@ import type { Shortlists } from "./shortlist.ts";
 import type { DesignScreenState } from "./state.ts";
 import { posterShown } from "./systemRev.ts";
 
+const ROW_ACTS = ["keep", "delete"] as const;
+
 // Each alternative's newest version still shown, in the order the state lists them.
 function newestOf(s: DesignScreenState, alternative: string): VersionStep | undefined {
   return s
@@ -30,7 +32,8 @@ function newestOf(s: DesignScreenState, alternative: string): VersionStep | unde
 // The state's alternatives, in the panel where a question's answers stand, and read the
 // same way: a mouse on a row previews it, a rest holds it on stage, a click makes it Main
 // (where there is a Main to make; else it only goes on stage), and the agent's suggestion
-// wears an answer's mark. A row's other actions are its frame's.
+// wears an answer's mark. A row sorts the list, so it has Bookmark and Delete; what is done
+// with one alternative is on its frame, on stage.
 export function AlternativesPanel(props: { s: DesignScreenState; sl: Shortlists }) {
   const s = props.s;
   const here = createMemo(() => s.alternatives().filter((v) => v.state === s.activeState()));
@@ -126,7 +129,9 @@ export function AlternativesPanel(props: { s: DesignScreenState; sl: Shortlists 
                       .join("")}
                   </span>
                 </button>
-                <AlternativeActs s={s} sl={props.sl} v={v} />
+                <span class="altp-acts">
+                  <MarkPill s={s} f={{ v }} inline only={ROW_ACTS} />
+                </span>
               </div>
             </Show>
           );
@@ -196,19 +201,13 @@ export function AlternativesAs() {
 // What can be done with the frame on stage, over its corner and never on it, since Try
 // hands the frame's clicks to the page: the pill's actions, and behind ⋯ those that open
 // something here (frameActions.ts says which the frame has). A cell open from the sheet is
-// marked as the cell, worn in its values. With `v` it is that alternative's row in the panel
-// instead, whose click is already Main.
-export function AlternativeActs(props: {
-  s: DesignScreenState;
-  sl: Shortlists;
-  v?: AlternativeView;
-}) {
+// marked as the cell, worn in its values.
+export function AlternativeActs(props: { s: DesignScreenState; sl: Shortlists }) {
   const s = props.s;
-  const step = () => (props.v ? newestOf(s, props.v.alternative) : s.stageStep());
+  const step = () => s.stageStep();
   const frame = (): FrameRef | null => {
-    const v = props.v ?? s.activeAlternative();
+    const v = s.activeAlternative();
     if (!v || !isLive(v.status)) return null;
-    if (props.v) return { v };
     const held = s.sheet.held();
     return held?.v === v ? { v, col: held.col } : { v };
   };
@@ -237,7 +236,7 @@ export function AlternativeActs(props: {
         <>
           <div class="altacts" role="group" aria-label={`What to do with ${name()}`}>
             <div class="altacts-row">
-              <MarkPill s={s} f={frame()!} inline without={props.v ? "main" : undefined} />
+              <MarkPill s={s} f={frame()!} inline />
               <Show when={inMenu().length}>
                 <span
                   class="altacts-more"
@@ -266,11 +265,17 @@ export function AlternativeActs(props: {
                   <Show when={menu()}>
                     <div class="optmenu" role="menu" aria-label={name()}>
                       <For each={inMenu()}>
-                        {(a) => (
-                          <button type="button" role="menuitem" onClick={() => choose(a.id)}>
-                            <Icon name={a.icon} />
-                            {a.label}
-                          </button>
+                        {(a, n) => (
+                          <>
+                            {/* Borrow asks the agent; the rest put the alternative elsewhere. */}
+                            <Show when={n() > 0 && inMenu()[n() - 1]?.id === "borrow"}>
+                              <hr />
+                            </Show>
+                            <button type="button" role="menuitem" onClick={() => choose(a.id)}>
+                              <Icon name={a.icon} />
+                              {a.label}
+                            </button>
+                          </>
                         )}
                       </For>
                     </div>

@@ -1196,17 +1196,6 @@ function OptionCard(props: {
             <Icon name={FACE.more.icon} />
           </button>
         </Show>
-        <Show when={!inMenu() && a.onHide}>
-          <button
-            type="button"
-            class="optic"
-            aria-label={`Delete ${props.label}`}
-            title={FACE.delete.label}
-            onClick={(e) => a.onHide?.(e.currentTarget.closest(".optw"), byKey(e))}
-          >
-            <Icon name={FACE.delete.icon} />
-          </button>
-        </Show>
         <Show when={!inMenu() && props.editColour}>
           <button
             type="button"
@@ -1216,6 +1205,17 @@ function OptionCard(props: {
             onClick={() => props.editColour?.()}
           >
             <Icon name="palette" />
+          </button>
+        </Show>
+        <Show when={!inMenu() && a.onHide}>
+          <button
+            type="button"
+            class="optic"
+            aria-label={`Delete ${props.label}`}
+            title={FACE.delete.label}
+            onClick={(e) => a.onHide?.(e.currentTarget.closest(".optw"), byKey(e))}
+          >
+            <Icon name={FACE.delete.icon} />
           </button>
         </Show>
         <Show when={hasMenu()}>

@@ -1,6 +1,6 @@
 // The pill over the corner of the frame on stage, always there, and on a sheet cell while
-// the pointer is on it: pick, Main and archive, then more like this and comment
-// (frameActions.ts says which the frame has). P, M and X do the same from the keyboard.
+// the pointer is on it: Main and Bookmark, then comment and more like this, then Delete
+// (frameActions.ts says which the frame has). M, K and X do the same from the keyboard.
 
 import { For, Show } from "solid-js";
 import {
@@ -20,13 +20,20 @@ export function MarkPill(props: {
   f: FrameRef;
   // In the panel's row or the stage's caption, always shown.
   inline?: boolean;
-  // An action its place already offers another way: a row whose click is Main.
-  without?: FrameActionId;
+  // The few a place has room for: a row in the panel sorts, the stage does the rest.
+  only?: readonly FrameActionId[];
 }) {
   const acts = () =>
-    frameActions(props.s, props.f).filter((a) => !a.menu && a.id !== props.without);
+    frameActions(props.s, props.f).filter(
+      (a) => !a.menu && (!props.only || props.only.includes(a.id)),
+    );
   const marks = () => acts().filter((a) => MARKS.has(a.id));
-  const asks = () => acts().filter((a) => !MARKS.has(a.id));
+  const groups = () =>
+    [
+      acts().filter((a) => a.id === "main" || a.id === "keep"),
+      acts().filter((a) => !MARKS.has(a.id)),
+      acts().filter((a) => a.id === "delete"),
+    ].filter((g) => g.length);
   const button = (a: FrameAction) => (
     <button
       type="button"
@@ -58,11 +65,16 @@ export function MarkPill(props: {
         role="toolbar"
         aria-label={`Mark ${props.f.v.alternative}`}
       >
-        <For each={marks()}>{button}</For>
-        <Show when={asks().length}>
-          <i aria-hidden="true" />
-          <For each={asks()}>{button}</For>
-        </Show>
+        <For each={groups()}>
+          {(g, n) => (
+            <>
+              <Show when={n() > 0}>
+                <i aria-hidden="true" />
+              </Show>
+              <For each={g}>{button}</For>
+            </>
+          )}
+        </For>
       </span>
     </Show>
   );

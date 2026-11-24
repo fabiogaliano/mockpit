@@ -556,13 +556,14 @@ Stances reversed knowingly, so nobody restores them by accident:
     variants design, archived ones folded; it opens by itself only where it can stand
     beside the design, and reads as a question's answers do: a mouse on a row previews it,
     a rest of `HOLD_MS` holds it on stage, a click makes it Main, the agent's suggestion
-    wears an answer's dot, a row's other actions are its frame's, and List or Pictures is
+    wears an answer's dot (the Main's star takes its place), a row has only Bookmark and
+    Delete, since it sorts the list and the stage's pill does the rest, and List or Pictures is
     kept per browser; `holdPreview.ts`'s `createHold` is the hover-and-rest rule both
     share), or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
     when it would take the design below 80%). On an idea, the frame on stage carries
     a pill over its top corner, in the caption and always there, and a sheet cell one on hover
-    (`MarkPill.tsx`: Main, Bookmark/Keep, Delete, More like this, Comment; keys M, K, X),
+    (`MarkPill.tsx`: Main, Bookmark/Keep, then Comment, More like this, then Delete; keys M, K, X),
     with Borrow, Copy to… and Move to… behind the ⋯ at the stage pill's end
     (`AlternativeActs`); the panel repeats none of it. Which action a
     frame has is `frameActions.ts`'s, never a kind check in a component. `Compare.tsx` is two versions in one frame
