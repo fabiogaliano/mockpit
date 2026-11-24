@@ -28,7 +28,9 @@ animation are all fine. `mockpit guide` prints this project's system, kit, icons
 The CSP allows loads only from `cdnjs.cloudflare.com`, `esm.sh`,
 `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com` and
 `fonts.gstatic.com`. Anything else fails silently. Images may load from any
-https URL, a `data:` URI, or an uploaded asset (`<img src="/a/<id>">`).
+https URL, a `data:` URI, or an uploaded asset (`<img src="/a/<id>">`). Script may
+also `fetch` the `blob:` and `data:` URLs it makes, as a glTF loader does for its
+textures.
 
 ## Parts and knobs
 

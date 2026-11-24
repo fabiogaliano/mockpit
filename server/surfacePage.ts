@@ -54,6 +54,9 @@ const cdns = CDN_ALLOWLIST.join(" ");
 // (served at <origin>/a/:id) embed by URL. It is needed because the iframe runs
 // at an opaque origin (sandbox without allow-same-origin), so `'self'` matches
 // nothing, and a local http origin isn't covered by the `https:` source.
+// `connect-src` adds `blob:` and `data:` to the CDNs: both are bytes the page already
+// holds (a glTF's embedded textures, which three.js fetches as blob URLs it made), so
+// reading them reaches no server and opens no channel out.
 function buildCsp(origin: string): string {
   return [
     `default-src 'none'`,
@@ -61,7 +64,7 @@ function buildCsp(origin: string): string {
     `style-src 'unsafe-inline' ${cdns}`,
     `font-src ${cdns} data:`,
     `img-src https: data: blob: ${origin}`,
-    `connect-src ${cdns}`,
+    `connect-src ${cdns} blob: data:`,
     `media-src https: data: blob: ${origin}`,
   ].join("; ");
 }
