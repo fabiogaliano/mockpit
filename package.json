@@ -110,7 +110,7 @@
     "oxlint": "^1.69.0",
     "simple-git-hooks": "^2.13.1",
     "solid-js": "^1.9.13",
-    "tunekit": "^1.5.0",
+    "tunekit": "file:vendor/tunekit-1.5.0-palette.tgz",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
     "vite-plugin-singlefile": "^2.3.3",

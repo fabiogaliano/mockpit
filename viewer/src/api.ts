@@ -69,6 +69,7 @@ export type PaletteChoice = {
   label: string;
   status: "default" | "kept" | "open" | "hidden";
   swatch: { light: string[]; dark: string[] };
+  colors?: { light: { label: string; value: string }[]; dark: { label: string; value: string }[] };
   oneMode?: true;
 };
 export type DesignDetail = ReturnType<typeof designDetailView> & {
@@ -335,7 +336,9 @@ export const api = {
     ),
   saveLook: (
     id: string,
-    body: { name: string } & ({ values: Record<string, KnobValue> } | { remove: true }),
+    body:
+      | ({ name: string } & ({ values: Record<string, KnobValue> } | { remove: true }))
+      | { color: { path: string; value: string } },
   ) =>
     call<{ looks: LookView[] }>(`/api/designs/${encodeURIComponent(id)}/looks`, json("POST", body)),
   stills: (id: string, signal: AbortSignal) =>

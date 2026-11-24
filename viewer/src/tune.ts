@@ -12,9 +12,17 @@
 // also hides tunekit's header and preset row: the panel shell owns both.
 
 import { createEffect, createMemo, on, onCleanup, untrack } from "solid-js";
+import { explicitKnob } from "../../server/knobs.ts";
 import type { KnobConfig, KnobValue, Knobs } from "../../server/types.ts";
-import { initPane, type PaneConfig, type PaneValue, PaneStore } from "tunekit/core";
+import {
+  initPane,
+  type ColorPalette,
+  type PaneConfig,
+  type PaneValue,
+  PaneStore,
+} from "tunekit/core";
 import { root } from "./host.ts";
+import { paletteNow } from "./PaletteTool.tsx";
 import {
   partLabel,
   resolveKnobs,
@@ -72,7 +80,17 @@ const keyOf = (c: TuneComponent, path: string) =>
 // The control tunekit draws for a knob. An image knob becomes a select over its
 // option names: tunekit would load each option as an <img> here, in the trusted
 // document. A color whose value is not plainly a color is shown as text.
-export function paneControl(cfg: KnobConfig): PaneConfig[string] {
+export function paneControl(cfg: KnobConfig, palette?: ColorPalette): PaneConfig[string] {
+  const declared = explicitKnob(cfg);
+  if (declared.type === "color" && (declared.value === undefined || safeColor(declared.value))) {
+    return {
+      type: "color",
+      value: declared.value,
+      contrast: declared.contrast,
+      gradient: declared.gradient,
+      palette,
+    };
+  }
   if (typeof cfg === "string") return safeColor(cfg) ? cfg : { type: "text", value: cfg };
   if (typeof cfg !== "object" || Array.isArray(cfg)) return cfg as PaneConfig[string];
   if (cfg.type === "image") {
@@ -92,6 +110,35 @@ export function paneControl(cfg: KnobConfig): PaneConfig[string] {
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** Use the concrete roles the frame is currently viewed in. */
+export function tunePalette(s: DesignScreenState): ColorPalette | undefined {
+  const { current, mode } = paletteNow(s);
+  const swatches = current()?.colors?.[mode()].filter(({ value }) => safeColor(value));
+  return swatches?.length ? { label: "Project colours", swatches } : undefined;
+}
+
+/** Host a picker with the same theme and Escape handling as Tune. */
+export function mountTunePane(panelId?: string) {
+  const pane = root().createElement("div");
+  pane.className = "tune-pane";
+  const unmount = initPane({ host: pane, panelId });
+  const sheet = root().createElement("style");
+  sheet.textContent = BRIDGE;
+  pane.firstElementChild?.shadowRoot?.append(sheet);
+  const onEsc = (e: KeyboardEvent) => {
+    if (e.key === "Escape" && pane.firstElementChild?.shadowRoot?.querySelector(".up-cp-pop")) {
+      e.preventDefault();
+    }
+  };
+  root().addEventListener("keydown", onEsc, true);
+  onCleanup(() => {
+    root().removeEventListener("keydown", onEsc, true);
+    unmount();
+    pane.remove();
+  });
+  return pane;
+}
 
 export function createTune(s: DesignScreenState) {
   const components = createMemo(() => {
@@ -114,21 +161,7 @@ export function createTune(s: DesignScreenState) {
   });
   const tunedIn = (c: TuneComponent) => c.paths.some((p) => p in s.knobContext().tuned);
 
-  const pane = root().createElement("div");
-  pane.className = "tune-pane";
-  const unmount = initPane({ host: pane });
-  const sheet = root().createElement("style");
-  sheet.textContent = BRIDGE;
-  pane.firstElementChild?.shadowRoot?.append(sheet);
-  // tunekit closes its colour picker on Esc at the window, after the page's own Esc
-  // has already closed Tune around it. Claiming the key first keeps Esc to one step.
-  const onEsc = (e: KeyboardEvent) => {
-    if (e.key === "Escape" && pane.firstElementChild?.shadowRoot?.querySelector(".up-cp-pop")) {
-      e.preventDefault();
-    }
-  };
-  root().addEventListener("keydown", onEsc, true);
-  onCleanup(() => root().removeEventListener("keydown", onEsc, true));
+  const pane = mountTunePane();
 
   // Tune's content is rebuilt each time the mode opens; the pane (and the
   // tunekit tree inside it) moves into the new spot instead of remounting.
@@ -154,7 +187,8 @@ export function createTune(s: DesignScreenState) {
     if (!c || !m || !c.paths.length) return null;
     const knobs: Knobs = s.knobContext().knobs;
     const out: PaneConfig = {};
-    for (const path of c.paths) out[keyOf(c, path)] = paneControl(knobs[path]);
+    const palette = tunePalette(s);
+    for (const path of c.paths) out[keyOf(c, path)] = paneControl(knobs[path], palette);
     return { id: panelId(m.id, c), name: c.label, c, out, sig: JSON.stringify(out) };
   });
 
@@ -209,11 +243,7 @@ export function createTune(s: DesignScreenState) {
     if (cfg && registered === cfg.id) untrack(() => push(cfg.id, cfg.c));
   });
 
-  onCleanup(() => {
-    release();
-    unmount();
-    pane.remove();
-  });
+  onCleanup(release);
 
   return { components, current, tunedIn };
 }

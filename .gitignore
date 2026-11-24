@@ -4,6 +4,7 @@ data/
 *.log
 .DS_Store
 *.tgz
+!vendor/tunekit-1.5.0-palette.tgz
 dist/
 viewer/dist-embed/
 .dev.vars

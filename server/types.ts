@@ -258,6 +258,7 @@ export interface ColorKnob {
   value?: string;
   gradient?: boolean;
   contrast?: string;
+  options?: KnobOption[];
 }
 export interface TextKnob {
   type: "text";
@@ -598,6 +599,8 @@ export interface PartComment {
   // The version it is about, when that is not simply the latest: Focus can have an
   // older version on stage, so a reaction can point at one.
   version?: number;
+  // The comparison values visible on the frame when the user left this feedback.
+  values?: Record<string, KnobValue>;
   // A steer (Borrow in Focus): make a new version of this one (alternative@version) that takes
   // a part from another, `from` as agents write it ("felt@2"). `part` only when
   // the user picked a declared one; otherwise `text` says what to take.

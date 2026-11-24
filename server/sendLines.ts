@@ -107,6 +107,7 @@ export function reactionLine(c: PartComment & { reaction: Reaction }): string {
   const where = [
     c.part !== null && alternative ? `alternative ${alternative}` : "",
     c.state ? `state ${c.state}` : "",
+    c.values ? valuesWords(c.values) : "",
   ].filter(Boolean);
   const target =
     c.part !== null
@@ -129,7 +130,8 @@ function commentLine(c: PartComment): string {
   }
   const on = c.part !== null ? `${c.part} on ${frame}` : frame;
   const where = c.state ? `, ${c.state}` : "";
-  return `Comment on ${on}${where}${said}`;
+  const wearing = c.values ? ` (${valuesWords(c.values)})` : "";
+  return `Comment on ${on}${where}${wearing}${said}`;
 }
 
 function askLine(a: SendAsk): string | null {

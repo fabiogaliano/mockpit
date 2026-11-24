@@ -6,6 +6,7 @@
 // that could disagree with Focus's list of alternatives. The server and the viewer share these rules.
 // Runtime-agnostic.
 
+import { colorAnswers } from "./colorChoices.ts";
 import {
   type AnswerStanding,
   type Ask,
@@ -13,6 +14,7 @@ import {
   askAnswered,
   BUILTIN_ASK_ID,
   type Design,
+  type Knobs,
   isLive,
   optionState,
   type PostStatus,
@@ -24,6 +26,7 @@ export type AlternativeRow = {
   state: string | null;
   alternative: string;
   status: PostStatus | AlternativeStatus;
+  knobs?: Knobs;
 };
 
 // An added answer's id: its alternative's name behind a prefix no slugged id can carry, so it
@@ -91,8 +94,16 @@ export function addedAnswers(
 }
 
 // The question as the user meets it: the agent's answers, then the alternatives added.
-export function withAddedAnswers(ask: Ask, design: Pick<Design, "states">, rows: AlternativeRow[]) {
-  const added = addedAnswers(ask, design, rows);
+export function withAddedAnswers(
+  ask: Ask,
+  design: Pick<Design, "states"> & Partial<Pick<Design, "knobs" | "looks">>,
+  rows: AlternativeRow[],
+) {
+  const colors =
+    !ask.dismissed && design.looks?.length
+      ? colorAnswers(ask, design.knobs ?? {}, rows, design.looks)
+      : [];
+  const added = [...addedAnswers(ask, design, rows), ...colors];
   return added.length ? { ...ask, options: [...ask.options, ...added] } : ask;
 }
 

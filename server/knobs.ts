@@ -136,6 +136,11 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
       if (k.value !== undefined && !(typeof k.value === "string" && isCssColor(k.value))) {
         return { ok: false, error: `${name} color value is not a CSS color` };
       }
+      const options = k.options === undefined ? undefined : checkOptions(k.options, name);
+      if (options && !options.ok) return options;
+      if (options && !optionValues(options.value).every(isCssColor)) {
+        return { ok: false, error: `${name} options must be CSS colors` };
+      }
       return {
         ok: true,
         value: {
@@ -143,6 +148,7 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
           ...(k.value === undefined ? {} : { value: k.value }),
           ...(k.gradient === true ? { gradient: true } : {}),
           ...(isStr(k.contrast) && isCssColor(k.contrast) ? { contrast: k.contrast } : {}),
+          ...(options ? { options: options.value } : {}),
         },
       };
     }
@@ -367,7 +373,10 @@ export function checkKnobValues(
 // what a sheet lays out across. Sliders are left out until they spread as steps.
 export function choices(config: KnobConfig): { value: string; label: string }[] | null {
   const knob = explicitKnob(config);
-  const options = knob.type === "select" || knob.type === "image" ? knob.options : undefined;
+  const options =
+    knob.type === "select" || knob.type === "image" || knob.type === "color"
+      ? knob.options
+      : undefined;
   if (!options) return null;
   return options.map((o) => (typeof o === "string" ? { value: o, label: o } : o));
 }

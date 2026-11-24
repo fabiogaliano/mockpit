@@ -12,9 +12,12 @@ import {
   createUniqueId,
   For,
   type JSX,
+  on,
   onCleanup,
   Show,
 } from "solid-js";
+import { colorQuestionPath } from "../../server/colorChoices.ts";
+import { knobDefault } from "../../server/knobValues.ts";
 import { type Ask, type AskOption, type KnobValue, optionState } from "../../server/types.ts";
 import { assetUrl, surfaceUrl, type AlternativeView } from "./api.ts";
 import { ACCEPT, filesOf, hasFiles } from "./attach.ts";
@@ -28,6 +31,7 @@ import {
   isLookAsk,
   moreAllowed,
   partBox,
+  safeColor,
   splitLabel,
 } from "./logic.ts";
 import type { AskField, DesignScreenState } from "./state.ts";
@@ -37,6 +41,7 @@ import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { Icon } from "./icons.tsx";
+import { PanelColorEditor } from "./PanelColorEditor.tsx";
 import { AnswerAlternativeTools, answerAlternative, answerFrame } from "./Alternatives.tsx";
 import { answerActions, FACE } from "./frameActions.ts";
 import type { Shortlists } from "./shortlist.ts";
@@ -251,6 +256,52 @@ export function AskBody(props: {
 }) {
   const s = props.s;
   const picked = (o: AskOption) => answerIds(s.answerOf(props.ask)).includes(o.id);
+  const colorPath = () =>
+    readonly() || props.still || s.waitingOn(props.ask)
+      ? undefined
+      : colorQuestionPath(props.ask, s.knobContext().knobs, []);
+  const [colorEdit, setColorEdit] = createSignal<string | null>(null);
+  createEffect(
+    on(
+      () => props.ask.id,
+      () => setColorEdit(null),
+      { defer: true },
+    ),
+  );
+  createEffect(
+    on(
+      s.colorEditRequest,
+      () => {
+        if (!colorPath() || s.curAsk()?.id !== props.ask.id || s.questionHidden() || s.sheet.held())
+          return;
+        const pickedId = answerIds(s.answerOf(props.ask))[0];
+        setColorEdit(pickedId ?? "");
+      },
+      { defer: true },
+    ),
+  );
+  function editColor(option?: AskOption) {
+    s.setHoveredPreview(null);
+    setColorEdit(option?.id ?? "");
+  }
+  function colorEditor(option?: AskOption) {
+    const path = colorPath();
+    if (!path) return null;
+    const cfg = s.knobContext().knobs[path];
+    const value = option?.set?.[path] ?? (cfg === undefined ? undefined : knobDefault(cfg));
+    const first = props.ask.options[0]?.set?.[path];
+    const initial = typeof value === "string" ? value : first;
+    if (typeof initial !== "string" || !safeColor(initial)) return null;
+    return (
+      <PanelColorEditor
+        s={s}
+        path={path}
+        initial={initial}
+        submit="Add to comparison"
+        onClose={() => setColorEdit(null)}
+      />
+    );
+  }
   let optsEl: HTMLDivElement | undefined;
   const moveCards = (change: () => void, gone?: Element | null) => flipCards(optsEl, change, gone);
   const keyOf = (o: AskOption) => s.optionKey(props.ask, o.id);
@@ -436,15 +487,24 @@ export function AskBody(props: {
                 data={o.id}
                 shortcut={i() < 9 ? String(i() + 1) : undefined}
                 onEnter={() =>
-                  !sheetOpen() && !props.still && s.setHoveredPreview(s.previewOf(props.ask, o.id))
+                  colorEdit() === null &&
+                  !sheetOpen() &&
+                  !props.still &&
+                  s.setHoveredPreview(s.previewOf(props.ask, o.id))
                 }
                 onLeave={() => s.hoveredPreview()?.key === keyOf(o) && s.setHoveredPreview(null)}
                 onHold={
-                  !sheetOpen() && !props.still && s.previewOf(props.ask, o.id)
+                  colorEdit() === null &&
+                  !sheetOpen() &&
+                  !props.still &&
+                  s.previewOf(props.ask, o.id)
                     ? () => s.setHeldPreview(s.previewOf(props.ask, o.id))
                     : undefined
                 }
-                onChoose={() => s.choose(props.ask, o.id)}
+                onChoose={() => {
+                  setColorEdit(null);
+                  s.choose(props.ask, o.id);
+                }}
                 compact={!props.beside}
                 actions={actionsOf(o)}
                 preview={
@@ -460,7 +520,13 @@ export function AskBody(props: {
                     </button>
                   ) : undefined
                 }
-                below={toolsFor(o)}
+                colour={colorPath() ? String(o.set?.[colorPath() ?? ""] ?? "") : undefined}
+                editColour={colorPath() ? () => editColor(o) : undefined}
+                below={
+                  <Show when={colorEdit() === o.id} fallback={toolsFor(o)}>
+                    {colorEditor(o)}
+                  </Show>
+                }
               />
             );
             // D13: once the Look is sent its losers are archived; each stays restorable.
@@ -527,6 +593,17 @@ export function AskBody(props: {
         </div>
         <HiddenAnswers s={s} ask={props.ask} move={moveCards} />
       </div>
+      <Show when={colorPath()}>
+        <button
+          type="button"
+          class="btn"
+          aria-expanded={colorEdit() === ""}
+          onClick={() => editColor()}
+        >
+          + Add colour
+        </button>
+        <Show when={colorEdit() === ""}>{colorEditor()}</Show>
+      </Show>
       <Show when={!readonly() && moreAllowed(props.ask) && !dormant()}>
         <MoreAnswers s={s} ask={props.ask} />
       </Show>
@@ -941,6 +1018,8 @@ function OptionCard(props: {
     onMove?: (anchor: HTMLElement) => void;
   };
   preview?: JSX.Element;
+  colour?: string;
+  editColour?: () => void;
   // Under the card, inside its outline: what Borrow opened.
   below?: JSX.Element;
 }) {
@@ -1017,6 +1096,9 @@ function OptionCard(props: {
       {/* One column, so a row layout keeps the description under the name, not beside it. */}
       <span class="otext">
         <span class="lbl">
+          <Show when={safeColor(props.colour)}>
+            <i class="colour-dot" aria-hidden="true" style={{ "background-color": props.colour }} />
+          </Show>
           {splitLabel(props.label).name}
           <Show when={props.isNew}>
             <span class="optnew">New</span>
@@ -1058,7 +1140,12 @@ function OptionCard(props: {
   const commentShown = () => !!c && (writing() || !!c.value);
   const inMenu = () => props.compact;
   const hasMenu = () =>
-    !!(a.onPick || a.onBorrow || a.onMove || (inMenu() && (a.onLike || a.onHide)));
+    !!(
+      a.onPick ||
+      a.onBorrow ||
+      a.onMove ||
+      (inMenu() && (a.onLike || a.onHide || props.editColour))
+    );
   const closeMenu = (refocus = false) => {
     setMenu(false);
     if (refocus) menuBtn?.focus();
@@ -1145,6 +1232,17 @@ function OptionCard(props: {
             <Icon name={FACE.delete.icon} />
           </button>
         </Show>
+        <Show when={!inMenu() && props.editColour}>
+          <button
+            type="button"
+            class="optic"
+            title="Edit a copy"
+            aria-label={`Edit a copy of ${props.label}`}
+            onClick={() => props.editColour?.()}
+          >
+            <Icon name="palette" />
+          </button>
+        </Show>
         <Show when={hasMenu()}>
           <button
             type="button"
@@ -1172,6 +1270,11 @@ function OptionCard(props: {
             <button type="button" role="menuitem" onClick={item(() => a.onLike?.())}>
               <Icon name={FACE.more.icon} />
               {FACE.more.label}
+            </button>
+          </Show>
+          <Show when={inMenu() && props.editColour}>
+            <button type="button" role="menuitem" onClick={item(() => props.editColour?.())}>
+              <Icon name="palette" /> Edit a copy
             </button>
           </Show>
           <Show when={a.onPick}>

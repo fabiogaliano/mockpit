@@ -311,7 +311,11 @@ export function ToolStrip(props: { s: DesignScreenState; m: Margins }) {
   return (
     <Show when={m.stripW() > 0}>
       <div class="toolstrip" role="toolbar" aria-label="Tools">
-        <CanvasTools s={s} page={m.page()} />
+        <CanvasTools
+          s={s}
+          page={m.page()}
+          colourPanelVisible={m.side() === "knob" || m.side() === "talk"}
+        />
         <Show when={m.previewHas()}>
           <Show when={tools()}>
             <span class="toolstrip-sep" />

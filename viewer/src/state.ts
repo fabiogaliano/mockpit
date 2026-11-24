@@ -155,6 +155,7 @@ type SteerNote = {
   reaction?: Reaction;
   part?: string | null;
   text?: string;
+  values?: Record<string, KnobValue>;
   borrow?: { from: VersionRef; part?: string };
 };
 
@@ -881,8 +882,8 @@ export function createDesignScreen(
     // Open on the first question still owed, on the state it is about; a draft
     // that already answers everything resumes on its first answer, one tap
     // from Send.
-    // A pick made while this loaded keeps the user where they made it.
-    if (outbox.wroteHere()) return;
+    // The sheet and a pick made while this loaded already have a place on stage.
+    if (outbox.wroteHere() || sheet.view() || sheet.held()) return;
     if (question && openQuestion(question, true)) return;
     // Only an agent's question outranks the memory; a link is never overruled.
     const asked = firstOwed((a) => !isBuiltinAsk(a));
@@ -1583,13 +1584,21 @@ export function createDesignScreen(
     // The exact version it is about, where a reader may be on an older one.
     on?: VersionRef,
   ) {
+    const cell = sheet.held();
+    const frame = on ?? (cell && { alternative: cell.v.alternative, version: versionOf(cell.v) });
     writeDraft((d) => {
       d.comments.push({
         part,
         state,
         text,
         ...(anchor ? { anchor } : {}),
-        ...(on ? { alternative: on.alternative, version: on.version } : {}),
+        ...(frame ? { alternative: frame.alternative, version: frame.version } : {}),
+        ...(cell &&
+        cell.v.state === state &&
+        cell.v.alternative === frame?.alternative &&
+        versionOf(cell.v) === frame.version
+          ? { values: cell.col.values }
+          : {}),
       });
       return d;
     });
@@ -2401,6 +2410,18 @@ export function createDesignScreen(
       return false;
     }
   }
+  async function saveColorChoice(path: string, value: string): Promise<boolean> {
+    if (readonly()) return false;
+    try {
+      await writeLook({ color: { path, value } });
+      await loadDesign();
+      return true;
+    } catch (e) {
+      fail(e);
+      return false;
+    }
+  }
+  const [colorEditRequest, setColorEditRequest] = createSignal(0);
   function removeLook(l: LookView) {
     void writeLook({ name: l.name, remove: true }).catch(fail);
     setToast({
@@ -2423,6 +2444,7 @@ export function createDesignScreen(
       alternative: c.alternative,
       version: c.version,
       ...(c.reaction ? { reaction: c.reaction } : {}),
+      ...(c.values ? { values: c.values } : {}),
       ...(c.borrow
         ? {
             borrow: {
@@ -2760,6 +2782,9 @@ export function createDesignScreen(
     previewLook,
     applyLook,
     saveLook,
+    saveColorChoice,
+    colorEditRequest,
+    openColorEditor: () => setColorEditRequest((n) => n + 1),
     removeLook,
     moreWaiting,
     isNewOption,

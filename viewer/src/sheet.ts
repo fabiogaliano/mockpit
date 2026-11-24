@@ -8,8 +8,10 @@
 // Nothing here is stored: a cell is the frame's document with the values in its address
 // (`?k=`). Its picture is a still once one is made (stills.ts), else the frame drawn live.
 
-import { createEffect, createMemo, createSignal } from "solid-js";
-import { choices } from "../../server/knobs.ts";
+import { batch, createEffect, createMemo, createSignal } from "solid-js";
+import { colorLooks } from "../../server/colorChoices.ts";
+import { knobDefault } from "../../server/knobValues.ts";
+import { choices, explicitKnob } from "../../server/knobs.ts";
 import { mainValuesFor } from "../../server/marks.ts";
 import {
   MAX_SHEET_COLUMNS,
@@ -123,15 +125,32 @@ export function createSheet(d: SheetDeps) {
     if (!m) return [];
     const configs = sheetKnobs(m.knobs, frames());
     return [...configs].flatMap(([path, config]) => {
-      const values = choices(config);
-      return values && values.length > 1 ? [{ path, label: knobName(path), values }] : [];
+      const values = choices(config) ?? [];
+      if (explicitKnob(config).type === "color") {
+        const initial = knobDefault(config);
+        if (typeof initial === "string" && !values.some((c) => c.value === initial)) {
+          values.unshift({ value: initial, label: initial });
+        }
+        for (const color of colorLooks(
+          (m.looks ?? []).filter((look) => look.design === m.slug),
+          path,
+        )) {
+          if (!values.some((c) => c.value === color.value)) values.push(color);
+        }
+        return values.length ? [{ path, label: knobName(path), values }] : [];
+      }
+      return values.length > 1 ? [{ path, label: knobName(path), values }] : [];
     });
   });
   // Two frames to set beside each other, a page to draw, and something to vary.
   const available = createMemo(() => {
     const v = d.activeAlternative();
     return (
-      frames().length > 1 &&
+      (frames().length > 1 ||
+        choiceKnobs().some((k) => {
+          const cfg = v?.knobs?.[k.path] ?? d.design()?.knobs[k.path];
+          return cfg !== undefined && explicitKnob(cfg).type === "color";
+        })) &&
       !!v &&
       pageOf(v, d.frameVersionOf(v)) >= 0 &&
       (choiceKnobs().length > 0 || d.looksHere().length > 0)
@@ -175,6 +194,12 @@ export function createSheet(d: SheetDeps) {
   };
   const columnsAll = createMemo(() => columnsOf(view()));
   const columns = createMemo(() => columnsAll().slice(0, MAX_COLUMNS));
+  const panelColumns = (at: SheetView) => {
+    const cfg = at.knob ? sheetKnobs(d.design()?.knobs ?? {}, frames()).get(at.knob) : undefined;
+    return cfg !== undefined && explicitKnob(cfg).type === "color"
+      ? columnsOf(at)
+      : columnsOf(at).slice(0, MAX_COLUMNS);
+  };
   const rows = createMemo(() => rowsOf(view()));
 
   // The part a column's values all belong to, where the frame's state declares it.
@@ -325,7 +350,7 @@ export function createSheet(d: SheetDeps) {
     const o = opened();
     if (!o || d.heldPreview()?.key !== heldKey(o.alternative, o.col)) return null;
     const rows = rowsOf(o.at);
-    const cols = columnsOf(o.at).slice(0, MAX_COLUMNS);
+    const cols = panelColumns(o.at);
     const r = rows.findIndex((v) => v.alternative === o.alternative);
     const c = cols.findIndex((x) => x.key === o.col);
     if (r < 0 || c < 0) return null;
@@ -340,14 +365,16 @@ export function createSheet(d: SheetDeps) {
   function hold(v: AlternativeView, col: SheetColumn, at: SheetView) {
     const c = cell(v, col);
     if (!c) return;
-    d.chooseAlternative(v.alternative);
-    setOpened({ at, alternative: v.alternative, col: col.key });
-    d.setHeldPreview({
-      key: heldKey(v.alternative, col.key),
-      label: `${v.alternative} · ${col.label}`,
-      alternative: v.alternative,
-      state: v.state,
-      knobs: c.knobs,
+    batch(() => {
+      d.chooseAlternative(v.alternative);
+      setOpened({ at, alternative: v.alternative, col: col.key });
+      d.setHeldPreview({
+        key: heldKey(v.alternative, col.key),
+        label: `${v.alternative} · ${col.label}`,
+        alternative: v.alternative,
+        state: v.state,
+        knobs: c.knobs,
+      });
     });
   }
   // Open a cell from the Sheet grid: the frame on stage, held in those values with the
@@ -370,7 +397,7 @@ export function createSheet(d: SheetDeps) {
     const knob = resolveKnob(at.knob);
     const resolved: SheetView = { ...at, knob };
     const rs = rowsOf(resolved);
-    const cs = columnsOf(resolved).slice(0, MAX_COLUMNS);
+    const cs = panelColumns(resolved);
     const v =
       (alternative ? rs.find((x) => x.alternative === alternative) : undefined) ??
       d.activeAlternative() ??

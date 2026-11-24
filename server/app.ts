@@ -4908,6 +4908,14 @@ export function createApp({
                 light: roles.map((r) => p.light[r] ?? "transparent"),
                 dark: roles.map((r) => p.dark[r] ?? "transparent"),
               },
+              colors: {
+                light: system.color.roles.flatMap(({ name }) =>
+                  p.light[name] ? [{ label: name, value: p.light[name] }] : [],
+                ),
+                dark: system.color.roles.flatMap(({ name }) =>
+                  p.dark[name] ? [{ label: name, value: p.dark[name] }] : [],
+                ),
+              },
               ...(p.scheme && p.scheme.light === p.scheme.dark ? { oneMode: true as const } : {}),
             })),
           }
@@ -5735,6 +5743,11 @@ export function createApp({
       }
       const a = c.anchor && typeof c.anchor === "object" ? c.anchor : null;
       const anchor = a ? sanitizePartAnchor(a) : undefined;
+      const values =
+        c.values === undefined
+          ? undefined
+          : checkKnobValues(c.values, design, post ? [post] : posts, "comment");
+      if (values && !values.ok) return values.error;
       const next: PartComment = {
         part,
         state,
@@ -5744,6 +5757,7 @@ export function createApp({
         ...(alternative ? { alternative } : {}),
         ...(version !== undefined ? { version: version as number } : {}),
         ...(borrow ? { borrow } : {}),
+        ...(values ? { values: values.value } : {}),
       };
       // One reaction per target: a later tap on the same part replaces the earlier one.
       if (reaction) {
@@ -5753,7 +5767,8 @@ export function createApp({
             o.part === part &&
             o.state === state &&
             (o.alternative ?? null) === (alternative ?? null) &&
-            (o.version ?? null) === (version ?? null),
+            (o.version ?? null) === (version ?? null) &&
+            JSON.stringify(o.values) === JSON.stringify(next.values),
         );
         if (same >= 0) out.splice(same, 1);
       }
@@ -7786,7 +7801,27 @@ export function createApp({
     return serialDecision(found.id, async () => {
       const design = await store.getDesign(found.id);
       if (!design) return fail(404, "design not found");
-      const name = str(body?.name, MAX_LOOK_NAME);
+      let name = str(body?.name, MAX_LOOK_NAME);
+      let values: unknown = body?.values;
+      const colors = body?.color !== undefined;
+      if (colors) {
+        const path = str(body.color?.path, 260);
+        const value = str(body.color?.value, 300);
+        if (!path || !value || body.remove === true)
+          return fail(400, "expected a colour knob and value");
+        const cfg = knobFor(path, design, await store.listPosts({ designId: design.id }));
+        if (cfg === undefined || explicitKnob(cfg).type !== "color") {
+          return fail(400, `"${path}" is not a colour knob`);
+        }
+        const same = design.looks.find(
+          (l) => Object.keys(l.values).length === 1 && l.values[path] === value,
+        );
+        if (same) return ok({ looks: design.looks.map((l) => ({ ...l, design: design.slug })) });
+        const base = value.slice(0, 50);
+        name = base;
+        for (let n = 2; design.looks.some((l) => l.name === name); n++) name = `${base} · ${n}`;
+        values = { [path]: value };
+      }
       if (!name) return fail(400, '"name" is required');
       let looks: Look[];
       if (body?.remove === true) {
@@ -7795,7 +7830,7 @@ export function createApp({
           return fail(404, `${design.slug} has no look "${name}"`);
       } else {
         const checked = checkLooks(
-          { [name]: body?.values },
+          { [name]: values },
           { ...(await systemFor(design.project))?.knobs, ...design.knobs },
           await store.listPosts({ designId: design.id }),
         );

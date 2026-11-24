@@ -4,6 +4,8 @@
 // behind one menu (VersionMenu).
 
 import { createSignal, For, Show } from "solid-js";
+import { colorQuestionPath } from "../../server/colorChoices.ts";
+import { explicitKnob } from "../../server/knobs.ts";
 import { framePicks } from "../../server/marks.ts";
 import { tunedCount } from "../../server/types.ts";
 import { backFromChanged } from "./ChangedNote.tsx";
@@ -206,9 +208,24 @@ export function UseButton(props: { s: DesignScreenState; primary?: boolean }) {
 }
 
 // Try and Comment need a page to hand taps to or pin on; Tune needs something to tune.
-export function CanvasTools(props: { s: DesignScreenState; page: boolean }) {
+export function CanvasTools(props: {
+  s: DesignScreenState;
+  page: boolean;
+  colourPanelVisible?: boolean;
+}) {
   const s = props.s;
   const tuned = () => tunedCount(s.draft()?.tunedOn) > 0;
+  const contextualColour = () => {
+    if (!props.colourPanelVisible || readonly() || s.tool() === "tune") return false;
+    const knobs = s.knobContext().knobs;
+    const held = s.sheet.held();
+    if (held) {
+      const cfg = held.at.knob ? knobs[held.at.knob] : undefined;
+      return cfg !== undefined && explicitKnob(cfg).type === "color";
+    }
+    const ask = s.curAsk();
+    return !!ask && !s.questionHidden() && !s.waitingOn(ask) && !!colorQuestionPath(ask, knobs, []);
+  };
   const tool = (name: "try" | "mark" | "tune", label: string) => (
     <button
       type="button"
@@ -217,7 +234,10 @@ export function CanvasTools(props: { s: DesignScreenState; page: boolean }) {
       aria-pressed={s.tool() === name}
       aria-label={label}
       title={label}
-      onClick={() => s.toggleTool(name)}
+      onClick={() => {
+        if (name === "tune" && contextualColour()) s.openColorEditor();
+        else s.toggleTool(name);
+      }}
     >
       <Icon name={name} />
       <Show when={name === "tune" && tuned()}>

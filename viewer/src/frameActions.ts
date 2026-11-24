@@ -201,7 +201,7 @@ export function runFrameAction(s: DesignScreenState, id: FrameActionId, f: Frame
     }
     case "more": {
       const version = s.frameVersionOf(v);
-      if (s.steer({ alternative: v.alternative, version, reaction: "more" }))
+      if (s.steer({ alternative: v.alternative, version, reaction: "more", values: f.col?.values }))
         s.setToast({
           text: `More like ${s.nameOf({ alternative: v.alternative, version })}, in Send`,
         });

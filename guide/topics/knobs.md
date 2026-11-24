@@ -6,7 +6,7 @@ to the frame it was made on: tuning one alternative leaves the others as they we
 
 ## Choice knobs, the Sheet, Sets and looks
 
-A choice knob is a `select` or an `image` with options, or a part's swaps. Publish what
+A choice knob is a `select`, `image` or `color` with options, or a part's swaps. Publish what
 varies across renders as one, not as a question: the user presses Spread beside it in Tune
 and sees the frame in every value, then every frame in every value, on a Sheet (frames down,
 values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it
@@ -38,21 +38,28 @@ and HTTP `knobs`). Over MCP and HTTP, knobs only one alternative has go in
 mockpit publish --design writer --state "Writing" --html w.html --knobs '{"body.size":[17,14,22,1]}'
 ```
 
-| shape                                                          | control        |
-| -------------------------------------------------------------- | -------------- |
-| `[17, 14, 22, 1]` (default, min, max, step?) or a number       | slider         |
-| `true` / `false`                                               | toggle         |
-| `"#2a6"`, `"oklch(…)"`, `"linear-gradient(…)"`                 | colour         |
-| any other string                                               | text           |
-| `{ "type": "select", "options": ["top", "bottom"], "value"? }` | select         |
-| `{ "type": "color", "value"?, "gradient"?, "contrast"? }`      | colour         |
-| `{ "type": "text", "value"?, "placeholder"? }`                 | text           |
-| `{ "type": "slider", "value", "min", "max", "step"? }`         | slider         |
-| `{ "type": "toggle", "value" }`                                | toggle         |
-| `{ "type": "spring", "stiffness"?, "damping"?, "mass"?, … }`   | spring         |
-| `{ "type": "easing", "duration", "ease": [x1, y1, x2, y2] }`   | easing         |
-| `{ "type": "pad", "x"?: [d, min, max], "y"?: …, "labels"? }`   | 2-D pad        |
-| `{ "type": "image", "options"?: [...], "value"? }`             | image (select) |
+| shape                                                                 | control        |
+| --------------------------------------------------------------------- | -------------- |
+| `[17, 14, 22, 1]` (default, min, max, step?) or a number              | slider         |
+| `true` / `false`                                                      | toggle         |
+| `"#2a6"`, `"oklch(…)"`, `"linear-gradient(…)"`                        | colour         |
+| any other string                                                      | text           |
+| `{ "type": "select", "options": ["top", "bottom"], "value"? }`        | select         |
+| `{ "type": "color", "value"?, "gradient"?, "contrast"?, "options"? }` | colour         |
+| `{ "type": "text", "value"?, "placeholder"? }`                        | text           |
+| `{ "type": "slider", "value", "min", "max", "step"? }`                | slider         |
+| `{ "type": "toggle", "value" }`                                       | toggle         |
+| `{ "type": "spring", "stiffness"?, "damping"?, "mass"?, … }`          | spring         |
+| `{ "type": "easing", "duration", "ease": [x1, y1, x2, y2] }`          | easing         |
+| `{ "type": "pad", "x"?: [d, min, max], "y"?: …, "labels"? }`          | 2-D pad        |
+| `{ "type": "image", "options"?: [...], "value"? }`                    | image (select) |
+
+For a colour the user can both edit and compare, publish a colour knob with
+a CSS colour as its value and named CSS colours in `options` to seed the Sheet.
+For example, `{"type":"color","value":"#24354d","options":[{"label":"Deep blue","value":"#24354d"}]}`.
+Have the frame use the colour value directly so it can draw user-added colours.
+In a question where every option sets this one colour knob, the user can add another
+colour to compare and choose it explicitly before Send.
 
 Select and image options are strings or `{value, label}`. Colour values may not
 use `url(…)` or `image(…)`. Every value is checked against the declaration
