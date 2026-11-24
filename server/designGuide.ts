@@ -738,7 +738,9 @@ Publish what varies; the user compares and decides without being asked. Each
 alternative is a frame. A choice knob (a \`select\` or \`image\` with options) is a value
 every frame can wear: the user picks it in Choices, for every alternative at once, or
 compares it on a Sheet: frames down, values across. A select only a click or motion shows
-takes \`"pictures": false\` and stays a dropdown in Tune.
+takes \`"pictures": false\` and waits under Fine-tune; \`"when": {"<knob>": [values]}\` hides a
+knob that does nothing in another's other values, and \`{"type": "action"}\` is a ▶ the page
+hears as \`mockpit:action\`, to play a motion.
 In an idea they mark **Main**, **Keep** (bookmark) or **Delete** (ruled out in \`target.ruledOut\`),
 save knob values as named **looks** (presets, to them), and press Use. Add \`--set\` (MCP/HTTP \`set: true\`) when
 all frames ship together (e.g. morphing illustrations): each frame keeps its own per-knob Main

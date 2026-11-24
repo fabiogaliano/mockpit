@@ -556,9 +556,13 @@ Stances reversed knowingly, so nobody restores them by accident:
     right one panel, there while a question is open (or something answered waits), a Sheet
     cell is open (`KnobChoicePanel.tsx`), or the state has choices: **Choices** (`Choices.tsx`,
     its rules in `choices.ts`) is one list, the open question first, then the alternatives
-    (titled Set on a Set idea, Variants on a variants design, archived ones folded), then a
-    group per choice knob the frame on stage reads (a select declared `pictures: false` is
-    none: it stays Tune's dropdown, and no Sheet lays it out) (`readsKnob` in `logic.ts`, from the
+    (titled Set on a Set idea, Variants on a variants design, archived ones folded), then the presets, then a
+    group per choice knob the frame on stage reads, the knobs that reshape it, then a folded
+    Fine-tune holding every other knob it reads (`FineTune`: an action knob a ▶ that posts
+    `action` to the frame on stage, which fires `mockpit:action`; a select declared
+    `pictures: false` its names, and no Sheet lays it out; the rest tunekit's control alone
+    in its own pane, `KnobPane`, writing as a choice does); a knob whose `when` the frame
+    doesn't meet is left out with one line saying what would show it (`idle`) (`readsKnob` in `logic.ts`, from the
     viewer read's `reads`, `server/knobReads.ts`: the served page, instances expanded,
     mentions `k-<path>`, `data-k-bind` or `dataset.k<Path>`, or it is a part's swaps; a page listening for
     `mockpit:knobs`, or one that can't be told, reads them all). Each group folds, showing its
@@ -576,8 +580,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     the alternatives. A choice knob is new to this browser until picked or laid out on a
     Sheet (`choicesSeen.ts`, a project's first visit marking nothing): an accent dot on
     its heading, or on the panel's toggle while it is shut, and it opens the panel where the
-    panel can stand beside the design. Tune keeps the fine knobs the page reads (`tuneKnobs`,
-    `tuneListed`), opening on its group when it has only one; or the user opens Spec (with Instances, `BuiltFrom`) or
+    panel can stand beside the design. Tune stays, by part, for a part tapped on the
+    stage, a phone (which has no Choices panel), the controls of parts and the components
+    included (`tuneKnobs`, `tuneListed`), opening on its group when it has only one; its writes
+    stay the frame's own; or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
     when it would take the design below 80%; Choices, once open on a desktop, stands beside
     the design however small that leaves it, though it opens by itself only past 80%). On an idea, the frame on stage carries

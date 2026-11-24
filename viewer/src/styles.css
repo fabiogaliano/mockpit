@@ -11301,6 +11301,29 @@ button.bmc {
   top: 5px;
   right: 5px;
 }
+.fine-row {
+  margin-top: 8px;
+  border-radius: 8px;
+}
+.fine-label {
+  display: block;
+  color: var(--t3);
+  font-size: 13px;
+}
+.fine-act {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--t3);
+  font-size: 13px;
+}
+.fine-pane {
+  min-width: 0;
+}
+.chg-idle {
+  padding: 4px 0 8px;
+}
 .chg-note {
   margin: 4px 0 0;
   color: var(--t4);

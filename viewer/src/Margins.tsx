@@ -107,7 +107,9 @@ export function createMargins(
   const choices = createChoices(s);
   const choicesHas = () =>
     altsHas() ||
-    (!closed() && !sideBySide() && (choices.paths().length > 0 || s.looksHere().length > 0));
+    (!closed() &&
+      !sideBySide() &&
+      (choices.paths().length > 0 || choices.fine().length > 0 || s.looksHere().length > 0));
   // What opens the panel by itself where it can stand: several alternatives, or a choice
   // knob new to this browser.
   const choicesWant = () => altsHas() || (choicesHas() && choices.newHere().length > 0);

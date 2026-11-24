@@ -2,7 +2,8 @@
 // knob a page never reads changes nothing on it, so the viewer leaves it out there. The
 // page reads one through the marks the knob runtime puts on it (surfacePage.ts): a
 // `--k-<path>` var, a `data-k-<path>` attribute, `[data-k-bind="<path>"]`, all of which
-// carry "k-<path, dots as dashes>", and script reads the attribute as `dataset.k<Path>`. A
+// carry "k-<path, dots as dashes>", and script reads the attribute as `dataset.k<Path>`; an
+// action knob is read by a page listening for `mockpit:action` that names its path. A
 // page that listens for `mockpit:knobs`, or builds those names in script, could be reading
 // anything: it reads them all. Wrong in the safe direction only: a name that merely
 // contains another counts as reading it. What a page names but draws no differently, the
@@ -39,7 +40,8 @@ export function knobsRead(
       lower.includes(`k-${dashed(path)}`.toLowerCase()) ||
       html.includes(`data-k-bind="${path}"`) ||
       html.includes(`data-k-bind='${path}'`) ||
-      html.includes(datasetName(path))
+      html.includes(datasetName(path)) ||
+      (html.includes("mockpit:action") && html.includes(path))
     ) {
       out.push(path);
     }

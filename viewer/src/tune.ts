@@ -83,7 +83,12 @@ const keyOf = (c: TuneComponent, path: string) =>
 // The control tunekit draws for a knob. An image knob becomes a select over its
 // option names: tunekit would load each option as an <img> here, in the trusted
 // document. A color whose value is not plainly a color is shown as text.
-export function paneControl(cfg: KnobConfig, palette?: ColorPalette): PaneConfig[string] {
+export function paneControl(raw: KnobConfig, palette?: ColorPalette): PaneConfig[string] {
+  // Mockpit's own keys mean nothing to tunekit.
+  const cfg: KnobConfig =
+    raw && typeof raw === "object" && !Array.isArray(raw) && "when" in raw
+      ? (({ when: _when, ...rest }) => rest as KnobConfig)(raw)
+      : raw;
   const declared = explicitKnob(cfg);
   if (declared.type === "color" && (declared.value === undefined || safeColor(declared.value))) {
     return {
@@ -198,7 +203,13 @@ export function createTune(s: DesignScreenState) {
     const knobs: Knobs = s.knobContext().knobs;
     const out: PaneConfig = {};
     const palette = tunePalette(s);
-    for (const path of c.paths) out[keyOf(c, path)] = paneControl(knobs[path], palette);
+    for (const path of c.paths) {
+      // An action is a ▶ beside the pane (BuiltFrom.tsx), not a value tunekit holds.
+      if (explicitKnob(knobs[path]).type !== "action") {
+        out[keyOf(c, path)] = paneControl(knobs[path], palette);
+      }
+    }
+    if (!Object.keys(out).length) return null;
     return { id: panelId(m.id, c), name: c.label, c, out, sig: JSON.stringify(out) };
   });
 

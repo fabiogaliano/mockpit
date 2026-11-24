@@ -191,6 +191,10 @@ export function createDesignScreen(
   const [hoveredPreview, setHoveredPreview] = view.hovered;
   const [heldPreview, setHeldPreview] = view.held;
   const preview = () => hoveredPreview() ?? heldPreview();
+  // An action knob's ▶, for the frame on stage to hand its page (`mockpit:action`); a new
+  // object each press, so the same one twice plays twice.
+  const [played, setPlayed] = createSignal<{ path: string } | null>(null);
+  const playAction = (path: string) => setPlayed({ path });
   // Everyone's null here means the preview is over, a held one included. A pointer
   // leaving says setHoveredPreview(null), which falls back to what is held.
   const setPreview = (p: Preview | null) => {
@@ -2776,6 +2780,8 @@ export function createDesignScreen(
     stagePalette,
     hoveredPreview,
     setHoveredPreview,
+    played,
+    playAction,
     heldPreview,
     setHeldPreview,
     askMore,

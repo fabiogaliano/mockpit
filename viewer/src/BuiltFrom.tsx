@@ -15,7 +15,9 @@ import {
   tuneListed,
   versionName,
 } from "./logic.ts";
+import { explicitKnob } from "../../server/knobs.ts";
 import { linkClick, designPath } from "./route.ts";
+import { knobName } from "./sheet.ts";
 import { PresetsRow } from "./Looks.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { frameMode } from "./systemRev.ts";
@@ -233,6 +235,13 @@ function PartToggle(props: { s: DesignScreenState; part: string | null; label: s
 function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
   const s = props.s;
   const borrow = () => s.mixOpts().filter((o) => o.part === props.part);
+  const actions = () =>
+    Object.entries(s.knobContext().knobs).flatMap(([path, cfg]) => {
+      const k = explicitKnob(cfg);
+      return k.type === "action" && knobPart(path) === props.part
+        ? [{ path, label: k.label ?? knobName(path) }]
+        : [];
+    });
   // A phone has no Choices panel: its choice knobs stay here, each with its Sheet.
   const spreads = () =>
     phoneLayout() && s.sheet.available()
@@ -241,6 +250,14 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
   return (
     <div class="knobs">
       <div class="tune-knobs" ref={(el) => s.setTuneHost(el)} />
+      <For each={actions()}>
+        {(a) => (
+          <button type="button" class="spread-row" onClick={() => s.playAction(a.path)}>
+            <span>{a.label}</span>
+            <span class="borrow-act">▶ Play</span>
+          </button>
+        )}
+      </For>
       <For each={spreads()}>
         {(k) => (
           <button

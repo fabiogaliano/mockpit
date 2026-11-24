@@ -919,6 +919,17 @@ function AlternativeFrame(props: {
     props.post({ type: "knobs", values });
   });
 
+  // An action knob's ▶ plays on the frame on stage only.
+  createEffect(
+    on(
+      () => s.played(),
+      (p) => {
+        if (p && props.active) props.post({ type: "action", path: p.path });
+      },
+      { defer: true },
+    ),
+  );
+
   // The palette goes over the bridge too: a hovered palette answer swapping the
   // URL would replace the document, which paints blank before it shows.
   let lastPalette = "";

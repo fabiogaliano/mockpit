@@ -571,6 +571,8 @@ export const HIT_TEST_JS = `
 //                               overlay, forwarded)
 //   knobs      {values}         {path: value}, merged into the current values
 //                               and applied exactly like the `?k=` preamble
+//   action     {path}           an action knob's ▶: fires window `mockpit:action`,
+//                               detail {path}, for the page to play what it names
 //   palette    {id}             wear this palette of the project's system (null: its
 //                               default), as `?p=` would: its colours, color-scheme,
 //                               data-scheme/data-palette and .dark. A document whose
@@ -1078,6 +1080,12 @@ ${KNOB_VALUE_JS}
     if (d.type === 'palette') {
       if (window.__mockpitWear) window.__mockpitWear(d.id);
       else window.__mockpitWanted = d.id;
+      return;
+    }
+    if (d.type === 'action') {
+      if (typeof d.path === 'string' && __kPathRe.test(d.path)) {
+        window.dispatchEvent(new CustomEvent('mockpit:action', { detail: { path: d.path } }));
+      }
       return;
     }
     if (d.type !== 'knobs') return;

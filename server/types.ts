@@ -233,8 +233,9 @@ export type Surface =
 // --- knobs ---
 // Mirrors tunekit's `usePane` config shape as plain data, so the viewer can hand
 // a design's knobs to tunekit unchanged while the server never imports tunekit.
-// Only value-carrying controls are knobs: tunekit's action/slot/folder have no
-// value a reply could carry, and folders are flattened into dotted paths.
+// Value-carrying controls, and tunekit's action: a button that tells the page to play
+// something (a `mockpit:action` event), with no value a reply could carry. Its slot and
+// folder are not knobs, and folders are flattened into dotted paths.
 
 export interface SliderKnob {
   type: "slider";
@@ -286,6 +287,10 @@ export interface ImageKnob {
   value?: string;
   options?: KnobOption[];
 }
+export interface ActionKnob {
+  type: "action";
+  label?: string;
+}
 // [default, min, max, step?] — tunekit's slider-tuple notation.
 export type KnobAxis = [number, number, number] | [number, number, number, number];
 export interface PadKnob {
@@ -294,7 +299,13 @@ export interface PadKnob {
   y?: KnobAxis;
   labels?: { x?: string; y?: string };
 }
-export type ExplicitKnob =
+// Shown only while every knob it names is at one of the values listed: what it changes
+// can't be seen otherwise (a side for a pile that has none).
+export interface KnobWhen {
+  when?: Record<string, KnobPrimitive[]>;
+}
+export type KnobPrimitive = string | number | boolean;
+export type ExplicitKnob = (
   | SliderKnob
   | ToggleKnob
   | SelectKnob
@@ -303,7 +314,10 @@ export type ExplicitKnob =
   | SpringKnob
   | EasingKnob
   | ImageKnob
-  | PadKnob;
+  | PadKnob
+  | ActionKnob
+) &
+  KnobWhen;
 // tunekit's shorthands: a number or tuple is a slider, a boolean a toggle, a
 // string a color or text.
 export type KnobConfig = ExplicitKnob | KnobAxis | number | boolean | string;

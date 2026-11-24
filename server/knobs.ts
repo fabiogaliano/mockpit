@@ -8,6 +8,7 @@ import type {
   KnobAxis,
   KnobConfig,
   KnobOption,
+  KnobPrimitive,
   Knobs,
   KnobValue,
   Design,
@@ -88,8 +89,42 @@ export function explicitKnob(config: KnobConfig): ExplicitKnob {
   return config;
 }
 
-// Validate one declared knob and return a clean copy (unknown keys dropped).
+const MAX_WHEN = 4;
+const MAX_WHEN_VALUES = 24;
+
+// Validate one declared knob and return a clean copy (unknown keys dropped), with its `when`.
 export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig> {
+  const checked = checkKnobShape(path, raw);
+  if (!checked.ok || !raw || typeof raw !== "object" || Array.isArray(raw)) return checked;
+  const when = (raw as Record<string, unknown>).when;
+  if (when === undefined) return checked;
+  const name = `knob "${path}"`;
+  const bad = { ok: false as const, error: `${name} when must be {"<knob>": [values]}` };
+  if (!when || typeof when !== "object" || Array.isArray(when)) return bad;
+  const entries = Object.entries(when as Record<string, unknown>);
+  if (!entries.length || entries.length > MAX_WHEN) return bad;
+  const out: Record<string, KnobPrimitive[]> = {};
+  for (const [other, values] of entries) {
+    if (!PATH_RE.test(other) || other === path) {
+      return { ok: false, error: `${name} when names "${other}", which must be another knob` };
+    }
+    if (
+      !Array.isArray(values) ||
+      !values.length ||
+      values.length > MAX_WHEN_VALUES ||
+      !values.every(
+        (v) =>
+          (typeof v === "string" && v.length <= MAX_STRING) || typeof v === "boolean" || isNum(v),
+      )
+    ) {
+      return bad;
+    }
+    out[other] = [...values];
+  }
+  return { ok: true, value: { ...(checked.value as ExplicitKnob), when: out } };
+}
+
+function checkKnobShape(path: string, raw: unknown): Checked<KnobConfig> {
   const name = `knob "${path}"`;
   if (Array.isArray(raw)) return checkAxis(raw, name);
   if (isNum(raw) || typeof raw === "boolean") return { ok: true, value: raw };
@@ -228,6 +263,11 @@ export function checkKnobConfig(path: string, raw: unknown): Checked<KnobConfig>
       }
       return { ok: true, value: out as unknown as ExplicitKnob };
     }
+    case "action":
+      return {
+        ok: true,
+        value: { type: "action", ...(isStr(k.label) ? { label: k.label } : {}) },
+      };
     default:
       return { ok: false, error: `${name} has unknown type "${String(k.type)}"` };
   }
@@ -315,6 +355,8 @@ export function checkKnobValue(
       }
       return { ok: true, value: { x, y } };
     }
+    case "action":
+      return bad("is an action, which holds no value");
     case "spring":
     case "easing": {
       // tunekit lets a transition knob switch between spring and easing modes.

@@ -1,16 +1,31 @@
 // The Choices panel's list, under the open question if there is one: the state's
-// alternatives, the presets, then each choice knob the frame on stage reads (choices.ts).
+// alternatives, the presets, then each choice knob the frame on stage reads (choices.ts), and
+// under a folded Fine-tune the rest of its knobs, each in its declared control.
 // Every group is the same thing: a heading that folds it, showing the current pick while
 // folded, and its values, which a mouse on one previews on the stage and a click picks. An
 // alternative is a picture of it; a knob's value a name; a colour with options a swatch.
 
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  createUniqueId,
+  For,
+  type JSX,
+  on,
+  onCleanup,
+  Show,
+  untrack,
+} from "solid-js";
+import { type PaneValue, PaneStore } from "tunekit/core";
+import { explicitKnob } from "../../server/knobs.ts";
+import type { KnobConfig, KnobValue } from "../../server/types.ts";
 import { isLive, recommendedAlternative } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { PresetsRow } from "./Looks.tsx";
-import type { ChoiceGroup, Choices } from "./choices.ts";
-import { knobGroup } from "./choices.ts";
+import type { ChoiceGroup, Choices, FineKnob } from "./choices.ts";
+import { FINE_GROUP, knobGroup } from "./choices.ts";
 import { canFrame, runFrameAction } from "./frameActions.ts";
 import { createHold } from "./holdPreview.ts";
 import { readonly } from "./host.ts";
@@ -18,11 +33,20 @@ import { Icon } from "./icons.tsx";
 import { ALTERNATIVES_GROUP, alternativeName, safeColor, type VersionStep } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
 import { posterShown } from "./systemRev.ts";
+import { mountTunePane, paneControl, tunePalette } from "./tune.ts";
 
 export function ChoicesList(props: { s: DesignScreenState; c: Choices }) {
   const c = props.c;
   return (
-    <Show when={c.hasAlternatives() || c.paths().length || props.s.looksHere().length}>
+    <Show
+      when={
+        c.hasAlternatives() ||
+        c.paths().length ||
+        c.fine().length ||
+        c.idle().length ||
+        props.s.looksHere().length
+      }
+    >
       <div class="chs">
         <Show when={c.hasAlternatives()}>
           <AlternativesGroup s={props.s} c={c} />
@@ -39,9 +63,183 @@ export function ChoicesList(props: { s: DesignScreenState; c: Choices }) {
             </Show>
           )}
         </For>
+        <FineTune s={props.s} c={c} />
+        <Show when={c.idle().length}>
+          <div class="chg-idle">
+            <For each={c.idle()}>
+              {(k) => (
+                <p class="chg-note">{`${k.label} hidden: only with ${k.on} ${k.values.join(" or ")}.`}</p>
+              )}
+            </For>
+          </div>
+        </Show>
       </div>
     </Show>
   );
+}
+
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+const sameList = (a: readonly string[], b: readonly string[]) =>
+  a.length === b.length && a.every((x, i) => x === b[i]);
+
+// The knobs that don't reshape the design, folded under one heading until opened.
+function FineTune(props: { s: DesignScreenState; c: Choices }) {
+  const c = props.c;
+  const open = () => c.isOpen(FINE_GROUP);
+  // By path: the knobs are rebuilt on every draft change, and a remounted row would take a
+  // slider out from under the pointer.
+  const paths = createMemo(() => c.fine().map((k) => k.path), [], { equals: sameList });
+  return (
+    <Show when={paths().length}>
+      <section class="chg fine" classList={{ shut: !open() }}>
+        <div class="chg-h">
+          <button
+            type="button"
+            class="chg-fold"
+            aria-expanded={open()}
+            onClick={() => c.toggle(FINE_GROUP)}
+          >
+            <b>Fine-tune</b>
+            <span class="chg-cur">
+              {open()
+                ? ""
+                : c
+                    .fine()
+                    .map((k) => k.label.toLowerCase())
+                    .join(", ")}
+            </span>
+          </button>
+          <button
+            type="button"
+            class="chg-chev"
+            tabIndex={-1}
+            aria-hidden="true"
+            onClick={() => c.toggle(FINE_GROUP)}
+          >
+            <Icon name={open() ? "up" : "down"} />
+          </button>
+        </div>
+        <Show when={open()}>
+          <For each={paths()}>
+            {(path) => (
+              <Show when={c.fine().find((k) => k.path === path)}>
+                {(k) => <FineRow s={props.s} c={c} k={k()} />}
+              </Show>
+            )}
+          </For>
+        </Show>
+      </section>
+    </Show>
+  );
+}
+
+// One fine knob: an action is ▶, a select with no pictures its names, the rest the control
+// Tune draws for it.
+function FineRow(props: { s: DesignScreenState; c: Choices; k: FineKnob }) {
+  const c = props.c;
+  const declared = () => explicitKnob(props.k.cfg);
+  const options = () => {
+    const d = declared();
+    return d.type === "select"
+      ? d.options.map((o) => (typeof o === "string" ? { value: o, label: o } : o))
+      : null;
+  };
+  return (
+    <div class="fine-row" data-knob-row={props.k.path}>
+      <Show
+        when={declared().type !== "action"}
+        fallback={
+          <div class="fine-act">
+            <span>{props.k.label}</span>
+            <button
+              type="button"
+              class="chc"
+              onClick={() => props.s.playAction(props.k.path)}
+              aria-label={`Play ${props.k.label}`}
+            >
+              ▶ Play
+            </button>
+          </div>
+        }
+      >
+        <Show
+          when={options()}
+          fallback={
+            <KnobPane
+              s={props.s}
+              label={props.k.label}
+              cfg={() => props.k.cfg}
+              value={() => c.value(props.k.path)}
+              onChange={(v) => c.pick(props.k.path, v)}
+            />
+          }
+        >
+          {(list) => (
+            <>
+              <span class="fine-label">{props.k.label}</span>
+              <div class="chips-row" role="group" aria-label={props.k.label}>
+                <For each={list()}>
+                  {(v) => (
+                    <button
+                      type="button"
+                      class="chc"
+                      classList={{ on: c.isPicked(props.k.path, v.value) }}
+                      aria-pressed={c.isPicked(props.k.path, v.value)}
+                      disabled={readonly()}
+                      onClick={() => c.pick(props.k.path, v.value)}
+                    >
+                      {v.label}
+                    </button>
+                  )}
+                </For>
+              </div>
+            </>
+          )}
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
+// A knob in tunekit's control for it, alone in its own pane: what Tune would draw, here.
+function KnobPane(props: {
+  s: DesignScreenState;
+  label: string;
+  cfg: () => KnobConfig;
+  value: () => KnobValue | undefined;
+  onChange: (v: KnobValue) => void;
+}) {
+  const id = `mockpit-fine:${createUniqueId()}`;
+  const pane = mountTunePane(id);
+  const key = props.label;
+  const control = createMemo(() => JSON.stringify(paneControl(props.cfg(), tunePalette(props.s))));
+  createEffect(
+    on(control, (sig) => {
+      const out = { [key]: JSON.parse(sig) };
+      PaneStore.registerPanel(id, key, out);
+      const v = untrack(props.value);
+      if (v !== undefined) PaneStore.updateValues(id, { [key]: v as PaneValue });
+      // tunekit's view takes the values at registering and hears a panel once re-rendered.
+      PaneStore.updatePanel(id, key, out);
+      const stop = PaneStore.subscribe(id, () => {
+        const now = PaneStore.getValues(id)[key] as KnobValue | undefined;
+        if (now === undefined || same(now, untrack(props.value))) return;
+        props.onChange(now);
+      });
+      onCleanup(() => {
+        stop();
+        PaneStore.unregisterPanel(id);
+      });
+    }),
+  );
+  // The draft can change under it: a reset, a preset, another tab.
+  createEffect(() => {
+    const v = props.value();
+    if (v !== undefined && !same(PaneStore.getValues(id)[key], v)) {
+      PaneStore.updateValues(id, { [key]: v as PaneValue });
+    }
+  });
+  return <div class="fine-pane" ref={(el) => el.append(pane)} />;
 }
 
 // The dot that says a group is new to this browser.

@@ -61,6 +61,7 @@ mockpit publish --design writer --state "Writing" --html w.html --knobs '{"body.
 | `{ "type": "easing", "duration", "ease": [x1, y1, x2, y2] }`                | easing         |
 | `{ "type": "pad", "x"?: [d, min, max], "y"?: …, "labels"? }`                | 2-D pad        |
 | `{ "type": "image", "options"?: [...], "value"? }`                          | image (select) |
+| `{ "type": "action", "label"? }`                                            | ▶ Play         |
 
 For a colour the user can both edit and compare, publish a colour knob with
 a CSS colour as its value and named CSS colours in `options` to seed the Sheet.
@@ -69,9 +70,16 @@ Have the frame use the colour value directly so it can draw user-added colours.
 In a question where every option sets this one colour knob, the user can add another
 colour to compare and choose it explicitly before Send.
 
-A select is a choice knob, pictured in Choices and on the Sheet. `"pictures": false` keeps
-it a dropdown in Tune: for what a still can't show, such as which way a thing is tossed on
-a click, whose every value would draw the same picture.
+A select is a choice knob: its values lead the Choices panel, by name, and the Sheet
+pictures them. Every other knob waits under Fine-tune there, in its own control.
+`"pictures": false` makes a select one of those: for what a still can't show, such as which
+way a thing is tossed on a click, whose every value would draw the same picture.
+
+`"when": {"<knob>": ["v1", "v2"]}` on any knob shows it only while that other knob is at one
+of those values, with a line saying why it is hidden otherwise: a side for an arrangement
+that has none. An `action` knob is a ▶ that plays something on the stage: the page hears
+`mockpit:action` with `detail.path`, and plays it (a toss, a spring), so a motion can be
+judged by watching it. It holds no value and is never sent.
 
 Select and image options are strings or `{value, label}`. Colour values may not
 use `url(…)` or `image(…)`. Every value is checked against the declaration
@@ -90,6 +98,8 @@ Dots in the path become `-`.
 - `[data-k-bind="<path>"]`: the element's text becomes the value.
 - `window` event `mockpit:knobs`: `detail.values` holds every current value.
   It fires on load and on each change. Use it for anything CSS can't do.
+- `window` event `mockpit:action`: `detail.path` names the action knob whose ▶ was
+  pressed.
 
 ## Structural options
 
