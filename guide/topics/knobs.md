@@ -4,7 +4,7 @@ A knob is a value the user tunes live on one render. Declare knobs for what is w
 fine-tuning (size, spacing, colour, density) even unasked; they wait in Tune. A tune belongs
 to the frame it was made on: tuning one alternative leaves the others as they were. A knob
 shows only on a frame whose page reads it (its html, components included, mentions
-`k-<path, dots as dashes>` or `data-k-bind="<path>"`, or the knob is a part's swaps); a page
+`k-<path, dots as dashes>`, `data-k-bind="<path>"` or its `dataset.k<Path>`, or the knob is a part's swaps); a page
 listening for `mockpit:knobs` shows every knob.
 
 ## Choice knobs, the Sheet, Sets and looks

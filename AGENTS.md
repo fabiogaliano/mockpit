@@ -557,7 +557,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     (titled Set on a Set idea, Variants on a variants design, archived ones folded), then a
     group per choice knob the frame on stage reads (`readsKnob` in `logic.ts`, from the
     viewer read's `reads`, `server/knobReads.ts`: the served page, instances expanded,
-    mentions `k-<path>` or `data-k-bind`, or it is a part's swaps; a page listening for
+    mentions `k-<path>`, `data-k-bind` or `dataset.k<Path>`, or it is a part's swaps; a page listening for
     `mockpit:knobs`, or one that can't be told, reads them all). Each group folds, showing its
     pick while folded (the user's own fold kept per design per browser; else a new group is
     open, the alternatives are while nothing is new, a group alone is: `choiceFolds`), with a
