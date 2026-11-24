@@ -67,6 +67,8 @@ function GroupHead(props: {
   title: string;
   isNew: boolean;
   current: string;
+  // Open, what the group is waiting on ("3 of 15"), in the place the pick shows folded.
+  status?: string | null;
   compare?: { on: () => void };
 }) {
   const open = () => props.c.isOpen(props.id);
@@ -82,7 +84,9 @@ function GroupHead(props: {
         <Show when={props.isNew}>
           <NewDot />
         </Show>
-        <span class="chg-cur">{open() ? "" : props.current}</span>
+        <span class="chg-cur" role={open() && props.status ? "status" : undefined}>
+          {open() ? (props.status ?? "") : props.current}
+        </span>
       </button>
       <Show when={open() && props.compare}>
         {(cmp) => (
@@ -168,14 +172,31 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
     for (const cell of cells()) if (cell && !c.stills.of(cell)) c.stills.want(cell, false, true);
   });
   const urls = () => cells().map((cell) => (cell ? c.stills.of(cell) : null));
-  // Framed once every still is in (or won't be), so no tile re-frames as the others arrive.
+  const pictured = () => c.stills.capability() === "capture";
+  // Each still shows as it comes, whole; once every one is in (or won't be) they are framed
+  // on what differs, so a tile re-frames once rather than as each of the others arrives.
   const settled = () =>
     cells().length > 0 && cells().every((cell, i) => !cell || !!urls()[i] || c.stills.failed(cell));
   const [crop] = createResource(
     () => (settled() ? urls().filter((u): u is string => !!u) : null),
     (list) => groupCrop(list, TILE_RATIO).then((box) => ({ box })),
   );
-  const pictured = () => c.stills.capability() === "capture";
+  const tileOf = (i: number): TilePicture => {
+    const cell = cells()[i];
+    if (!pictured() || !cell) return { kind: "none" };
+    const url = urls()[i];
+    if (url) return { kind: "shown", url, crop: crop()?.box ?? null };
+    return c.stills.failed(cell)
+      ? { kind: "failed", retry: () => c.stills.want(cell, true, true) }
+      : { kind: "waiting" };
+  };
+  // How many of the open group's pictures are in, while any is still on its way.
+  const progress = () => {
+    if (!pictured()) return null;
+    const asked = cells().filter((cell): cell is StillCell => !!cell);
+    const waiting = asked.filter((cell) => !c.stills.of(cell) && !c.stills.failed(cell));
+    return waiting.length ? `${asked.length - waiting.length} of ${asked.length}` : null;
+  };
   return (
     <section class="chg" classList={{ shut: !open() }}>
       <GroupHead
@@ -184,21 +205,13 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         title={props.g.label}
         isNew={c.isNew(props.g.path)}
         current={c.valueLabel(props.g)}
+        status={progress()}
         compare={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
       <Show when={open()}>
         <div class="chg-tiles">
           <Index each={c.shown(props.g)}>
-            {(v, i) => (
-              <KnobTile
-                c={c}
-                g={props.g}
-                v={v()}
-                pictured={pictured() && !!cells()[i]}
-                url={crop() ? (urls()[i] ?? null) : null}
-                crop={crop()?.box ?? null}
-              />
-            )}
+            {(v, i) => <KnobTile c={c} g={props.g} v={v()} picture={tileOf(i)} />}
           </Index>
         </div>
       </Show>
@@ -206,17 +219,19 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   );
 }
 
-function KnobTile(props: {
-  c: Choices;
-  g: ChoiceGroup;
-  v: Value;
-  // A picture is coming: its place is kept until it does.
-  pictured: boolean;
-  url: string | null;
-  crop: CropBox | null;
-}) {
+// A tile's picture as it stands: none to come (no capture here), on its way, taken, or not
+// taken. Each reads differently, so a tile waiting is never read as a value that draws nothing.
+type TilePicture =
+  | { kind: "none" }
+  | { kind: "waiting" }
+  | { kind: "failed"; retry: () => void }
+  | { kind: "shown"; url: string; crop: CropBox | null };
+
+function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value; picture: TilePicture }) {
   const c = props.c;
   const path = () => props.g.path;
+  const shot = () => (props.picture.kind === "shown" ? props.picture : null);
+  const failed = () => (props.picture.kind === "failed" ? props.picture : null);
   return (
     <TileShell
       label={props.v.label}
@@ -230,29 +245,52 @@ function KnobTile(props: {
           ? { keep: () => c.keep(props.g, props.v), ruleOut: () => c.ruleOut(props.g, props.v) }
           : undefined
       }
+      over={
+        <Show when={failed()}>
+          {(f) => (
+            <button
+              type="button"
+              class="cht-retry"
+              aria-label={`Retry the picture of ${props.v.label}`}
+              onClick={() => f().retry()}
+            >
+              Retry
+            </button>
+          )}
+        </Show>
+      }
     >
-      <Show when={props.pictured || props.url}>
-        <span class="cht-pic">
-          <Show when={props.url}>
-            {(u) => (
+      <Show when={props.picture.kind !== "none"}>
+        <span
+          class="cht-pic"
+          classList={{ wait: props.picture.kind === "waiting", failed: !!failed() }}
+        >
+          <Show when={shot()}>
+            {(s) => (
               <img
-                src={u()}
+                src={s().url}
                 alt=""
                 decoding="async"
                 draggable={false}
-                classList={{ framed: !!props.crop }}
+                classList={{ framed: !!s().crop }}
                 style={
-                  props.crop
+                  s().crop
                     ? {
-                        width: `${100 / props.crop.w}%`,
-                        height: `${100 / props.crop.h}%`,
-                        left: `${(-props.crop.x / props.crop.w) * 100}%`,
-                        top: `${(-props.crop.y / props.crop.h) * 100}%`,
+                        width: `${100 / s().crop!.w}%`,
+                        height: `${100 / s().crop!.h}%`,
+                        left: `${(-s().crop!.x / s().crop!.w) * 100}%`,
+                        top: `${(-s().crop!.y / s().crop!.h) * 100}%`,
                       }
                     : undefined
                 }
               />
             )}
+          </Show>
+          <Show when={props.picture.kind === "waiting"}>
+            <span class="sr-only">Taking its picture</span>
+          </Show>
+          <Show when={failed()}>
+            <span class="cht-why">Couldn't take its picture</span>
           </Show>
         </span>
       </Show>
@@ -285,6 +323,8 @@ function TileShell(props: {
   hold?: JSX.HTMLAttributes<HTMLDivElement>;
   children?: JSX.Element;
   extra?: JSX.Element;
+  // Over the tile and outside its button, for a control of its own.
+  over?: JSX.Element;
 }) {
   return (
     <div
@@ -317,6 +357,7 @@ function TileShell(props: {
           ruleOut={props.marks!.ruleOut}
         />
       </Show>
+      {props.over}
     </div>
   );
 }

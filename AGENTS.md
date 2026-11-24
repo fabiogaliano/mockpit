@@ -562,9 +562,11 @@ Stances reversed knowingly, so nobody restores them by accident:
     pick while folded (the user's own fold kept per design per browser; else a new group is
     open, the alternatives are while nothing is new, a group alone is: `choiceFolds`), with a
     picture tile per value (a Sheet still, `stills.ts`, asked for ahead of all other stills as
-    `lead` while its group is open on the frame on stage, never while folded; framed, once the
-    group's stills are all in, on the box where they differ, `stillCrop.ts`, whole when that is
-    most of the page) and Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
+    `lead` while its group is open on the frame on stage, never while folded; each shown whole
+    as it comes, then framed, once the group's stills are all in, on the box where they differ,
+    `stillCrop.ts`, whole when that is most of the page; a tile waiting for its still shimmers,
+    the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
+    and Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
     on a click, and keeps or rules out from its corner with the Sheet's cell marks. An
     alternative's tile reads as a question's answer does (a rest of `HOLD_MS` holds it, a click
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
