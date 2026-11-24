@@ -166,7 +166,7 @@ export function BuiltFrom(props: {
           <h3>Parts</h3>
           <Show when={tuned()}>
             <div class="tunedbar" role="status">
-              <span>{`${tuned()} tuned${frameName() ? ` on ${frameName()}` : ""}`}</span>
+              <span>{`${tuned()} changed${frameName() ? ` on ${frameName()}` : ""}`}</span>
               <button type="button" onClick={() => s.resetTuned(listedPaths())}>
                 Reset
               </button>
@@ -193,7 +193,7 @@ export function BuiltFrom(props: {
                       <span class="chip">
                         <span class="nm">{c().label}</span>
                         <Show when={t.tunedIn(c())}>
-                          <span class="sm">tuned</span>
+                          <span class="sm">changed</span>
                         </Show>
                       </span>
                       <PartToggle s={s} part={part} label={c().label} />

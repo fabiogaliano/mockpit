@@ -77,7 +77,7 @@ The plugin waits for a reply from your first mockpit call on, so don't arm `mock
 Send wakes you even when idle, with a line like:
 
 ```
-mockpit reply on writer: Quiet or dark? → Dark · dark tuned: body.size 19 · body from quiet
+mockpit reply on writer: Quiet or dark? → Dark · dark: body.size 19 · body from quiet
 ```
 
 If nothing is waiting, the viewer shows the user a line to paste to you, which means the same.

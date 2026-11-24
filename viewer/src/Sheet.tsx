@@ -161,7 +161,7 @@ export function Sheet(props: { s: DesignScreenState }) {
     const doc = button.ownerDocument;
     setDeleting(true);
     try {
-      const removed = await s.deleteCells(subjectsOf(col), col.label);
+      const removed = await s.deleteCells(subjectsOf(col));
       if (removed && !button.isConnected && doc.activeElement === doc.body) {
         deletedToggle?.focus({ preventScroll: true });
       }

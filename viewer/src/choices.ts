@@ -18,6 +18,7 @@ import {
   choiceWrites,
   draftKnobValues,
   frameKnobContext,
+  knobAsk,
   partLabel,
   readsKnob,
 } from "./logic.ts";
@@ -183,6 +184,29 @@ export function createChoices(s: DesignScreenState) {
     );
   };
   const isPicked = (path: string, v: KnobValue) => same(value(path), v);
+  // Changed: the frame on stage shows the knob apart from what the agent sent, the value it
+  // has with nothing of this draft.
+  const changed = (path: string) => {
+    const m = s.design();
+    const v = frame();
+    return !!m && !!v && !same(value(path), draftKnobValues(m, v, null)[path]);
+  };
+  // Back to the agent's value wherever a pick put it: each frame's own value of it off, and a
+  // question the knob answered unanswered.
+  function reset(path: string) {
+    const m = s.design();
+    const v = frame();
+    if (!m || !v || readonly()) return;
+    const ask = knobAsk(path, knobsOf(v), m.asks);
+    batch(() => {
+      if (ask && s.draft()?.answers[ask.id] !== undefined) s.pick(ask, null);
+      for (const x of live()) {
+        if (path in (s.draft()?.tunedOn[x.alternative] ?? {})) {
+          s.setTuned(path, undefined, x.alternative);
+        }
+      }
+    });
+  }
   // The live frames a pick of the knob is written to: each that has it and reads it.
   const writesTo = (path: string) =>
     live().filter((x) => knobsOf(x)[path] !== undefined && reads(x, path));
@@ -268,6 +292,8 @@ export function createChoices(s: DesignScreenState) {
     value,
     valueLabel,
     isPicked,
+    changed,
+    reset,
     scope,
     pick,
     preview,

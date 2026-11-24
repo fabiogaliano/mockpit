@@ -13,7 +13,7 @@ import { type Ask, type AskOption, isLive } from "../../server/types.ts";
 import type { AlternativeView } from "./api.ts";
 import { readonly } from "./host.ts";
 import type { IconName } from "./icons.tsx";
-import { alternativeName, drawsAnswer, historyRow, moreAllowed } from "./logic.ts";
+import { drawsAnswer, historyRow, moreAllowed } from "./logic.ts";
 import type { SheetColumn } from "./sheet.ts";
 import type { DesignScreenState } from "./state.ts";
 
@@ -170,8 +170,7 @@ export function runFrameAction(s: DesignScreenState, id: FrameActionId, f: Frame
     case "delete": {
       // On a sheet cell, delete ONLY this knob/look cell (never archive the whole alternative!).
       if (f.col) {
-        const label = `${alternativeName(v.alternative)} · ${f.col.label}`;
-        void s.deleteMark(subjectOf(f), label);
+        void s.deleteMark(subjectOf(f));
         // If we deleted the cell currently held on stage, advance to the next active option.
         const held = s.sheet.held();
         if (held && held.v.alternative === v.alternative && held.col.key === f.col.key) {

@@ -30,6 +30,8 @@ export function PresetsRow(props: { s: DesignScreenState }) {
   const where = (l: LookView) =>
     [lookLine(l.values), l.design !== s.slug ? `from ${l.design}` : ""].filter(Boolean).join(" · ");
   const canSave = () => !readonly() && Object.keys(s.lookFromFrame()).length > 0;
+  // There is no undo: removing one of the user's own asks twice, the second on the same spot.
+  const [removing, setRemoving] = createSignal<string | null>(null);
   return (
     <Show when={s.looksHere().length || canSave()}>
       <section class="chg presets">
@@ -42,7 +44,11 @@ export function PresetsRow(props: { s: DesignScreenState }) {
         <div class="chips-row" role="group" aria-label="Presets">
           <For each={s.looksHere()}>
             {(l) => (
-              <span class="chc-w" classList={{ mine: l.author === "user" }}>
+              <span
+                class="chc-w"
+                classList={{ mine: l.author === "user", removing: removing() === l.name }}
+                onPointerLeave={() => removing() === l.name && setRemoving(null)}
+              >
                 <button
                   type="button"
                   class="chc"
@@ -64,15 +70,31 @@ export function PresetsRow(props: { s: DesignScreenState }) {
                   {l.name}
                 </button>
                 <Show when={l.design === s.slug && !readonly()}>
-                  <button
-                    type="button"
-                    class="chc-x"
-                    aria-label={`Remove the preset ${l.name}`}
-                    title="Remove"
-                    onClick={() => s.removeLook(l)}
+                  <Show
+                    when={removing() === l.name}
+                    fallback={
+                      <button
+                        type="button"
+                        class="chc-x"
+                        aria-label={`Remove the preset ${l.name}`}
+                        title="Remove"
+                        onClick={() => setRemoving(l.name)}
+                      >
+                        <Icon name="close" />
+                      </button>
+                    }
                   >
-                    <Icon name="close" />
-                  </button>
+                    <button
+                      type="button"
+                      class="chc-sure"
+                      onClick={() => {
+                        setRemoving(null);
+                        s.removeLook(l);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </Show>
                 </Show>
               </span>
             )}

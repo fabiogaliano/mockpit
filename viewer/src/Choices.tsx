@@ -146,12 +146,16 @@ function FineRow(props: { s: DesignScreenState; c: Choices; k: FineKnob }) {
   };
   return (
     <div class="fine-row" data-knob-row={props.k.path}>
-      <Show when={c.scope(props.k.path)}>
-        {(where) => (
-          <div class="fine-meta">
-            <span class="chg-scope">{where()}</span>
-          </div>
-        )}
+      <Show when={c.scope(props.k.path) || c.changed(props.k.path)}>
+        <div class="fine-meta">
+          <Show when={c.changed(props.k.path)}>
+            <ChangedDot />
+          </Show>
+          <span class="chg-scope">{c.scope(props.k.path)}</span>
+          <Show when={c.changed(props.k.path) && !readonly()}>
+            <ResetButton c={c} path={props.k.path} label={props.k.label} />
+          </Show>
+        </div>
       </Show>
       <Show
         when={declared().type !== "action"}
@@ -249,6 +253,27 @@ function KnobPane(props: {
   return <div class="fine-pane" ref={(el) => el.append(pane)} />;
 }
 
+// Changed from what the agent sent, on its own row.
+const ChangedDot = () => (
+  <i class="chdot" role="img" aria-label="Changed" title="Changed">
+    {""}
+  </i>
+);
+
+function ResetButton(props: { c: Choices; path: string; label: string }) {
+  return (
+    <button
+      type="button"
+      class="chg-reset"
+      title="Back to the agent's value"
+      aria-label={`Reset ${props.label}`}
+      onClick={() => props.c.reset(props.path)}
+    >
+      ↺ Reset
+    </button>
+  );
+}
+
 // The dot that says a group is new to this browser.
 const NewDot = () => (
   <i class="newdot" role="img" aria-label="New" title="New">
@@ -264,9 +289,12 @@ function GroupHead(props: {
   current: string;
   // Open, where a pick applies, in the place the pick shows folded.
   scope?: string;
+  // The knob it is, where the user changed it: a dot, and Reset on the row.
+  path?: string;
   sheet?: { on: () => void };
 }) {
   const open = () => props.c.isOpen(props.id);
+  const changed = () => !!props.path && props.c.changed(props.path);
   return (
     <div class="chg-h">
       <button
@@ -279,10 +307,16 @@ function GroupHead(props: {
         <Show when={props.isNew}>
           <NewDot />
         </Show>
+        <Show when={changed()}>
+          <ChangedDot />
+        </Show>
         <span class="chg-cur" classList={{ scope: open() }}>
           {open() ? (props.scope ?? "") : props.current}
         </span>
       </button>
+      <Show when={changed() && !readonly()}>
+        <ResetButton c={props.c} path={props.path!} label={props.title} />
+      </Show>
       <Show when={open() && props.sheet}>
         {(cmp) => (
           <button type="button" class="chg-cmp" title="Open the Sheet" onClick={() => cmp().on()}>
@@ -367,6 +401,7 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         isNew={c.isNew(props.g.path)}
         current={c.valueLabel(props.g)}
         scope={c.scope(props.g.path)}
+        path={props.g.path}
         sheet={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
       <Show when={open()}>
@@ -459,8 +494,14 @@ function ColourRow(props: { c: Choices; g: ChoiceGroup }) {
           <Show when={c.isNew(props.g.path)}>
             <NewDot />
           </Show>
+          <Show when={c.changed(props.g.path)}>
+            <ChangedDot />
+          </Show>
           <Show when={c.scope(props.g.path)}>
             {(where) => <span class="chg-scope">{where()}</span>}
+          </Show>
+          <Show when={c.changed(props.g.path) && !readonly()}>
+            <ResetButton c={c} path={props.g.path} label={props.g.label} />
           </Show>
         </span>
         <span class="chg-sws" role="group" aria-label={props.g.label}>

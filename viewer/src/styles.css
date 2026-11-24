@@ -5007,6 +5007,15 @@ html:has(.design-screen) {
 .chc-x:hover {
   color: var(--t1);
 }
+.chc-sure {
+  margin-left: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--row);
+  color: var(--t1);
+  font-size: 12px;
+}
 .chc-x .icon {
   width: 12px;
   height: 12px;
@@ -11304,6 +11313,26 @@ button.bmc {
 .fine-row {
   margin-top: 8px;
   border-radius: 8px;
+}
+.chdot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t3);
+}
+.chg-reset {
+  flex: none;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  color: var(--t4);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.chg-reset:hover {
+  background: var(--row-hover);
+  color: var(--t1);
 }
 .fine-meta {
   display: flex;

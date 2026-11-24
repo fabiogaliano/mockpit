@@ -273,14 +273,10 @@ export function createDesignScreen(
     };
     holdGhost(false);
     setGhost(g);
+    // With no place for it on screen it says nothing: what was archived waits under
+    // Archived, where it lives, to be restored.
     host().window.setTimeout(() => {
-      if (ghost() !== g || ghostPlaces > 0) return;
-      setGhost(null);
-      setToast({
-        text: `Archived ${g.label}`,
-        undo: g.undo,
-        reason: { value: null, save: g.saveReason },
-      });
+      if (ghost() === g && ghostPlaces === 0) setGhost(null);
     });
   }
   createEffect(() => {
@@ -1742,13 +1738,6 @@ export function createDesignScreen(
       alternative,
       paths ? Object.fromEntries(Object.entries(before).filter(([p]) => !paths.includes(p))) : {},
     );
-    setToast({
-      text: "Tuning reset",
-      undo: () => {
-        setToast(null);
-        replaceTuned(alternative, before);
-      },
-    });
   }
 
   // The newest version published since the Send, in any state.
@@ -2413,21 +2402,13 @@ export function createDesignScreen(
       knobs: resolveKnobs({ ...ctx, tuned: tunedWithLook(ctx, l.values) }),
     };
   }
-  // The frame on stage takes the look; its siblings keep theirs.
+  // The frame on stage takes the look; its siblings keep theirs. No undo: each knob it set
+  // says so on its row, with Reset.
   function applyLook(l: LookView) {
     const alternative = activeAlternative()?.alternative;
     if (alternative === undefined || readonly()) return;
-    const ctx = knobContext();
-    const before = { ...ctx.tuned };
-    replaceTuned(alternative, tunedWithLook(ctx, l.values));
+    replaceTuned(alternative, tunedWithLook(knobContext(), l.values));
     setHoveredPreview(null);
-    setToast({
-      text: `${l.name} on ${alternative}`,
-      undo: () => {
-        setToast(null);
-        replaceTuned(alternative, before);
-      },
-    });
   }
   async function saveLook(name: string): Promise<boolean> {
     if (readonly()) return false;
@@ -2454,13 +2435,6 @@ export function createDesignScreen(
   const [colorEditRequest, setColorEditRequest] = createSignal(0);
   function removeLook(l: LookView) {
     void writeLook({ name: l.name, remove: true }).catch(fail);
-    setToast({
-      text: `Removed ${l.name}`,
-      undo: () => {
-        setToast(null);
-        void writeLook({ name: l.name, values: l.values }).catch(fail);
-      },
-    });
   }
 
   // A steer (more like this, a borrow) names the version it is about, and waits in the

@@ -16,7 +16,7 @@ MCP `feedback`, `GET /api/feedback?session=…`). It returns at once:
           "Trim above or below? → Below · “below on mobile only” · on Above: “not this, but its spacing”",
           "Which language? → Both, side by side",
           "body from quiet",
-          "dark tuned: body.size 19",
+          "dark: body.size 19",
           "Comment on title on dark@1, Writing: “bigger”",
           "👍 part \"title\" (alternative dark, state Writing)",
           "“close, go dark”"
@@ -272,7 +272,7 @@ Each Send is delivered exactly once, by whichever of `feedback` or a write picks
 2. On request: `feedback` when the user says they answered.
 3. Background watch: `mockpit watch` says one landed and delivers nothing: call `feedback`
    for the reply. It prints one line per Send, its `lines` joined
-   (`mockpit reply on writer: Quiet or dark? → Dark · dark tuned: body.size 19`), and one per
+   (`mockpit reply on writer: Quiet or dark? → Dark · dark: body.size 19`), and one per
    thread message (`mockpit message on writer: “…”`). It never returns, so never run it in
    the foreground. In Claude Code, arm it under Monitor after publishing, then end your turn:
    `Monitor({ command: "mockpit watch", description: "mockpit replies", timeout_ms: 1800000 })`.

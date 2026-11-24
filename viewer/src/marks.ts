@@ -151,21 +151,14 @@ export function createMarks(d: MarkDeps) {
     void setMark(subject, markOf(subject) === "keep" ? null : "keep");
   const toggleMain = (subject: MarkSubject) =>
     void setMark(subject, markOf(subject) === "main" ? null : "main");
-  async function deleteMark(subject: MarkSubject, label?: string) {
+  async function deleteMark(subject: MarkSubject) {
     const prev = markOf(subject);
     if (prev === "deleted") return;
-    const ok = await setMark(subject, "deleted");
-    if (!ok) return;
-    d.setToast({
-      text: label ? `Deleted ${label}` : "Deleted",
-      undo: () => {
-        d.setToast(null);
-        void setMark(subject, prev);
-      },
-    });
+    // No undo: a deleted cell stays in its place on the Sheet, with Restore.
+    await setMark(subject, "deleted");
   }
 
-  async function deleteCells(subjects: MarkSubject[], label: string): Promise<boolean> {
+  async function deleteCells(subjects: MarkSubject[]): Promise<boolean> {
     const current = design();
     if (!current || readonly() || !subjects.length) return false;
     const save = async (changes: MarkChange[]) => {
@@ -180,15 +173,8 @@ export function createMarks(d: MarkDeps) {
       }
     };
     const previous = await save(subjects.map((subject) => ({ ...subject, mark: "deleted" })));
-    if (!previous?.length || design()?.id !== current.id) return false;
-    d.setToast({
-      text: `Deleted ${label} · ${previous.length} ${previous.length === 1 ? "cell" : "cells"}`,
-      undo: () => {
-        d.setToast(null);
-        void save(previous.map((change) => ({ ...change, ifDeleted: true })));
-      },
-    });
-    return true;
+    // No undo: the column waits under the Sheet's Deleted columns, with Restore.
+    return !!previous?.length && design()?.id === current.id;
   }
 
   // What bookmarking an answer marks: its alternative, in each state it would be used in, or

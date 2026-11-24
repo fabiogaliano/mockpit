@@ -49,12 +49,13 @@ mockpit feedback
   cull options.
 - **Main, Bookmark & Delete**: star a **Main** (`M`) per frame and knob (each frame remembers
   its combo across knobs), **Bookmark** (`K`) runners-up, and **Delete** (`X`) options you
-  don't want — they vanish at once (with Undo) and stay silently ruled out for the agent.
+  don't want — they vanish at once, wait on the Sheet to be restored, and stay silently ruled
+  out for the agent.
 - **Pick one or Keep all (Sets)**: flip any idea between picking one winner or keeping all
   items as a Set (like a collection of hero illustrations that all ship), each styled with its
   own `★ Main` per knob.
-- **Save a look**, the knob values you tuned, and give it to another frame or design with one
-  click.
+- **Save a preset**, the knob values you changed, and give it to another frame or design with
+  one click. A changed knob shows a dot and ↺ Reset on its own row; there's no undo to learn.
 - **Tune** the knobs the agent declared, **borrow** a part from another alternative,
   **comment** on any part, and ask for **more like this**. All of it waits in Send's list.
 - **Use** your decisions: picks (or every live item in a Set, wearing its `★ Main` values) go

@@ -109,8 +109,9 @@ Stances reversed knowingly, so nobody restores them by accident:
   grid). Ideas carry `set: boolean` (`Pick one` | `Keep all`) so collections where every item
   ships (e.g. morphing hero drawings) get per-item `★ Main` per knob and ship together on Use.
   Marks use three mutually exclusive states — **Main** (`M`), **Bookmark / Keep** (`K`, bookmark
-  icon), and **Delete** (`X`, instant vanish with Undo toast and silent `ruledOut` tombstone for
-  the agent) — retiring `"pick"` (normalized to `"keep"`).
+  icon), and **Delete** (`X`, instant vanish, no undo toast: a deleted cell keeps its place on the
+  Sheet with Restore, a column waits under Deleted columns; and a silent `ruledOut` tombstone
+  for the agent) — retiring `"pick"` (normalized to `"keep"`).
 
 ## Map
 
@@ -390,7 +391,8 @@ Stances reversed knowingly, so nobody restores them by accident:
   (e.g. morphing hero drawings). `Design.marks` holds three mutually exclusive marks:
   `main` (`★ Main`, one per slot: per `(state, knob)` on a frame/cell, or per `state` on a
   plain Pick-one idea; replacing `main` leaves the old one neutral), `keep` (Bookmark icon,
-  `K`), and `deleted` (`X`, vanishes immediately with Undo toast and adds a silent tombstone
+  `K`), and `deleted` (`X`, vanishes immediately, restored from where it lives on the Sheet, and adds a
+  silent tombstone
   entry to `ruledOutOf` so the agent won't suggest it again). Legacy `"pick"` marks normalize
   to `"keep"`. Saved on the click (`POST /api/designs/:id/marks`, viewer only, serialized per
   design), refused on a product design, sent by nothing: `read` lists them (`marksOf`), and
@@ -604,7 +606,11 @@ Stances reversed knowingly, so nobody restores them by accident:
     artboards); `Reader` stands there for a document: one column of sandboxed frames at
     full height, pins and comments built from the blocks they report; `PlannedStage` where
     nothing is drawn; `Outlines` offers the missing states (`StateAsk`). Hide is per
-    version and dims in place; archive is per alternative and per design, with Undo.
+    version and dims in place; archive is per alternative and per design: an alternative's
+    leaves its ghost where it was, and waits under Archived to be restored, with no toast.
+    Nothing a knob or a preset changes has an undo either: each changed knob carries a dot and
+    ↺ Reset on its own row (`changed`, `reset` in `choices.ts`: back to what the agent sent),
+    and Send's list says the changes in plain words (`sendLines`: "Photo stack: arrange fan").
     `ChangedNote` is the way back from a newer version ("Changed since Ready" when
     marked). New versions and new answers take the stage by themselves when nothing is
     unsent; otherwise they wait as a dot on the version button. On an idea, past Use a newer version takes over by itself (`changedTo`):
@@ -854,7 +860,7 @@ the finding needs.
   **Sheet** button lays a choice knob out as a **Sheet** (frames down, values or looks across;
   Compare is only two versions in one frame); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
   **Bookmark / Keep** (`K`, `keep`, bookmark icon for runners-up), and **Delete** (`X`, `deleted`,
-  instant vanish with Undo and silent `ruledOut` tombstone); **Send** releases a reply and **Use** puts the picks (or every live item in a Set, wearing its accumulated `★ Main` knob combo) in use, in the product design
+  instant vanish, restored from the Sheet, and a silent `ruledOut` tombstone); **Send** releases a reply and **Use** puts the picks (or every live item in a Set, wearing its accumulated `★ Main` knob combo) in use, in the product design
   an idea is for; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
   viewer's word only, and stored data, the CLI and MCP say `area`. A
   project has one **system**: sheet, token, scale, role, palette, pair, project knob. Its

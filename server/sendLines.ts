@@ -171,7 +171,8 @@ export function sendLines(input: SendInput, names: SendNames): SendLine[] {
     out.push({ of: { kind: "borrowed", part }, text: `${part} from ${frameName(from)}` });
   for (const [alternative, values] of Object.entries(input.tunedOn)) {
     if (!Object.keys(values).length) continue;
-    const who = alternative === DEFAULT_ALTERNATIVE ? "Tuned" : `${alternative} tuned`;
+    // In plain words, as the stage shows it: the alternative and what changed on it.
+    const who = alternative === DEFAULT_ALTERNATIVE ? "Changed" : alternative;
     out.push({ of: { kind: "tune", alternative }, text: `${who}: ${valuesWords(values)}` });
   }
   input.comments.forEach((c, index) =>
