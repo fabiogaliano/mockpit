@@ -15,8 +15,16 @@ export interface CropBox {
 }
 
 // `same`: every value draws one picture. Said only of a group whose every value has its
-// still, compared at full size, so a small real change is never taken for none.
-export type GroupLook = { same: true } | { same: false; box: CropBox | null };
+// still, compared at full size, so a small real change is never taken for none. `masked`:
+// the same outside the page's live canvases, which differed (stillMasks in server/stills.ts).
+export type GroupLook = { same: true; masked: boolean } | { same: false; box: CropBox | null };
+
+// One still of the group, with its live canvases where they are recorded.
+export interface GroupStill {
+  url: string;
+  asset: string;
+  masks?: CropBox[];
+}
 
 // Small enough to compare quickly, large enough that a cover's edge still shows.
 const SAMPLE_W = 160;
@@ -27,6 +35,9 @@ const THRESHOLD = 48;
 const STRICT = 8;
 // Past this share of the still, the difference is the page: it is shown whole.
 const WHOLE_AREA = 0.6;
+// A JPEG's colour block, and how far the decoder's smoothing carries a block into the next.
+const JPEG_BLOCK = 16;
+const JPEG_SMOOTH = 2;
 // Room around what changed, as a share of the still's width.
 const PAD = 0.04;
 
@@ -42,15 +53,19 @@ const load = (url: string) =>
   });
 
 // How a group's tiles frame its stills, the tile `tileRatio` wide per unit high. `complete`:
-// these are every value's stills, none missing or failed.
+// these are every value's stills, none missing or failed. A live canvas in any of them is
+// left out of the comparison: its scene differs between any two stills, and framed on that
+// noise every tile would show the canvas instead of what the knob changes.
 export async function groupLook(
-  stills: { url: string; asset: string }[],
+  stills: GroupStill[],
   tileRatio: number,
   complete: boolean,
 ): Promise<GroupLook> {
   if (stills.length < 2) return WHOLE;
   // Stills are stored by their bytes: one asset is one picture, with nothing to decode.
-  if (complete && stills.every((s) => s.asset === stills[0].asset)) return { same: true };
+  if (complete && stills.every((s) => s.asset === stills[0].asset)) {
+    return { same: true, masked: false };
+  }
   const imgs = await Promise.all(stills.map((s) => load(s.url))).catch(() => null);
   if (!imgs) return WHOLE;
   const { naturalWidth: nw, naturalHeight: nh } = imgs[0];
@@ -58,30 +73,33 @@ export async function groupLook(
   if (!nw || !nh || imgs.some((i) => i.naturalWidth !== nw || i.naturalHeight !== nh)) {
     return WHOLE;
   }
+  const masks = stills.flatMap((s) => s.masks ?? []);
   const ratio = nw / nh;
   const framed = (box: CropBox): GroupLook => ({
     same: false,
     box: box.w * box.h > WHOLE_AREA ? null : fitBox(box, ratio, tileRatio),
   });
-  const sampled = changedBox(imgs, Math.min(SAMPLE_W, nw), THRESHOLD);
+  const sampled = changedBox(imgs, Math.min(SAMPLE_W, nw), THRESHOLD, masks);
   if (sampled === undefined) return WHOLE;
-  if (sampled) return framed(sampled);
+  if (sampled.box) return framed(sampled.box);
   // Nothing past the noise at a tile's size: either a change too fine to sample, which the
   // full size frames, or none at all.
-  const fine = changedBox(imgs, nw, STRICT);
+  const fine = changedBox(imgs, nw, STRICT, masks);
   if (fine === undefined) return WHOLE;
-  if (fine) return framed(fine);
-  return complete ? { same: true } : WHOLE;
+  if (fine.box) return framed(fine.box);
+  return complete ? { same: true, masked: sampled.inMasks || fine.inMasks } : WHOLE;
 }
 
-// The padded box of pixels any image differs from the first in, drawn `w` wide; null where
-// none does, undefined where they can't be read. One image at a time against the first, so a
-// group of full-size stills never sits in memory at once.
+// The padded box of pixels any image differs from the first in, drawn `w` wide, outside the
+// masks (fractions of the image); null where none does, and whether any inside them did.
+// Undefined where they can't be read. One image at a time against the first, so a group of
+// full-size stills never sits in memory at once.
 function changedBox(
   imgs: HTMLImageElement[],
   w: number,
   threshold: number,
-): CropBox | null | undefined {
+  masks: CropBox[],
+): { box: CropBox | null; inMasks: boolean } | undefined {
   const h = Math.max(1, Math.round((imgs[0].naturalHeight * w) / imgs[0].naturalWidth));
   const canvas = document.createElement("canvas");
   canvas.width = w;
@@ -93,10 +111,29 @@ function changedBox(
     ctx.drawImage(img, 0, 0, w, h);
     return ctx.getImageData(0, 0, w, h).data;
   };
+  // A still is a JPEG, coded in blocks of 16 from its corner, so a canvas's scene reaches the
+  // whole of every block its edge crosses and, through the decoder's smoothing of colour, a
+  // pixel or two into the next. Masked to those blocks, a change beside a canvas still counts.
+  const { naturalWidth: nw, naturalHeight: nh } = imgs[0];
+  const outTo = (v: number, size: number, up: boolean) => {
+    const px = up
+      ? Math.ceil((v * size) / JPEG_BLOCK) * JPEG_BLOCK + JPEG_SMOOTH
+      : Math.floor((v * size) / JPEG_BLOCK) * JPEG_BLOCK - JPEG_SMOOTH;
+    return px / size;
+  };
+  const masked = new Uint8Array(w * h);
+  for (const m of masks) {
+    const x0 = Math.max(0, Math.floor(outTo(m.x, nw, false) * w));
+    const y0 = Math.max(0, Math.floor(outTo(m.y, nh, false) * h));
+    const x1 = Math.min(w, Math.ceil(outTo(m.x + m.w, nw, true) * w));
+    const y1 = Math.min(h, Math.ceil(outTo(m.y + m.h, nh, true) * h));
+    for (let y = y0; y < y1; y++) masked.fill(1, y * w + x0, y * w + x1);
+  }
   let x0 = w;
   let y0 = h;
   let x1 = -1;
   let y1 = -1;
+  let inMasks = false;
   const base = draw(imgs[0]);
   for (const img of imgs.slice(1)) {
     const p = draw(img);
@@ -109,6 +146,10 @@ function changedBox(
           Math.abs(p[i + 2] - base[i + 2]) <= threshold
         )
           continue;
+        if (masked[y * w + x]) {
+          inMasks = true;
+          continue;
+        }
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
         if (y < y0) y0 = y;
@@ -116,15 +157,18 @@ function changedBox(
       }
     }
   }
-  if (x1 < 0) return null;
+  if (x1 < 0) return { box: null, inMasks };
   const pad = PAD * w;
   const left = Math.max(0, x0 - pad);
   const top = Math.max(0, y0 - pad);
   return {
-    x: left / w,
-    y: top / h,
-    w: (Math.min(w, x1 + 1 + pad) - left) / w,
-    h: (Math.min(h, y1 + 1 + pad) - top) / h,
+    box: {
+      x: left / w,
+      y: top / h,
+      w: (Math.min(w, x1 + 1 + pad) - left) / w,
+      h: (Math.min(h, y1 + 1 + pad) - top) / h,
+    },
+    inMasks,
   };
 }
 

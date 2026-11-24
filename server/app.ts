@@ -181,7 +181,12 @@ import {
   SHEET_PART_PAD,
   sheetCrop,
   sheetKnobs,
+  checkStillMasks,
+  masksOf,
+  readStillMasks,
   readStills,
+  stillMasksSetting,
+  withStillMasks,
   type StillCell,
   type StillPending,
   type StillRequestCell,
@@ -2042,6 +2047,10 @@ export function createApp({
     return serialDecision(stillsSetting(design.id), async () => {
       expiredStills();
       const stills = readStills(await store.getSetting(stillsSetting(design.id)));
+      const masks = masksOf(
+        readStillMasks(await store.getSetting(stillMasksSetting(design.id))),
+        stills,
+      );
       const revs = new Set(
         Object.keys(stills)
           .map(legacyStillRevision)
@@ -2064,6 +2073,7 @@ export function createApp({
       );
       return ok({
         stills,
+        masks,
         pending,
         legacyPalettes,
         taking: !!takeStills,
@@ -2091,9 +2101,10 @@ export function createApp({
       expiredStills();
       const pending: Record<string, StillPending> = {};
       const stills: Record<string, string> = {};
-      if (!takeStills) return { pending, stills, revision: stillsRevision };
+      if (!takeStills) return { pending, stills, masks: {}, revision: stillsRevision };
       const system = await systemFor(design.project);
       const have = readStills(await store.getSetting(setting));
+      const haveMasks = readStillMasks(await store.getSetting(stillMasksSetting(design.id)));
       const jobs: StillJob[] = [];
       let removed = false;
       for (const r of raw) {
@@ -2145,7 +2156,7 @@ export function createApp({
           failStill(key, attempt);
         }
       }
-      return { pending, stills, revision: stillsRevision };
+      return { pending, stills, masks: masksOf(haveMasks, stills), revision: stillsRevision };
     });
   }
 
@@ -2215,6 +2226,8 @@ export function createApp({
     if (!contentType.startsWith("image/") || contentType === "image/svg+xml") {
       return fail(415, "a still is a raster image");
     }
+    const masks = checkStillMasks(body?.masks);
+    if (!masks) return fail(400, '"masks" must be boxes {x, y, w, h} in fractions of the still');
     const setting = stillsSetting(design.id);
     return serialDecision(setting, async () => {
       expiredStills();
@@ -2231,14 +2244,18 @@ export function createApp({
       if (!latest || !(await currentStill(latest, key, attempt))) {
         return fail(409, "this still no longer matches the render");
       }
-      const now = readStills(await store.getSetting(setting));
-      await store.setSetting(setting, JSON.stringify(withStill(now, key, up.asset.id)));
+      const now = withStill(readStills(await store.getSetting(setting)), key, up.asset.id);
+      await store.setSetting(setting, JSON.stringify(now));
+      const masksSetting = stillMasksSetting(design.id);
+      const was = readStillMasks(await store.getSetting(masksSetting));
+      await store.setSetting(masksSetting, JSON.stringify(withStillMasks(was, now, key, masks)));
       stillsAsked.delete(key);
       bus.broadcast({
         type: "stills-updated",
         designId: design.id,
         key,
         asset: up.asset.id,
+        masks,
         attempt,
         revision: ++stillsRevision,
       });

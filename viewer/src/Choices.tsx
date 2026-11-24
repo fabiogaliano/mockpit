@@ -182,11 +182,19 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   const judged = createMemo(() => {
     if (!settled()) return null;
     const shots = cells().map((cell) => (cell ? c.stills.picture(cell) : null));
-    const stills = shots
-      .filter((p) => p?.exact)
-      .map((p) => ({ url: assetUrl(p!.asset), asset: p!.asset }));
+    const stills = cells().flatMap((cell, i) => {
+      const p = shots[i];
+      return cell && p?.exact
+        ? [{ url: assetUrl(p.asset), asset: p.asset, masks: c.stills.masks(cell) }]
+        : [];
+    });
     const complete = stills.length === shots.length;
-    return { stills, complete, key: `${complete}:${stills.map((p) => p.asset).join(",")}` };
+    const masked = stills.some((p) => p.masks?.length);
+    return {
+      stills,
+      complete,
+      key: `${complete}:${masked}:${stills.map((p) => p.asset).join(",")}`,
+    };
   });
   const [look] = createResource(judged, (src) =>
     groupLook(src.stills, TILE_RATIO, src.complete).then((l) => ({ ...l, key: src.key })),
@@ -197,13 +205,18 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
     return l && l.key === judged()?.key ? l : null;
   };
   const unchanged = () => !!current()?.same;
+  // The same but for a live canvas: its scene may differ by the value, so the tiles stay.
+  const outsideCanvas = () => {
+    const l = current();
+    return !!l && l.same && l.masked;
+  };
   const crop = () => {
     const l = current();
     return l && !l.same ? l.box : null;
   };
   const tileOf = (i: number): TilePicture => {
     const cell = cells()[i];
-    if (!pictured() || !cell || unchanged()) return { kind: "none" };
+    if (!pictured() || !cell || (unchanged() && !outsideCanvas())) return { kind: "none" };
     // As a Sheet cell does: its own still, else one of the same cell before its frame or the
     // system changed, shown while its own is taken; an asset gone from the store is retaken.
     const shot = c.stills.picture(cell);
@@ -235,7 +248,9 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         <Show when={unchanged()}>
           <p class="chg-note">
             {/* At rest: a value may still change how the page moves, which a still can't show. */}
-            {`No visible change on ${alternativeName(c.frame()?.alternative ?? "")} at rest: every value draws the same picture.`}
+            {outsideCanvas()
+              ? `No visible change on ${alternativeName(c.frame()?.alternative ?? "")} outside its live canvas, at rest.`
+              : `No visible change on ${alternativeName(c.frame()?.alternative ?? "")} at rest: every value draws the same picture.`}
           </p>
         </Show>
         <div class="chg-tiles">

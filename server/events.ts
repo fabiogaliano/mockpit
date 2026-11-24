@@ -1,4 +1,5 @@
 import type { Mode } from "./themes.ts";
+import type { StillBox } from "./stills.ts";
 
 export type FeedEvent =
   | { type: "session-created" | "session-updated" | "session-deleted"; id: string }
@@ -41,6 +42,8 @@ export type FeedEvent =
       designId: string;
       key: string;
       asset: string;
+      // Its live canvases (server/stills.ts StillMasks).
+      masks: StillBox[];
       attempt: string;
       revision: number;
     }

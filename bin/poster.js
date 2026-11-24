@@ -279,7 +279,60 @@ const partBox = (name) => `(() => {
   return null;
 })()`;
 
-// `opts.page`: a tab kept open across stills, which is the caller's to close.
+// Before the page's own scripts: which canvases it draws live into (WebGL, WebGPU, or one
+// handed to a worker), a scene that never draws twice alike. Kept off the DOM, which the
+// page and mockpit's parts observer watch.
+const MARK_LIVE = `(() => {
+  const live = new WeakSet();
+  window.__mockpitLiveCanvases = live;
+  const proto = HTMLCanvasElement.prototype;
+  const get = proto.getContext;
+  proto.getContext = function (type, ...rest) {
+    const ctx = get.call(this, type, ...rest);
+    if (ctx && /^(webgl2?|experimental-webgl|webgpu)$/.test(String(type))) live.add(this);
+    return ctx;
+  };
+  const off = proto.transferControlToOffscreen;
+  if (off) proto.transferControlToOffscreen = function () {
+    live.add(this);
+    return off.call(this);
+  };
+})()`;
+
+// The live canvases' boxes in document px.
+const LIVE_BOXES = `(() => {
+  const live = window.__mockpitLiveCanvases;
+  if (!live) return [];
+  const out = [];
+  for (const el of document.querySelectorAll("canvas")) {
+    if (!live.has(el)) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width && r.height) out.push({ x: r.left + scrollX, y: r.top + scrollY, w: r.width, h: r.height });
+  }
+  return out.slice(0, 16);
+})()`;
+
+// The boxes inside the clip, in fractions of it.
+const masksIn = (boxes, clip) =>
+  (Array.isArray(boxes) ? boxes : []).flatMap((b) => {
+    const x0 = Math.max(b.x, clip.x);
+    const y0 = Math.max(b.y, clip.y);
+    const x1 = Math.min(b.x + b.w, clip.x + clip.width);
+    const y1 = Math.min(b.y + b.h, clip.y + clip.height);
+    if (x1 <= x0 || y1 <= y0) return [];
+    const unit = (n) => Math.min(1, Math.max(0, n));
+    return [
+      {
+        x: unit((x0 - clip.x) / clip.width),
+        y: unit((y0 - clip.y) / clip.height),
+        w: unit((x1 - x0) / clip.width),
+        h: unit((y1 - y0) / clip.height),
+      },
+    ];
+  });
+
+// `opts.page`: a tab kept open across stills, which is the caller's to close. The image, and
+// where in it the page drew live canvases.
 async function shoot(port, job, url, width, opts = {}) {
   const page = opts.page ?? (await openPage(port, opts.signal));
   const abort = () => void page.close().catch(() => {});
@@ -304,6 +357,11 @@ async function shoot(port, job, url, width, opts = {}) {
     });
     await page.send("Page.enable");
     await page.send("Runtime.enable");
+    // Once per tab: it stays for every document the tab loads after.
+    if (!page.marksLive) {
+      await page.send("Page.addScriptToEvaluateOnNewDocument", { source: MARK_LIVE });
+      page.marksLive = true;
+    }
     const loaded = page.event("Page.loadEventFired");
     await page.send("Page.navigate", { url });
     await Promise.race([loaded, sleep(LOAD_MS)]);
@@ -331,6 +389,11 @@ async function shoot(port, job, url, width, opts = {}) {
         if (right > x && bottom > y) clip = { x, y, width: right - x, height: bottom - y };
       }
     }
+    const boxes = await page.send("Runtime.evaluate", {
+      expression: LIVE_BOXES,
+      returnByValue: true,
+    });
+    const masks = masksIn(boxes.result?.value, clip);
     const scale = opts.maxWidth ? Math.min(1, opts.maxWidth / clip.width) : 1;
     const { data } = await page.send("Page.captureScreenshot", {
       format: "jpeg",
@@ -338,7 +401,7 @@ async function shoot(port, job, url, width, opts = {}) {
       captureBeyondViewport: true,
       clip: { ...clip, scale },
     });
-    return data;
+    return { data, masks };
   } finally {
     opts.signal?.removeEventListener("abort", abort);
     if (!opts.page) await page.close();
@@ -419,7 +482,7 @@ async function capture(port, job, signal) {
     ...(system ? { y: String(system) } : {}),
     ...(knobs ? { k: knobs } : {}),
   });
-  const data = await shoot(
+  const { data } = await shoot(
     port,
     job,
     `${job.base}/s/${encodeURIComponent(job.postId)}?${query}`,
@@ -457,7 +520,7 @@ async function captureStill(port, job, page, signal) {
     ...(s.palette ? { p: s.palette } : {}),
     ...(Object.keys(s.knobs).length ? { k: JSON.stringify(s.knobs) } : {}),
   });
-  const data = await shoot(
+  const { data, masks } = await shoot(
     port,
     job,
     `${job.base}/s/${encodeURIComponent(s.postId)}?${query}`,
@@ -473,7 +536,13 @@ async function captureStill(port, job, page, signal) {
   const res = await fetch(`${job.base}/api/designs/${encodeURIComponent(s.design)}/stills`, {
     method: "POST",
     headers: headersOf(job),
-    body: JSON.stringify({ key: s.key, attempt: s.attempt, data, contentType: "image/jpeg" }),
+    body: JSON.stringify({
+      key: s.key,
+      attempt: s.attempt,
+      data,
+      masks,
+      contentType: "image/jpeg",
+    }),
     signal,
   });
   if (!res.ok) throw new Error(`still: ${res.status}`);

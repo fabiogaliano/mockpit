@@ -565,9 +565,11 @@ Stances reversed knowingly, so nobody restores them by accident:
     picture tile per value (a Sheet still, `stills.ts`, asked for ahead of all other stills as
     `lead` while its group is open on the frame on stage, never while folded; each shown whole
     as it comes, then framed, once the group's stills are all in, on the box where they differ,
-    `stillCrop.ts`, whole when that is most of the page, and where every value's still is the
-    same picture, compared at full size, the group says there is no visible change on that frame
-    and its tiles are names only, still picked from; a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
+    `stillCrop.ts`, whole when that is most of the page, leaving out the stills' live canvases,
+    whose scene never draws twice alike, to the JPEG blocks they reach; where every value's
+    still is the same picture, compared at full size, the group says there is no visible change
+    on that frame and its tiles are names only, still picked from (the same but for a live
+    canvas: it says so, and the pictures stay); a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
     the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
     and Sheet; a colour with options is a row of swatches. A tile previews under a mouse, picks
     on a click, and keeps or rules out from its corner with the Sheet's cell marks. An
@@ -630,6 +632,9 @@ Stances reversed knowingly, so nobody restores them by accident:
   write that changed something leaves a retake: the worker queues the project's latest live
   alternatives that show no still now, and a still mockpit took under another revision may be
   replaced, by any session (`setPosterOnce`); an agent's own poster never is. Built-ins only.
+  A Sheet still also records where its page drew live canvases (WebGL, WebGPU, handed to a
+  worker; marked before the page's scripts run), sent as `masks` with it and kept beside the
+  design's stills (`still-masks:<id>`, `StillMasks` in `server/stills.ts`).
 - `bin/mockpit.js` — CLI, Node built-ins only; `bin/demoData.js` — the Writer
   design `mockpit demo` seeds.
 - `viewer/src/qr.ts` + `QrTool.tsx` — the QR code in `PreviewPanel`, with the widths, from Focus's tool strip: a local encoder, and
