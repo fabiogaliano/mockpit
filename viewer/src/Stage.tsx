@@ -216,7 +216,13 @@ export function Stage(props: { s: DesignScreenState; onGoto?: (to: string) => vo
   // the height above the bottom bar, so the bar never covers the first screen.
   // Its full height is the canvas's to pan and zoom.
   const availH = createMemo(() => win().h - canvasTop());
-  const activeH = () => contentH[activeKey()] ?? 640;
+  // Fitted to the frame on stage, not one under the pointer: a preview of a taller or
+  // shorter alternative would otherwise rescale the stage on every hover.
+  const fitKey = createMemo(() => {
+    const v = s.alternativeFor(s.activeState(), false);
+    return v ? frameKey(v.state, v.alternative) : "";
+  });
+  const activeH = () => contentH[fitKey()] ?? contentH[activeKey()] ?? 640;
   const fitScale = createMemo(() => {
     const across = Math.min(1, availW() / frameW());
     if (phone()) return Math.max(0.1, across);

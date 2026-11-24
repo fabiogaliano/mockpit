@@ -637,7 +637,7 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
                       classList={{ held: onStage(), resting: hold.resting() }}
                       aria-hidden="true"
                     />
-                    <PosterPic url={poster()} />
+                    <PosterPic url={poster()} keep />
                     {/* One corner, one mark: once it is the Main, the suggestion has been
                         answered. */}
                     <Show
@@ -725,9 +725,17 @@ export function ArchivedAlternatives(props: { s: DesignScreenState }) {
   );
 }
 
-function PosterPic(props: { url: string | null }) {
+// With no poster yet its place stays, so every row lines up and the marks have their corner.
+function PosterPic(props: { url: string | null; keep?: boolean }) {
   return (
-    <Show when={props.url}>
+    <Show
+      when={props.url}
+      fallback={
+        <Show when={props.keep}>
+          <span class="cht-pic" aria-hidden="true" />
+        </Show>
+      }
+    >
       {(u) => (
         <span class="cht-pic">
           <img src={u()} alt="" loading="lazy" decoding="async" draggable={false} />

@@ -550,7 +550,9 @@ Stances reversed knowingly, so nobody restores them by accident:
     canvas tools stand in a strip against the design's left edge (`ToolStrip` in
     `Margins.tsx`, level with its top, the stage leaving its band): Try, Comment (C), Tune, the
     preview (the widths and the QR, `PreviewTool`) and the palette pick beside Light | Dark
-    (`PaletteTool`); not over the Sheet, Side by side or a document. Esc and the page in the path go back
+    (`PaletteTool`); not over the Sheet, Side by side or a document. The stage fits the frame on
+    stage, never one under the pointer (`fitKey` in `Stage.tsx`), so a hover never rescales it;
+    a rest that holds an alternative puts it on stage, and the fit follows. Esc and the page in the path go back
     to the Board, fit to the frame, selected. Focus's keys are behind a "?" at the canvas's
     corner and the ? key, listed for where the user is: one frame, the Sheet or a cell open
     from it (`FocusShortcuts`, `mockpit:focus-keys`). `Margins.tsx`: the states on the left (not
@@ -581,7 +583,9 @@ Stances reversed knowingly, so nobody restores them by accident:
     was changed and no marks on a knob's values (Main, Keep and Delete stay on alternatives and
     on Sheet cells, where comparing is the point). The
     alternatives lead, as a list: a row each, its poster (the one picture of its version,
-    already taken; the panel asks for none) beside its name and description. A row reads as
+    already taken; the panel asks for none) beside its name and description. Rows are one height, the
+    name on one line (whole in the title), and the marks sit over the poster's corner, whose
+    place stays with no poster, so nothing a hover shows covers or moves the words. A row reads as
     a question's answer does (a rest of `HOLD_MS` holds it, a click
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
     `createHold`). A knob's pick is written to the tune of every live frame of the state that
