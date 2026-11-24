@@ -183,13 +183,24 @@ export function createChoices(s: DesignScreenState) {
     );
   };
   const isPicked = (path: string, v: KnobValue) => same(value(path), v);
+  // The live frames a pick of the knob is written to: each that has it and reads it.
+  const writesTo = (path: string) =>
+    live().filter((x) => knobsOf(x)[path] !== undefined && reads(x, path));
+  // Where a pick applies, said on its group: nothing to say with one alternative.
+  const scope = (path: string): string => {
+    const all = live().length;
+    const n = writesTo(path).length;
+    if (all < 2 || n === 0) return "";
+    if (n === 1) return "this alternative only";
+    return n === all ? `on all ${n} alternatives` : `on ${n} of ${all} alternatives`;
+  };
 
   function pick(path: string, v: KnobValue) {
     const m = s.design();
     if (!m || readonly()) return;
     settle(path);
     if (isPicked(path, v)) return;
-    const frames = live().filter((x) => knobsOf(x)[path] !== undefined && reads(x, path));
+    const frames = writesTo(path);
     const w = choiceWrites(
       path,
       v,
@@ -257,6 +268,7 @@ export function createChoices(s: DesignScreenState) {
     value,
     valueLabel,
     isPicked,
+    scope,
     pick,
     preview,
     unpreview,

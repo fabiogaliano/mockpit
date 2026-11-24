@@ -146,6 +146,13 @@ function FineRow(props: { s: DesignScreenState; c: Choices; k: FineKnob }) {
   };
   return (
     <div class="fine-row" data-knob-row={props.k.path}>
+      <Show when={c.scope(props.k.path)}>
+        {(where) => (
+          <div class="fine-meta">
+            <span class="chg-scope">{where()}</span>
+          </div>
+        )}
+      </Show>
       <Show
         when={declared().type !== "action"}
         fallback={
@@ -255,8 +262,8 @@ function GroupHead(props: {
   title: string;
   isNew: boolean;
   current: string;
-  // Open, what the group is waiting on ("3 of 15"), in the place the pick shows folded.
-  status?: string | null;
+  // Open, where a pick applies, in the place the pick shows folded.
+  scope?: string;
   sheet?: { on: () => void };
 }) {
   const open = () => props.c.isOpen(props.id);
@@ -272,8 +279,8 @@ function GroupHead(props: {
         <Show when={props.isNew}>
           <NewDot />
         </Show>
-        <span class="chg-cur" role={open() && props.status ? "status" : undefined}>
-          {open() ? (props.status ?? "") : props.current}
+        <span class="chg-cur" classList={{ scope: open() }}>
+          {open() ? (props.scope ?? "") : props.current}
         </span>
       </button>
       <Show when={open() && props.sheet}>
@@ -359,6 +366,7 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         title={props.g.label}
         isNew={c.isNew(props.g.path)}
         current={c.valueLabel(props.g)}
+        scope={c.scope(props.g.path)}
         sheet={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
       <Show when={open()}>
@@ -450,6 +458,9 @@ function ColourRow(props: { c: Choices; g: ChoiceGroup }) {
           <b>{props.g.label}</b>
           <Show when={c.isNew(props.g.path)}>
             <NewDot />
+          </Show>
+          <Show when={c.scope(props.g.path)}>
+            {(where) => <span class="chg-scope">{where()}</span>}
           </Show>
         </span>
         <span class="chg-sws" role="group" aria-label={props.g.label}>

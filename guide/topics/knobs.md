@@ -1,8 +1,11 @@
 # mockpit topic: knobs
 
 A knob is a value the user tunes live on one render. Declare knobs for what is worth
-fine-tuning (size, spacing, colour, density) even unasked; they wait in Tune. A tune belongs
-to the frame it was made on: tuning one alternative leaves the others as they were. A knob
+fine-tuning (size, spacing, colour, density) even unasked; they wait under Fine-tune in the
+Choices panel. A value set there holds across the state's alternatives that read the knob,
+and its group says where ("on all 3 alternatives", "this alternative only"); one set in
+Tune, on a part tapped on the design, stays the frame's own. Either way `tunedOn` carries it
+per alternative. A knob
 shows only on a frame whose page reads it (its html, components included, mentions
 `k-<path, dots as dashes>`, `data-k-bind="<path>"` or its `dataset.k<Path>`, or the knob is a part's swaps); a page
 listening for `mockpit:knobs` shows every knob.

@@ -577,7 +577,8 @@ Stances reversed knowingly, so nobody restores them by accident:
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
     `createHold`). A knob's pick is written to the tune of every live frame of the state that
     reads it (`choiceWrites`; a knob a question decides answers it), so a value holds across
-    the alternatives. A choice knob is new to this browser until picked or laid out on a
+    the alternatives, and each group says where, by the live frames that read it
+    (`scope` in `choices.ts`: "on all 3 alternatives", "on 2 of 3", "this alternative only"). A choice knob is new to this browser until picked or laid out on a
     Sheet (`choicesSeen.ts`, a project's first visit marking nothing): an accent dot on
     its heading, or on the panel's toggle while it is shut, and it opens the panel where the
     panel can stand beside the design. Tune stays, by part, for a part tapped on the
