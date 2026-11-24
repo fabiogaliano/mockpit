@@ -4,7 +4,7 @@
 // click gives the frame its values and flashes the rows it changed. Save as preset keeps the
 // frame's own.
 
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { LookView } from "./api.ts";
 import { readonly, root } from "./host.ts";
 import { Icon } from "./icons.tsx";
@@ -32,6 +32,23 @@ export function PresetsRow(props: { s: DesignScreenState }) {
   const canSave = () => !readonly() && Object.keys(s.lookFromFrame()).length > 0;
   // There is no undo: removing one of the user's own asks twice, the second on the same spot.
   const [removing, setRemoving] = createSignal<string | null>(null);
+  // The ✕ sits over the chip's corner and Remove takes its place beside the chip, so the pointer
+  // is outside the chip the moment Remove appears: leaving can't be what cancels it. A press
+  // anywhere but Remove, or Escape, does.
+  createEffect(() => {
+    if (!removing()) return;
+    const doc = root();
+    const away = (e: PointerEvent) => {
+      if (!(e.target as Element | null)?.closest?.(".chc-sure")) setRemoving(null);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setRemoving(null);
+    doc.addEventListener("pointerdown", away, true);
+    doc.addEventListener("keydown", esc);
+    onCleanup(() => {
+      doc.removeEventListener("pointerdown", away, true);
+      doc.removeEventListener("keydown", esc);
+    });
+  });
   return (
     <Show when={s.looksHere().length || canSave()}>
       <section class="chg presets">
@@ -47,7 +64,6 @@ export function PresetsRow(props: { s: DesignScreenState }) {
               <span
                 class="chc-w"
                 classList={{ mine: l.author === "user", removing: removing() === l.name }}
-                onPointerLeave={() => removing() === l.name && setRemoving(null)}
               >
                 <button
                   type="button"
