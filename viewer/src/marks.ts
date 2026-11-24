@@ -178,6 +178,21 @@ export function createMarks(d: MarkDeps) {
     // No undo: the column waits under the Sheet's Deleted columns, with Restore.
     return !!previous?.length && design()?.id === current.id;
   }
+  // Back from deleted, each cell that still is: a mark set since stays.
+  async function restoreCells(subjects: MarkSubject[]): Promise<void> {
+    const current = design();
+    if (!current || readonly() || !subjects.length) return;
+    try {
+      const result = await api.markCells(
+        current.id,
+        subjects.map((subject) => ({ ...subject, mark: null, ifDeleted: true })),
+      );
+      const now = design();
+      if (now?.id === current.id) setDesign({ ...now, marks: result.marks });
+    } catch (error) {
+      d.fail(error);
+    }
+  }
 
   // What bookmarking an answer marks: its alternative, in each state it would be used in, or
   // the frame on stage in its values. An answer in words only, or one that borrows a part,
@@ -367,6 +382,7 @@ export function createMarks(d: MarkDeps) {
     toggleMain,
     deleteMark,
     deleteCells,
+    restoreCells,
     hiddenOf,
     isCarried,
     shownOptions,

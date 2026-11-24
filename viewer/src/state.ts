@@ -2769,6 +2769,7 @@ export function createDesignScreen(
     toggleMain: marks.toggleMain,
     deleteMark: marks.deleteMark,
     deleteCells: marks.deleteCells,
+    restoreCells: marks.restoreCells,
     hiddenOf,
     isCarried,
     hideAnswer: marks.hideAnswer,

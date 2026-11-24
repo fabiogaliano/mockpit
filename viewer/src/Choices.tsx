@@ -391,6 +391,8 @@ function TileMarks(props: {
 // pictured side by side.
 function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   const c = props.c;
+  // Where focus goes once the value it was on is ruled out.
+  let fold: HTMLButtonElement | undefined;
   const id = () => knobGroup(props.g.path);
   const open = () => c.isOpen(id());
   return (
@@ -409,27 +411,79 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         <div class="chips-row" role="group" aria-label={props.g.label}>
           <For each={c.shown(props.g)}>
             {(v) => (
-              <button
-                type="button"
-                class="chc"
-                classList={{ on: c.isPicked(props.g.path, v.value) }}
-                aria-pressed={c.isPicked(props.g.path, v.value)}
-                disabled={readonly()}
-                onPointerEnter={(e) => e.pointerType === "mouse" && c.preview(props.g, v)}
-                onPointerLeave={(e) =>
-                  e.pointerType === "mouse" && c.unpreview(props.g.path, v.value)
-                }
-                onFocus={() => c.preview(props.g, v)}
-                onBlur={() => c.unpreview(props.g.path, v.value)}
-                onClick={() => c.pick(props.g.path, v.value)}
-              >
-                {v.label}
-              </button>
+              <span class="chc-w">
+                <button
+                  type="button"
+                  class="chc"
+                  classList={{ on: c.isPicked(props.g.path, v.value) }}
+                  aria-pressed={c.isPicked(props.g.path, v.value)}
+                  disabled={readonly()}
+                  onPointerEnter={(e) => e.pointerType === "mouse" && c.preview(props.g, v)}
+                  onPointerLeave={(e) =>
+                    e.pointerType === "mouse" && c.unpreview(props.g.path, v.value)
+                  }
+                  onFocus={() => c.preview(props.g, v)}
+                  onBlur={() => c.unpreview(props.g.path, v.value)}
+                  onClick={() => c.pick(props.g.path, v.value)}
+                >
+                  {v.label}
+                </button>
+                {/* One press rules it out: it waits under Ruled out to restore, so nothing
+                    needs confirming or undoing, and nothing a pointer does can cancel it. */}
+                <Show when={c.canRuleOut(props.g, v)}>
+                  <button
+                    type="button"
+                    class="chc-x"
+                    aria-label={`Rule out ${v.label}`}
+                    title="Rule out"
+                    onClick={() =>
+                      void c.ruleOut(props.g, v).then(() => fold?.focus({ preventScroll: true }))
+                    }
+                  >
+                    <Icon name="close" />
+                  </button>
+                </Show>
+              </span>
             )}
           </For>
         </div>
+        <RuledOut c={c} g={props.g} ref={(el) => (fold = el)} />
       </Show>
     </section>
+  );
+}
+
+// A group's ruled-out values, folded at its end, each to restore: the Sheet's deleted
+// column, so restoring one here restores it there.
+function RuledOut(props: { c: Choices; g: ChoiceGroup; ref: (el: HTMLButtonElement) => void }) {
+  const c = props.c;
+  const [unfold, setUnfold] = createSignal(false);
+  return (
+    <Show when={c.ruledOut(props.g).length}>
+      <button
+        type="button"
+        class="lm-fold chg-ruled"
+        aria-expanded={unfold()}
+        ref={props.ref}
+        onClick={() => setUnfold(!unfold())}
+      >
+        {`Ruled out · ${c.ruledOut(props.g).length}`}
+      </button>
+      <Show when={unfold()}>
+        <For each={c.ruledOut(props.g)}>
+          {(v) => (
+            <div class="lm-archived">
+              <span class="lm-arch-text">{v.label}</span>
+              <Show when={!readonly()}>
+                <button type="button" class="vrestore" onClick={() => c.restore(props.g, v)}>
+                  Restore
+                </button>
+              </Show>
+            </div>
+          )}
+        </For>
+      </Show>
+    </Show>
   );
 }
 

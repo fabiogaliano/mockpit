@@ -17,7 +17,8 @@ varies across renders as one, not as a question: it shows in the Choices panel b
 design, under any open question and the alternatives, as its values by name, each shown on
 the design while the user points at it (a colour as swatches), marked new until the user acts on it. Picking a value there
 applies it to every live alternative of the state that has the knob, so each frame's
-`tunedOn` carries it; Tune keeps only the fine knobs. Its Sheet button lays it out as a Sheet: the
+`tunedOn` carries it; on an idea a value's ✕ rules it out, as deleting its column on the Sheet
+does, and it reaches you in `ruledOut` like any deleted cell; Tune keeps only the fine knobs. Its Sheet button lays it out as a Sheet: the
 frame in every value, then every frame in every value (frames down, values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it
 full-size beside a Knob Choice Panel (and Side-by-side finalist grid) where the user marks
 **Main** (`M`), **Bookmark / Keep** (`K`), or **Delete** (`X`, ruling out that cell only,

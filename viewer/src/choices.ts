@@ -10,7 +10,7 @@ import { explicitKnob } from "../../server/knobs.ts";
 import { isLive, type KnobConfig, type KnobValue } from "../../server/types.ts";
 import type { AlternativeView } from "./api.ts";
 import { knownChoices, markChoiceKnown, ownFolds, setOwnFold } from "./choicesSeen.ts";
-import { subjectOf } from "./frameActions.ts";
+import { canFrame, subjectOf } from "./frameActions.ts";
 import { readonly } from "./host.ts";
 import {
   ALTERNATIVES_GROUP,
@@ -263,6 +263,27 @@ export function createChoices(s: DesignScreenState) {
     return f ? s.markOf(subjectOf({ v: f, col: column(path, v) })) : null;
   };
   const shown = (g: ChoiceGroup) => g.values.filter((v) => markOf(g.path, v) !== "deleted");
+  const ruledOut = (g: ChoiceGroup) => g.values.filter((v) => markOf(g.path, v) === "deleted");
+  // Ruling a value out is the Sheet's Delete of its column: every frame of the state in that
+  // value, which the agent hears as ruledOut. Never the value on stage, nor the last one left.
+  const subjects = (col: SheetColumn) => s.sheet.frames().map((v) => subjectOf({ v, col }));
+  const canRuleOut = (g: ChoiceGroup, v: { value: string; label: string }) => {
+    const f = frame();
+    return (
+      !!f &&
+      !isPicked(g.path, v.value) &&
+      shown(g).length > 1 &&
+      canFrame(s, "delete", { v: f, col: column(g.path, v) })
+    );
+  };
+  async function ruleOut(g: ChoiceGroup, v: { value: string; label: string }) {
+    if (!canRuleOut(g, v)) return;
+    settle(g.path);
+    unpreview(g.path, v.value);
+    await s.deleteCells(subjects(column(g.path, v)));
+  }
+  const restore = (g: ChoiceGroup, v: { value: string; label: string }) =>
+    void s.restoreCells(subjects(column(g.path, v)));
   const canCompare = (path: string) => s.sheet.spreadable(path);
   function compare(path: string) {
     settle(path);
@@ -300,6 +321,10 @@ export function createChoices(s: DesignScreenState) {
     unpreview,
     markOf,
     shown,
+    ruledOut,
+    canRuleOut,
+    ruleOut,
+    restore,
     canCompare,
     compare,
     alternativesCompare,

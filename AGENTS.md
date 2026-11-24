@@ -580,8 +580,13 @@ Stances reversed knowingly, so nobody restores them by accident:
     of swatches. The panel asks for no stills: a mouse on a value shows it on the stage, full
     size and at once, and the Sheet is where values are pictured side by side. A chip previews under a mouse and picks
     on a click: the stage is the answer, and Send carries what it shows, with no count of what
-    was changed and no marks on a knob's values (Main, Keep and Delete stay on alternatives and
-    on Sheet cells, where comparing is the point). The
+    was changed and no Main or Keep on a knob's values (they stay on alternatives and on Sheet
+    cells, where comparing is the point). A value's quiet ✕ (over the chip's corner, always in
+    the DOM for the keyboard, seen on hover or focus and always on touch) rules it out on an
+    idea: the Sheet's Delete of that value's column across the state's frames (`ruleOut` in
+    `choices.ts`, `deleteCells`), which the agent hears as `ruledOut`. Never on the value on
+    stage or the last one left; one press, no confirm or undo: it leaves the chips for the
+    group's "Ruled out · N" fold, where Restore puts the column back (`restoreCells`). The
     alternatives lead, as a list: a row each, its poster (the one picture of its version,
     already taken; the panel asks for none) beside its name; its description is the row's
     title and the version caption on stage, not text in the row. Rows are one height, the
