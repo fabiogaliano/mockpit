@@ -11445,6 +11445,34 @@ button.bmc {
   font-size: 12px;
 }
 /* What the stage holds: an alternative on it, or resting there to be held. */
+/* The alternatives: rows, a poster beside the name and what the agent says it is. */
+.chg-tiles.alts {
+  grid-template-columns: minmax(0, 1fr);
+}
+.cht.alt {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 40px 5px 5px;
+}
+.cht.alt .cht-pic {
+  flex: none;
+  width: 92px;
+  aspect-ratio: 16 / 10;
+}
+.cht.alt .cht-l {
+  gap: 2px;
+  padding: 0;
+}
+.cht-desc {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--t4);
+  font-size: 12px;
+  line-height: 1.35;
+}
 .cht-at {
   position: absolute;
   inset: 2px;

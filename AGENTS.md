@@ -574,8 +574,10 @@ Stances reversed knowingly, so nobody restores them by accident:
     size and at once, and the Sheet is where values are pictured side by side. A chip previews under a mouse and picks
     on a click: the stage is the answer, and Send carries what it shows, with no count of what
     was changed and no marks on a knob's values (Main, Keep and Delete stay on alternatives and
-    on Sheet cells, where comparing is the point). An
-    alternative's tile reads as a question's answer does (a rest of `HOLD_MS` holds it, a click
+    on Sheet cells, where comparing is the point). The
+    alternatives lead, as a list: a row each, its poster (the one picture of its version,
+    already taken; the panel asks for none) beside its name and description. A row reads as
+    a question's answer does (a rest of `HOLD_MS` holds it, a click
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
     `createHold`). A knob's pick is written to the tune of every live frame of the state that
     reads it (`choiceWrites`; a knob a question decides answers it), so a value holds across

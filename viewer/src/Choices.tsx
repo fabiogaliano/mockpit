@@ -537,7 +537,8 @@ function newestOf(s: DesignScreenState, alternative: string): VersionStep | unde
     .at(-1);
 }
 
-// The state's alternatives, read as a question's answers are: a mouse on one previews it, a
+// The state's alternatives, first and as a list: each a row with its poster and what it is.
+// Read as a question's answers are: a mouse on one previews it, a
 // rest holds it on stage, a click makes it Main (where there is a Main to make; else it only
 // goes on stage), and the agent's suggestion wears an answer's mark. Archived ones fold
 // under "Archived · N" to bring back.
@@ -562,7 +563,7 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
         sheet={c.alternativesCompare() ? { on: () => c.compareAlternatives() } : undefined}
       />
       <Show when={c.isOpen(ALTERNATIVES_GROUP)}>
-        <div class="chg-tiles">
+        <div class="chg-tiles alts">
           {/* One just archived keeps its place a moment, as its ghost. */}
           <For each={here().filter((v) => isLive(v.status) || s.ghostOn(v.state, v.alternative))}>
             {(v) => {
@@ -622,9 +623,14 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
                       ruleOut: canOut() ? () => runFrameAction(s, "delete", { v }) : undefined,
                     }}
                     extra={
-                      <Show when={used() === v.alternative}>
-                        <small>In use</small>
-                      </Show>
+                      <>
+                        <Show when={v.description}>
+                          {(d) => <span class="cht-desc">{d()}</span>}
+                        </Show>
+                        <Show when={used() === v.alternative}>
+                          <small>In use</small>
+                        </Show>
+                      </>
                     }
                   >
                     <span
