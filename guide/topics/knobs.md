@@ -14,14 +14,14 @@ varies across renders as one, not as a question: it shows in the Choices panel b
 design, under any open question and the alternatives, as a picture of the frame in each
 value (a colour as swatches), marked new until the user acts on it. Picking a value there
 applies it to every live alternative of the state that has the knob, so each frame's
-`tunedOn` carries it; Tune keeps only the fine knobs. Compare lays it out as a Sheet: the
+`tunedOn` carries it; Tune keeps only the fine knobs. Its Sheet button lays it out as a Sheet: the
 frame in every value, then every frame in every value (frames down, values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it
 full-size beside a Knob Choice Panel (and Side-by-side finalist grid) where the user marks
 **Main** (`M`), **Bookmark / Keep** (`K`), or **Delete** (`X`, ruling out that cell only,
 never the whole alternative). Each frame accumulates its own `★ Main` across multiple choice
 knobs (e.g. glyphs + colour). On a **Set** idea (`--set`, `Keep all`), every live frame ships
 on Use wearing its accumulated `★ Main` knob values (and defaults for knobs left unset). On a
-screen or component Compare opens an idea for it, holding copies of its frames, so the product
+screen or component the Sheet opens in an idea for it, holding copies of its frames, so the product
 stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on an idea lands its link
 on that Sheet; a knob that can't be laid out leaves the link as it was, with a nudge.
 On hosts that support capture, it also starts capturing the published row in the background.

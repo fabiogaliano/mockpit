@@ -44,7 +44,7 @@ mockpit feedback
 ## What you can do with a design
 
 - **Choose** a knob's value from pictures of the frame in each, for every alternative at
-  once, or **Compare** it: every frame in every value, on one sheet. Click any cell to inspect it
+  once, or open its **Sheet**: every frame in every value, on one page. Click any cell to inspect it
   full-size beside a live choice panel or **Side by side** finalist grid that shrinks as you
   cull options.
 - **Main, Bookmark & Delete**: star a **Main** (`M`) per frame and knob (each frame remembers

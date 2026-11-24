@@ -69,7 +69,7 @@ function GroupHead(props: {
   current: string;
   // Open, what the group is waiting on ("3 of 15"), in the place the pick shows folded.
   status?: string | null;
-  compare?: { on: () => void };
+  sheet?: { on: () => void };
 }) {
   const open = () => props.c.isOpen(props.id);
   return (
@@ -88,11 +88,11 @@ function GroupHead(props: {
           {open() ? (props.status ?? "") : props.current}
         </span>
       </button>
-      <Show when={open() && props.compare}>
+      <Show when={open() && props.sheet}>
         {(cmp) => (
-          <button type="button" class="chg-cmp" onClick={() => cmp().on()}>
+          <button type="button" class="chg-cmp" title="Open the Sheet" onClick={() => cmp().on()}>
             <Icon name="grid" />
-            Compare
+            Sheet
           </button>
         )}
       </Show>
@@ -229,7 +229,7 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         isNew={c.isNew(props.g.path)}
         current={c.valueLabel(props.g)}
         status={progress()}
-        compare={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
+        sheet={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
       <Show when={open()}>
         <Show when={unchanged()}>
@@ -462,7 +462,7 @@ function AlternativesGroup(props: { s: DesignScreenState; c: Choices }) {
         title={title()}
         isNew={false}
         current={alternativeName(c.frame()?.alternative ?? "")}
-        compare={c.alternativesCompare() ? { on: () => c.compareAlternatives() } : undefined}
+        sheet={c.alternativesCompare() ? { on: () => c.compareAlternatives() } : undefined}
       />
       <Show when={c.isOpen(ALTERNATIVES_GROUP)}>
         <div class="chg-tiles">

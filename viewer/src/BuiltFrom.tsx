@@ -235,7 +235,7 @@ function PartToggle(props: { s: DesignScreenState; part: string | null; label: s
 function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
   const s = props.s;
   const borrow = () => s.mixOpts().filter((o) => o.part === props.part);
-  // A phone has no Choices panel: its choice knobs stay here, each with its Compare.
+  // A phone has no Choices panel: its choice knobs stay here, each with its Sheet.
   const spreads = () =>
     phoneLayout() && s.sheet.available()
       ? s.sheet.choiceKnobs().filter((k) => knobPart(k.path) === props.part)
@@ -252,7 +252,7 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
             onClick={() => s.sheet.spread(k.path)}
           >
             <span>{k.label}</span>
-            <span class="borrow-act">Compare</span>
+            <span class="borrow-act">Sheet</span>
           </button>
         )}
       </For>

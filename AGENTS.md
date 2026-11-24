@@ -406,10 +406,10 @@ Stances reversed knowingly, so nobody restores them by accident:
   picks from (`unpickedBeside` in `state.ts`, through `archiveAlternatives`, with its Undo).
 - **The Sheet & Knob Choice Panel** (`viewer/src/sheet.ts`, `Sheet.tsx`, `KnobChoicePanel.tsx`):
   frames down, one choice knob's values (`choices` in `server/knobs.ts`) or the design's looks
-  across, there only with two or more frames and something to vary. Compare, on a choice
+  across, there only with two or more frames and something to vary. Sheet, on a choice
   knob's group in the Choices panel, opens it on the frame on stage and All on every frame; on
   a product design it opens an idea for it holding copies of its frames. A phone has no
-  Choices panel: there its choice knobs stay in Tune, each with Compare. Structural transitions (`One ↔ Sheet`,
+  Choices panel: there its choice knobs stay in Tune, each with Sheet. Structural transitions (`One ↔ Sheet`,
   switching knob tabs, `Sheet ↔ Cell`) push browser history (`pushUrl`) so Back always works;
   stepping values/frames inside a Cell replaces state (`replaceUrl`). `?alternative=<name>&sheet=<knob>&value=<val>`
   preserves cell context across reloads and Back/Forward. A cell is a still once made
@@ -568,7 +568,7 @@ Stances reversed knowingly, so nobody restores them by accident:
     same picture, compared at full size, the group says there is no visible change on that frame
     and its tiles are names only, still picked from; a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
     the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
-    and Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
+    and Sheet; a colour with options is a row of swatches. A tile previews under a mouse, picks
     on a click, and keeps or rules out from its corner with the Sheet's cell marks. An
     alternative's tile reads as a question's answer does (a rest of `HOLD_MS` holds it, a click
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
@@ -845,7 +845,8 @@ the finding needs.
   **instance** is an included component (`<mockpit-instance>`); a **frame** is an
   alternative as the viewer shows it, and a tune belongs to one; a **look** is a named set
   of knob values; **Choices** is the panel where alternatives and choice knobs are picked, and its
-  **Compare** lays a choice knob out as a **Sheet** (frames down, values or looks across); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
+  **Sheet** button lays a choice knob out as a **Sheet** (frames down, values or looks across;
+  Compare is only two versions in one frame); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
   **Bookmark / Keep** (`K`, `keep`, bookmark icon for runners-up), and **Delete** (`X`, `deleted`,
   instant vanish with Undo and silent `ruledOut` tombstone); **Send** releases a reply and **Use** puts the picks (or every live item in a Set, wearing its accumulated `★ Main` knob combo) in use, in the product design
   an idea is for; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the
