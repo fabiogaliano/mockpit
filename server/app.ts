@@ -161,6 +161,7 @@ import {
   slotsInSurfaces,
   spliceSwaps,
 } from "./swaps.ts";
+import { knobsRead, type KnobReads } from "./knobReads.ts";
 import {
   checkKnobs,
   checkKnobValues,
@@ -2450,13 +2451,19 @@ export function createApp({
   // What the alternatives of a design show through their instances now: per post, the
   // resolved list (nested included) with each component's versions, and the
   // key that changes when any of them does.
-  async function instanceViews(design: Design, posts: Post[]): Promise<Map<string, InstanceView>> {
+  async function instanceViews(
+    design: Design,
+    posts: Post[],
+    // Filled with each composed page, by post id, for a caller that reads them too.
+    pages?: Map<string, string>,
+  ): Promise<Map<string, InstanceView>> {
     const out = new Map<string, InstanceView>();
     for (const post of posts) {
       if (!firstHtmlInstances(post.surfaces)) continue;
       const html = post.surfaces.find((x) => x.kind === "html");
       if (html?.kind !== "html") continue;
       const composed = await composedHtml(design.project, design.slug, html.html);
+      pages?.set(post.id, composed.html);
       const { used } = composed;
       const list = [];
       for (const e of used) {
@@ -2467,6 +2474,31 @@ export function createApp({
         list.push({ ...e, latest: target?.version ?? e.version, versions });
       }
       out.set(post.id, { key: instancesKey(composed), list });
+    }
+    return out;
+  }
+
+  // The knobs each post's page reads, from the page its frame is served: its own html with
+  // its instances expanded (`pages`, from instanceViews), what answers and the system lay
+  // over every render, and its swaps. A post with no html page is left out: nothing to tell.
+  async function readViews(design: Design, posts: Post[], pages: Map<string, string>) {
+    const additions = [
+      ...design.answerAdditions,
+      ...((await systemFor(design.project))?.additions ?? []),
+    ];
+    const out = new Map<string, KnobReads>();
+    for (const post of posts) {
+      const html = post.surfaces.find((x) => x.kind === "html");
+      if (html?.kind !== "html") continue;
+      const swaps = slotsInSurfaces(post.surfaces).map((sl) => sl.part);
+      out.set(
+        post.id,
+        knobsRead(
+          withAnswerAdditions(pages.get(post.id) ?? html.html, additions),
+          [...Object.keys(design.knobs), ...Object.keys(post.knobs ?? {}), ...swaps],
+          [...swaps, ...additions.map((a) => a.knob)],
+        ),
+      );
     }
     return out;
   }
@@ -4752,7 +4784,9 @@ export function createApp({
     );
     const lines = query.noDecisions ? null : await decisionLines(design.project);
     const list = lines?.length ? agentDecisionLog(lines, design.slug) : null;
-    const instances = await instanceViews(design, posts);
+    const pages = new Map<string, string>();
+    const instances = await instanceViews(design, posts, pages);
+    const reads = query.viewer ? await readViews(design, posts, pages) : undefined;
     const instanceHistory =
       query.viewer && query.history ? await sheetInstanceHistory(design, posts) : undefined;
     const ideas = await ideasDecidingFor(design);
@@ -4793,6 +4827,7 @@ export function createApp({
       ...(await settledViews(design, posts)),
       ...(await lookViews(design, posts)),
       instances,
+      reads,
       builtFrom: await builtFromOf(
         design.project,
         (await shownInstances(design, posts)).map((e) => e.slug),

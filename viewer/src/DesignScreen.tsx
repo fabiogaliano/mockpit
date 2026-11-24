@@ -104,7 +104,7 @@ import { WakeLine } from "./Thread.tsx";
 import { createTune } from "./tune.ts";
 import { SendButton } from "./SendList.tsx";
 import { UseButton, VersionBar, VersionMenu } from "./VersionBar.tsx";
-import { draftIsEmpty } from "./logic.ts";
+import { draftIsEmpty, tuneListed } from "./logic.ts";
 import {
   canvasBox,
   canvasTop,
@@ -512,7 +512,13 @@ export function DesignScreen(props: {
     s.setTunable(
       t
         .components()
-        .filter((c) => c.paths.length || s.mixOpts().some((o) => o.part === c.part))
+        .filter((c) =>
+          tuneListed(
+            c,
+            s.design()?.asks ?? [],
+            s.mixOpts().map((o) => o.part),
+          ),
+        )
         .map((c) => c.part),
     ),
   );
@@ -803,7 +809,7 @@ export function DesignScreen(props: {
             </Show>
           }
           panels={
-            <Show when={m.active() && (m.talkHas() || m.altsHas() || m.side())}>
+            <Show when={m.active() && (m.talkHas() || m.choicesHas() || m.side())}>
               <PanelToggle m={m} />
             </Show>
           }

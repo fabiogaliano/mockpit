@@ -24,6 +24,7 @@ import {
   type ReplyVerdict,
   type SpecLine,
   type StateOutline,
+  tunedCount,
 } from "../../server/types.ts";
 import type { SlotInfo } from "../../server/swaps.ts";
 import { reactionOf, reactionStatus, toggleReaction } from "./reactionRules.ts";
@@ -88,6 +89,7 @@ import {
   setAskField,
   setAnswerComment,
   tuneVisible,
+  isChoiceKnob,
   unanswered,
   canOutline,
   keepSame,
@@ -722,7 +724,24 @@ export function createDesignScreen(
   // Tune is shown only with something to tune (tiers, no modes).
   const tuneShown = createMemo(() => {
     const m = design();
-    return !!m && tuneVisible(m, inState(activeState()));
+    return !!m && tuneVisible(m, inState(activeState()), phoneLayout());
+  });
+  // How many tuned values are Tune's own: off a phone, a value picked among choices is the
+  // Choices panel's, and Tune's dot and count leave it out.
+  const tunedFine = createMemo(() => {
+    const m = design();
+    const on = draft()?.tunedOn ?? {};
+    if (phoneLayout()) return tunedCount(on);
+    let n = 0;
+    for (const [alternative, values] of Object.entries(on)) {
+      const v = alternatives().find((x) => x.alternative === alternative);
+      const knobs = { ...m?.knobs, ...v?.knobs };
+      for (const path of Object.keys(values)) {
+        const cfg = knobs[path];
+        if (cfg === undefined || !isChoiceKnob(cfg)) n++;
+      }
+    }
+    return n;
   });
   // What Tune reads and writes: the knobs of the alternative on stage, the drafted
   // answers, that frame's tuned values, and what earlier replies settled on it.
@@ -1684,9 +1703,12 @@ export function createDesignScreen(
     }
   }
   // Tune's writer (phase 4b): one tuned knob value into the draft, on the frame on
-  // stage. Its siblings keep their own.
-  function setTuned(path: string, value: KnobValue | undefined) {
-    const alternative = activeAlternative()?.alternative;
+  // stage unless another is named. Its siblings keep their own.
+  function setTuned(
+    path: string,
+    value: KnobValue | undefined,
+    alternative = activeAlternative()?.alternative,
+  ) {
     if (alternative === undefined) return;
     writeDraft((d) => {
       const own = { ...d.tunedOn[alternative] };
@@ -1707,11 +1729,15 @@ export function createDesignScreen(
     });
   }
 
-  function resetTuned() {
+  // Only what Tune lists goes back: a value picked among choices holds across the frames.
+  function resetTuned(paths?: readonly string[]) {
     const alternative = activeAlternative()?.alternative;
     if (alternative === undefined) return;
     const before = { ...knobContext().tuned };
-    replaceTuned(alternative, {});
+    replaceTuned(
+      alternative,
+      paths ? Object.fromEntries(Object.entries(before).filter(([p]) => !paths.includes(p))) : {},
+    );
     setToast({
       text: "Tuning reset",
       undo: () => {
@@ -2711,6 +2737,7 @@ export function createDesignScreen(
     dismissPending,
     attachStatus,
     tuneShown,
+    tunedFine,
     alternativeFor,
     activeAlternative,
     inState,

@@ -2,20 +2,26 @@
 
 A knob is a value the user tunes live on one render. Declare knobs for what is worth
 fine-tuning (size, spacing, colour, density) even unasked; they wait in Tune. A tune belongs
-to the frame it was made on: tuning one alternative leaves the others as they were.
+to the frame it was made on: tuning one alternative leaves the others as they were. A knob
+shows only on a frame whose page reads it (its html, components included, mentions
+`k-<path, dots as dashes>` or `data-k-bind="<path>"`, or the knob is a part's swaps); a page
+listening for `mockpit:knobs` shows every knob.
 
 ## Choice knobs, the Sheet, Sets and looks
 
 A choice knob is a `select`, `image` or `color` with options, or a part's swaps. Publish what
-varies across renders as one, not as a question: the user presses Spread beside it in Tune
-and sees the frame in every value, then every frame in every value, on a Sheet (frames down,
-values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it
+varies across renders as one, not as a question: it shows in the Choices panel beside the
+design, under any open question and the alternatives, as a picture of the frame in each
+value (a colour as swatches), marked new until the user acts on it. Picking a value there
+applies it to every live alternative of the state that has the knob, so each frame's
+`tunedOn` carries it; Tune keeps only the fine knobs. Compare lays it out as a Sheet: the
+frame in every value, then every frame in every value (frames down, values across). Clicking a cell (`?alternative=<name>&sheet=<knob>&value=<val>`) opens it
 full-size beside a Knob Choice Panel (and Side-by-side finalist grid) where the user marks
 **Main** (`M`), **Bookmark / Keep** (`K`), or **Delete** (`X`, ruling out that cell only,
 never the whole alternative). Each frame accumulates its own `★ Main` across multiple choice
 knobs (e.g. glyphs + colour). On a **Set** idea (`--set`, `Keep all`), every live frame ships
 on Use wearing its accumulated `★ Main` knob values (and defaults for knobs left unset). On a
-screen or component Spread opens an idea for it, holding copies of its frames, so the product
+screen or component Compare opens an idea for it, holding copies of its frames, so the product
 stays as it is. `publish --sheet <knob>` (MCP and HTTP `"sheet"`) on an idea lands its link
 on that Sheet; a knob that can't be laid out leaves the link as it was, with a nudge.
 On hosts that support capture, it also starts capturing the published row in the background.

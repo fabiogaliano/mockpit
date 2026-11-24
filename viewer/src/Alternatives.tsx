@@ -1,25 +1,16 @@
-// The alternatives of the state on stage, in Focus. In the panel on the right: each live
-// one to put on stage (a variants design's are its variants, which all ship), with its
-// mark, and the archived ones folded under "Archived · N" to bring back. Over the
-// frame's corner, on an idea: what to do with the one on stage, the frame's actions.
+// What to do with an alternative of the state on stage, in Focus: over the frame's corner,
+// on an idea, the frame's actions; and an answer's tools for the alternative it names. The
+// alternatives themselves are a group of the Choices panel (Choices.tsx).
 
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
-import { isLive, recommendedAlternative } from "../../server/types.ts";
-import { alternativesView, setAlternativesView } from "./answersView.ts";
-import { assetUrl } from "./api.ts";
-import { ArchivedGhost } from "./ArchivedGhost.tsx";
-import { readonly } from "./host.ts";
-import { canFrame, frameActions, type FrameRef, hasActs, runFrameAction } from "./frameActions.ts";
-import { createHold } from "./holdPreview.ts";
+import { createSignal, For, onMount, Show } from "solid-js";
+import { isLive } from "../../server/types.ts";
+import { canFrame, frameActions, type FrameRef, hasActs } from "./frameActions.ts";
 import { Icon } from "./icons.tsx";
 import { alternativeName, sameVersion, type VersionStep } from "./logic.ts";
 import { MarkPill } from "./MarkPill.tsx";
 import { SaveMenu, type SaveFor } from "./SaveMenu.tsx";
 import type { Shortlists } from "./shortlist.ts";
 import type { DesignScreenState } from "./state.ts";
-import { posterShown } from "./systemRev.ts";
-
-const ROW_ACTS = ["keep", "delete"] as const;
 
 // Each alternative's newest version still shown, in the order the state lists them.
 function newestOf(s: DesignScreenState, alternative: string): VersionStep | undefined {
@@ -27,175 +18,6 @@ function newestOf(s: DesignScreenState, alternative: string): VersionStep | unde
     .steps()
     .filter((x) => x.alternative === alternative && !x.hidden)
     .at(-1);
-}
-
-// The state's alternatives, in the panel where a question's answers stand, and read the
-// same way: a mouse on a row previews it, a rest holds it on stage, a click makes it Main
-// (where there is a Main to make; else it only goes on stage), and the agent's suggestion
-// wears an answer's mark. A row sorts the list, so it has Bookmark and Delete; what is done
-// with one alternative is on its frame, on stage.
-export function AlternativesPanel(props: { s: DesignScreenState; sl: Shortlists }) {
-  const s = props.s;
-  const here = createMemo(() => s.alternatives().filter((v) => v.state === s.activeState()));
-  const archived = () => here().filter((v) => !isLive(v.status));
-  const [unfold, setUnfold] = createSignal(false);
-  const used = () => s.inUse()?.alternative;
-  const suggested = () => recommendedAlternative(s.design()?.asks ?? [], s.activeState());
-  return (
-    <div class="altp" classList={{ pics: alternativesView() === "grid" }}>
-      {/* One just archived keeps its place a moment, as its ghost. */}
-      <For each={here().filter((v) => isLive(v.status) || s.ghostOn(v.state, v.alternative))}>
-        {(v) => {
-          const step = () => newestOf(s, v.alternative);
-          const key = () => `alternative:${v.alternative}`;
-          // Without the preview: the row under the pointer is not yet the one on stage.
-          const onStage = () => s.alternativeFor(v.state, false)?.alternative === v.alternative;
-          const mark = () => s.frameMark(v.state, v.alternative);
-          const show = () => {
-            const st = step();
-            if (st) s.showVersion(st);
-          };
-          const hold = createHold({
-            onEnter: () =>
-              s.setHoveredPreview({ key: key(), alternative: v.alternative, state: v.state }),
-            onLeave: () => s.hoveredPreview()?.key === key() && s.setHoveredPreview(null),
-            onHold: () => show,
-            held: onStage,
-          });
-          return (
-            <Show
-              when={!s.ghostOn(v.state, v.alternative)}
-              fallback={<ArchivedGhost s={s} line={s.ghost()!} />}
-            >
-              {/* On the wrapper: over the row's actions the pointer is still on the row. */}
-              <div class="altp-w" {...hold.on}>
-                <button
-                  type="button"
-                  class="altp-row"
-                  classList={{
-                    on: mark() === "main",
-                    held: onStage(),
-                    resting: hold.resting(),
-                  }}
-                  aria-current={onStage() ? "true" : undefined}
-                  title={
-                    suggested() === v.alternative
-                      ? ["Suggested by the agent", v.description].filter(Boolean).join(": ")
-                      : v.description
-                  }
-                  onClick={() => {
-                    hold.stop();
-                    show();
-                    runFrameAction(s, "main", { v });
-                  }}
-                >
-                  <span class="altp-pic" classList={{ flat: s.frameW() > 600 }}>
-                    <Show when={posterShown(step()?.poster)}>
-                      {(id) => <img src={assetUrl(id())} alt="" loading="lazy" decoding="async" />}
-                    </Show>
-                    {/* One corner, one mark: once it is the Main, the suggestion has been
-                        answered. */}
-                    <Show
-                      when={mark() === "main"}
-                      fallback={
-                        <Show when={suggested() === v.alternative}>
-                          <i class="altp-pick" aria-hidden="true" />
-                        </Show>
-                      }
-                    >
-                      <i class="altp-main" aria-hidden="true">
-                        <Icon name="star" />
-                      </i>
-                    </Show>
-                  </span>
-                  <span class="altp-text">
-                    <b>{alternativeName(v.alternative)}</b>
-                    <Show when={mark() === "keep"}>
-                      <span class="altp-mark">
-                        <Icon name="bookmark" />
-                      </span>
-                    </Show>
-                    <Show when={used() === v.alternative}>
-                      <small>In use</small>
-                    </Show>
-                  </span>
-                  <span class="sr-only">
-                    {[
-                      suggested() === v.alternative ? "suggested by the agent" : "",
-                      mark() === "main" ? "Main" : mark() ? "bookmarked" : "",
-                    ]
-                      .filter(Boolean)
-                      .map((x) => `, ${x}`)
-                      .join("")}
-                  </span>
-                </button>
-                <span class="altp-acts">
-                  <MarkPill s={s} f={{ v }} inline only={ROW_ACTS} />
-                </span>
-              </div>
-            </Show>
-          );
-        }}
-      </For>
-      <Show when={archived().length}>
-        <button
-          type="button"
-          class="lm-fold"
-          aria-expanded={unfold()}
-          onClick={() => setUnfold(!unfold())}
-        >
-          {`Archived · ${archived().length}`}
-        </button>
-        <Show when={unfold()}>
-          <For each={archived()}>
-            {(v) => (
-              <div class="lm-archived" title={v.archiveReason ?? v.description}>
-                <span>{alternativeName(v.alternative)}</span>
-                <Show when={!readonly()}>
-                  <button
-                    type="button"
-                    class="vrestore"
-                    onClick={() =>
-                      void s
-                        .restoreAlternative(v.alternative, [s.activeState()])
-                        .then(() => s.setToast({ text: `Restored ${v.alternative}` }))
-                    }
-                  >
-                    Restore
-                  </button>
-                </Show>
-              </div>
-            )}
-          </For>
-        </Show>
-      </Show>
-    </div>
-  );
-}
-
-// List or pictures, in the panel's head.
-export function AlternativesAs() {
-  const views = [
-    { id: "list", label: "List", icon: "rows" },
-    { id: "grid", label: "Pictures", icon: "grid" },
-  ] as const;
-  return (
-    <span class="vswitch qview" role="group" aria-label="Alternatives as">
-      <For each={views}>
-        {(o) => (
-          <button
-            type="button"
-            aria-label={o.label}
-            title={o.label}
-            aria-pressed={alternativesView() === o.id}
-            onClick={() => setAlternativesView(o.id)}
-          >
-            <Icon name={o.icon} />
-          </button>
-        )}
-      </For>
-    </span>
-  );
 }
 
 // What can be done with the frame on stage, over its corner and never on it, since Try

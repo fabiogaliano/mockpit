@@ -27,6 +27,7 @@ import {
   type KnobContext,
 } from "../../server/knobValues.ts";
 export { inheritsFrom, knobDefault, knobPart, resolveKnobs, type KnobContext };
+import { choices, explicitKnob } from "../../server/knobs.ts";
 import { mainValuesFor } from "../../server/marks.ts";
 import { owedStates, type StateOutlineRow } from "../../server/coverage.ts";
 import type {
@@ -1057,6 +1058,120 @@ export function tuneWrite(path: string, value: KnobValue, ctx: KnobContext): Tun
   };
 }
 
+// --- Choices: named values to pick between, in the panel's one list ---
+
+// A choice knob: a select or an image with two or more options, a colour with options, or a
+// part's swaps (a select at the part's name). Tune keeps the rest, the fine values.
+export function isChoiceKnob(cfg: KnobConfig): boolean {
+  const values = choices(cfg);
+  if (!values) return false;
+  return explicitKnob(cfg).type === "color" ? values.length > 0 : values.length > 1;
+}
+
+// Whether a frame's page reads a knob (server/knobReads.ts), at the version on stage. A
+// global knob is read where a part knob refining it is, which follows it until tuned. When
+// it can't be told (no reading of that version, a page that could read anything) it is
+// read: hiding a knob that works is worse than showing one that doesn't.
+export function readsKnob(
+  v: Pick<AlternativeView, "reads" | "version">,
+  version: number,
+  path: string,
+  knobs: Knobs,
+): boolean {
+  const reads = v.reads;
+  if (version !== v.version || reads === undefined || reads === "all") return true;
+  return reads.some((p) => p === path || inheritsFrom(p, knobs) === path);
+}
+
+// What Tune lists: the fine knobs the page reads. Choice knobs leave it where the Choices
+// panel stands (not on a phone, whose Tune is its one place for knobs).
+export function tuneKnobs(
+  knobs: Knobs,
+  reads: (path: string) => boolean,
+  withChoices: boolean,
+): Knobs {
+  return Object.fromEntries(
+    Object.entries(knobs).filter(
+      ([path, cfg]) => reads(path) && (withChoices || !isChoiceKnob(cfg)),
+    ),
+  );
+}
+
+// A Tune group worth listing: knobs to move, a part question, or a part to borrow.
+export const tuneListed = (
+  c: TuneComponent,
+  asks: Pick<Ask, "scope" | "part">[],
+  borrowable: (string | null)[],
+): boolean =>
+  c.paths.length > 0 ||
+  borrowable.includes(c.part) ||
+  (c.part !== null && asks.some((a) => a.scope === "part" && a.part === c.part));
+
+// The knob values a frame reads and writes, as Tune's knobContext is for the one on stage.
+export function frameKnobContext(
+  design: Pick<DesignDetail, "asks" | "knobs" | "settled" | "settledOn">,
+  v: Pick<AlternativeView, "alternative" | "knobs">,
+  draft: DraftInput | null,
+): KnobContext {
+  return {
+    knobs: { ...design.knobs, ...v.knobs },
+    asks: design.asks,
+    answers: draft?.answers ?? {},
+    tuned: draft?.tunedOn[v.alternative] ?? {},
+    settled: settledOf(design, v.alternative),
+  };
+}
+
+export interface ChoiceWrites {
+  // A knob a question decides is answered, once, for every frame.
+  answer?: { ask: Ask; option: string };
+  // Each frame's tuned value for the knob; undefined takes its tune off.
+  tuned: { alternative: string; value: KnobValue | undefined }[];
+}
+
+// A value picked in the Choices panel holds across the frames that have the knob: written to
+// each one's tune, the per-frame model Tune uses, so a value back at a frame's own untuned
+// value is no tune there. Where a question decides the knob the pick answers it, and the
+// frames' own tunes of it come off, or they would hide the answer.
+export function choiceWrites(
+  path: string,
+  value: KnobValue,
+  frames: { alternative: string; ctx: KnobContext }[],
+): ChoiceWrites {
+  const writes = frames.map((f) => ({ f, w: tuneWrite(path, value, f.ctx) }));
+  const answered = writes.find((x) => x.w.kind === "answer")?.w;
+  if (answered?.kind === "answer") {
+    return {
+      answer: { ask: answered.ask, option: answered.option },
+      tuned: frames
+        .filter((f) => path in f.ctx.tuned)
+        .map((f) => ({ alternative: f.alternative, value: undefined })),
+    };
+  }
+  return {
+    tuned: writes.map(({ f, w }) => ({
+      alternative: f.alternative,
+      value: w.kind === "tuned" ? w.value : undefined,
+    })),
+  };
+}
+
+// Which of the panel's groups stand open. The user's own fold or unfold wins; otherwise a
+// new group is open, the alternatives are while nothing is new, and a group alone is.
+export const ALTERNATIVES_GROUP = "alternatives";
+export function choiceFolds(
+  groups: { id: string; isNew: boolean }[],
+  own: Record<string, boolean>,
+): Record<string, boolean> {
+  const anyNew = groups.some((g) => g.isNew);
+  return Object.fromEntries(
+    groups.map((g) => [
+      g.id,
+      own[g.id] ?? (g.isNew || (g.id === ALTERNATIVES_GROUP && !anyNew) || groups.length === 1),
+    ]),
+  );
+}
+
 // The components Tune can select: "Look" (the page and its global knobs), then
 // each part that has knobs or an ask, in the order the states first show them.
 // A part with neither has nothing to tune or answer.
@@ -1105,9 +1220,13 @@ export function tuneComponents(
 export function tuneVisible(
   design: Pick<DesignDetail, "knobs" | "parts" | "asks">,
   stateAlternatives: Pick<AlternativeView, "knobs">[],
+  // Choice knobs count only where there is no Choices panel to hold them.
+  withChoices = true,
 ): boolean {
-  if (Object.keys(design.knobs).length) return true;
-  if (stateAlternatives.some((v) => Object.keys(v.knobs ?? {}).length)) return true;
+  const some = (knobs: Knobs) =>
+    Object.values(knobs).some((cfg) => withChoices || !isChoiceKnob(cfg));
+  if (some(design.knobs)) return true;
+  if (stateAlternatives.some((v) => some(v.knobs ?? {}))) return true;
   if (design.asks.some((a) => a.scope === "part")) return true;
   return design.parts.some((p) => p.parts.length > 0);
 }

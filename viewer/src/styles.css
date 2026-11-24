@@ -11174,6 +11174,303 @@ button.bmc {
   height: 14px;
 }
 
+/* ---------- Choices: the panel's one list ---------- */
+/* A question, the alternatives and each choice knob read as one kind of thing: a group
+   under a hairline, its heading folding it, its values as picture tiles two across. The
+   ring is what is picked (an alternative's Main), the dashed line what the stage holds. */
+.chs {
+  margin-bottom: 14px;
+}
+.chg {
+  padding: 6px 0 12px;
+  border-top: 1px solid var(--line);
+}
+.chg.shut,
+.chg.row {
+  padding-bottom: 6px;
+}
+.qcard.beside .chs > .chg:first-child,
+.rm-scroll > .chs:first-child > .chg:first-child {
+  border-top: 0;
+}
+.chg-h {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+}
+.chg-fold {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 32px;
+  text-align: start;
+}
+.chg-fold b,
+.chg-title b {
+  color: var(--t1);
+  font-size: 14px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.chg-cur {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--t5);
+  font-size: 13px;
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chg-chev {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 26px;
+  color: var(--t5);
+}
+.chg-h:hover .chg-chev {
+  color: var(--t1);
+}
+.chg-chev .icon {
+  width: 14px;
+  height: 14px;
+}
+.chg-cmp {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 7px;
+  color: var(--t4);
+  font-size: 13px;
+}
+.chg-cmp:hover {
+  background: var(--row-hover);
+  color: var(--t1);
+}
+.chg-cmp .icon {
+  width: 14px;
+  height: 14px;
+}
+.newdot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ptoggle {
+  position: relative;
+}
+.ptoggle .newdot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+.chg-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+.cht-w {
+  position: relative;
+  min-width: 0;
+}
+.cht {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  height: 100%;
+  padding: 4px 4px 6px;
+  border-radius: 9px;
+  background: var(--row);
+  box-shadow: inset 0 0 0 1.5px transparent;
+  color: var(--t4);
+  font-size: 13px;
+  text-align: start;
+  transition:
+    box-shadow var(--ease),
+    color var(--ease);
+}
+.cht-w:hover .cht {
+  box-shadow: inset 0 0 0 1.5px var(--fill);
+  color: var(--t1);
+}
+.cht.on,
+.cht-w:hover .cht.on {
+  box-shadow: inset 0 0 0 1.5px var(--t1);
+  color: var(--t1);
+}
+.cht-pic {
+  position: relative;
+  display: block;
+  height: 54px;
+  margin-bottom: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--frame);
+  box-shadow: 0 0 0 1px var(--edge);
+}
+.cht-pic > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.cht-l {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 4px 0;
+}
+.cht-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cht-l small {
+  flex: none;
+  color: var(--t5);
+  font-size: 12px;
+}
+/* What the stage holds: an alternative on it, or resting there to be held. */
+.cht-at {
+  position: absolute;
+  inset: 2px;
+  border-radius: 8px;
+  pointer-events: none;
+}
+.cht.alt {
+  position: relative;
+}
+.cht-at.held,
+.cht-at.resting {
+  outline: 1.5px dashed var(--t2);
+  outline-offset: -1px;
+}
+.cht-at.resting {
+  animation: held-in 750ms linear;
+}
+.cht.alt .altp-pick {
+  top: 9px;
+  left: 9px;
+}
+.cht.alt .altp-main {
+  top: 7px;
+  left: 7px;
+}
+/* Keep and Rule out, over the picture's corner: on a dark plate, the design's own colours
+   being under it. */
+.cht-m {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 2;
+  display: flex;
+  gap: 1px;
+  padding: 1px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  box-shadow: 0 0 0 1px var(--line);
+}
+.cht-m .ib {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  color: var(--t4);
+}
+.cht-m .ib:hover {
+  background: var(--row-hover);
+  color: var(--t1);
+}
+.cht-m .ib .icon {
+  width: 14px;
+  height: 14px;
+}
+.cht-m .ib.on {
+  color: var(--keep-ink);
+}
+.cht-m .ib.on .icon {
+  fill: currentColor;
+}
+@media (hover: hover) {
+  .cht-m {
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .cht-w:hover > .cht-m,
+  .cht-w:focus-within > .cht-m,
+  .cht-w.kept > .cht-m {
+    opacity: 1;
+  }
+  .cht-w.kept:not(:hover, :focus-within) .cht-m .ib:not(.on) {
+    display: none;
+  }
+}
+.chg-title {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+}
+.chg-sws {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+.chg-sws button {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--t1) 16%, transparent);
+}
+.chg-sws button.on {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--t1) 16%, transparent),
+    0 0 0 2px var(--panel),
+    0 0 0 3.5px var(--t1);
+}
+/* The agent's suggestion and the Main, over a picture's corner. */
+.altp-pick {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.9);
+}
+/* On a dark disc: a design's own colours are under it. */
+.altp-main {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgb(15 15 15 / 0.82);
+  color: var(--keep-ink);
+}
+.altp-main .icon {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
 /* ---------- The alternatives, in the panel ---------- */
 /* Rows read as a question's answers do: the ring is the Main, the dashed line what the
    stage holds, the dot on the picture the agent's suggestion. */

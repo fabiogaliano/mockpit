@@ -66,7 +66,7 @@ consciously, not as a side effect):
 - Tiers, no modes: each thing the agent adds lights up its part of the viewer
   (alternatives → Focus's list of them, `set: true` → Keep-all Set where each frame
   ships and keeps its own per-knob `★ Main`, asks → Questions, `data-part` → Tune parts and part
-  comments, `knobs` → Tune knobs and Sheet, states and flows → the flow bar, `kind`
+  comments, `knobs` → Choices (choice knobs), Tune (fine ones) and Sheet, states and flows → the flow bar, `kind`
   screen/component, areas and flows → the Board's pages and sections; undeclared is an idea
   or a document, by what it contains, on the Ideas or Documents page). A plain publish of
   any kind still gets Focus + Activity + Use / New version, except a document (only written surfaces and pictures, no declared
@@ -406,9 +406,10 @@ Stances reversed knowingly, so nobody restores them by accident:
   picks from (`unpickedBeside` in `state.ts`, through `archiveAlternatives`, with its Undo).
 - **The Sheet & Knob Choice Panel** (`viewer/src/sheet.ts`, `Sheet.tsx`, `KnobChoicePanel.tsx`):
   frames down, one choice knob's values (`choices` in `server/knobs.ts`) or the design's looks
-  across, there only with two or more frames and something to vary. Spread, beside a choice
-  knob in Tune, opens it on the frame on stage and All on every frame; on a product design it
-  opens an idea for it holding copies of its frames. Structural transitions (`One ↔ Sheet`,
+  across, there only with two or more frames and something to vary. Compare, on a choice
+  knob's group in the Choices panel, opens it on the frame on stage and All on every frame; on
+  a product design it opens an idea for it holding copies of its frames. A phone has no
+  Choices panel: there its choice knobs stay in Tune, each with Compare. Structural transitions (`One ↔ Sheet`,
   switching knob tabs, `Sheet ↔ Cell`) push browser history (`pushUrl`) so Back always works;
   stepping values/frames inside a Cell replaces state (`replaceUrl`). `?alternative=<name>&sheet=<knob>&value=<val>`
   preserves cell context across reloads and Back/Forward. A cell is a still once made
@@ -551,15 +552,27 @@ Stances reversed knowingly, so nobody restores them by accident:
     from it (`FocusShortcuts`, `mockpit:focus-keys`). `Margins.tsx`: the states on the left (not
     drawn ones dashed; the standard states a screen lacks wait behind New state); on the
     right one panel, there while a question is open (or something answered waits), a Sheet
-    cell is open (`KnobChoicePanel.tsx`), the state has two or more alternatives
-    (`AlternativesPanel` in `Alternatives.tsx`: titled Set on a Set idea, Variants on a
-    variants design, archived ones folded; it opens by itself only where it can stand
-    beside the design, and reads as a question's answers do: a mouse on a row previews it,
-    a rest of `HOLD_MS` holds it on stage, a click makes it Main, the agent's suggestion
-    wears an answer's dot (the Main's star takes its place), a row has only Bookmark and
-    Delete, since it sorts the list and the stage's pill does the rest, and List or Pictures is
-    kept per browser; `holdPreview.ts`'s `createHold` is the hover-and-rest rule both
-    share), or the user opens Spec (with Instances, `BuiltFrom`) or
+    cell is open (`KnobChoicePanel.tsx`), or the state has choices: **Choices** (`Choices.tsx`,
+    its rules in `choices.ts`) is one list, the open question first, then the alternatives
+    (titled Set on a Set idea, Variants on a variants design, archived ones folded), then a
+    group per choice knob the frame on stage reads (`readsKnob` in `logic.ts`, from the
+    viewer read's `reads`, `server/knobReads.ts`: the served page, instances expanded,
+    mentions `k-<path>` or `data-k-bind`, or it is a part's swaps; a page listening for
+    `mockpit:knobs`, or one that can't be told, reads them all). Each group folds, showing its
+    pick while folded (the user's own fold kept per design per browser; else a new group is
+    open, the alternatives are while nothing is new, a group alone is: `choiceFolds`), with a
+    picture tile per value (a Sheet still, `stills.ts`; the label alone until one exists) and
+    Compare; a colour with options is a row of swatches. A tile previews under a mouse, picks
+    on a click, and keeps or rules out from its corner with the Sheet's cell marks. An
+    alternative's tile reads as a question's answer does (a rest of `HOLD_MS` holds it, a click
+    makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
+    `createHold`). A knob's pick is written to the tune of every live frame of the state that
+    reads it (`choiceWrites`; a knob a question decides answers it), so a value holds across
+    the alternatives. A choice knob is new to this browser until picked, kept, ruled out or
+    compared in (`choicesSeen.ts`, a project's first visit marking nothing): an accent dot on
+    its heading, or on the panel's toggle while it is shut, and it opens the panel where the
+    panel can stand beside the design. Tune keeps the fine knobs the page reads (`tuneKnobs`,
+    `tuneListed`), opening on its group when it has only one; or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
     when it would take the design below 80%). On an idea, the frame on stage carries
     a pill over its top corner, in the caption and always there, and a sheet cell one on hover
@@ -824,8 +837,8 @@ the finding needs.
   what the product picks. A part's **swaps** are what can go in it (`data-swap`); an
   **instance** is an included component (`<mockpit-instance>`); a **frame** is an
   alternative as the viewer shows it, and a tune belongs to one; a **look** is a named set
-  of knob values; **Spread** lays a choice knob out as a **Sheet** (frames down, values or
-  looks across); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
+  of knob values; **Choices** is the panel where alternatives and choice knobs are picked, and its
+  **Compare** lays a choice knob out as a **Sheet** (frames down, values or looks across); marks on frames and Sheet cells are **Main** (`M`, starred winner per slot),
   **Bookmark / Keep** (`K`, `keep`, bookmark icon for runners-up), and **Delete** (`X`, `deleted`,
   instant vanish with Undo and silent `ruledOut` tombstone); **Send** releases a reply and **Use** puts the picks (or every live item in a Set, wearing its accumulated `★ Main` knob combo) in use, in the product design
   an idea is for; the project's **decision log** is what replies settled. An **area** is a page of the Board: "page" is the

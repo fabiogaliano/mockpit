@@ -7,7 +7,6 @@ import { createSignal, For, Show } from "solid-js";
 import { colorQuestionPath } from "../../server/colorChoices.ts";
 import { explicitKnob } from "../../server/knobs.ts";
 import { framePicks } from "../../server/marks.ts";
-import { tunedCount } from "../../server/types.ts";
 import { backFromChanged } from "./ChangedNote.tsx";
 import { comparable } from "./Compare.tsx";
 import { canDesign } from "./frameActions.ts";
@@ -214,7 +213,7 @@ export function CanvasTools(props: {
   colourPanelVisible?: boolean;
 }) {
   const s = props.s;
-  const tuned = () => tunedCount(s.draft()?.tunedOn) > 0;
+  const tuned = () => s.tunedFine() > 0;
   const contextualColour = () => {
     if (!props.colourPanelVisible || readonly() || s.tool() === "tune") return false;
     const knobs = s.knobContext().knobs;

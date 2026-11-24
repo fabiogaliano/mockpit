@@ -16,16 +16,3 @@ export function setAnswersView(view: AnswersView) {
   setChosen(view);
   host().storage?.setItem(KEY, view);
 }
-
-// The same choice for the alternatives beside the design, kept apart: a list of three reads
-// well where three answers want their pictures.
-const ALTS_KEY = "mockpit:alternatives-view";
-const [altsChosen, setAltsChosen] = createSignal<AnswersView | null>(null);
-
-export const alternativesView = (): AnswersView =>
-  altsChosen() ?? (host().storage?.getItem(ALTS_KEY) === "grid" ? "grid" : "list");
-
-export function setAlternativesView(view: AnswersView) {
-  setAltsChosen(view);
-  host().storage?.setItem(ALTS_KEY, view);
-}

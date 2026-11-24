@@ -1,8 +1,9 @@
 // Focus's sides. The states (and alternatives, and ideas) stand on the left of the design
 // while there is more than one frame to go to; on the right a panel that opens for a
-// question, or for the state's alternatives while there are several and it can stand
-// beside the design. It shows one thing at a time: the question, the alternatives,
-// Spec (with its Instances) or Activity, the last two opened from the ⋯ menu. When a
+// question, or for the state's choices (its alternatives while there are several, and a
+// choice knob new to this browser) where it can stand beside the design. It shows one
+// thing at a time: Choices (the question, then the alternatives and the choice knobs, one
+// list), Spec (with its Instances) or Activity, the last two opened from the ⋯ menu. When a
 // margin would shrink the design past what marginLayout allows it stops standing there:
 // it opens floating over the canvas instead, which stays the size it was. The centre only
 // reads the bands they take (--canvas-l, --canvas-r, canvasBox), so it needn't be the
@@ -22,7 +23,7 @@ import {
   Show,
   Switch,
 } from "solid-js";
-import { isLive, tunedCount } from "../../server/types.ts";
+import { isLive } from "../../server/types.ts";
 import { assetUrl } from "./api.ts";
 import { BuiltFrom } from "./BuiltFrom.tsx";
 import { AnsweredLines, keptGroups } from "./Kept.tsx";
@@ -52,7 +53,8 @@ import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered, listed } from "./Questions.tsx";
-import { AlternativesAs, AlternativesPanel } from "./Alternatives.tsx";
+import { createChoices } from "./choices.ts";
+import { ChoicesList } from "./Choices.tsx";
 import { AnswersAs, answeredRows, pictured } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
@@ -102,6 +104,11 @@ export function createMargins(
   const alternativesHere = () => s.alternatives().filter((v) => v.state === s.activeState());
   const leftHas = () => !sideBySide() && (statesShown() || ideasFor().length > 0);
   const altsHas = () => !closed() && !sideBySide() && alternativesHere().length > 1;
+  const choices = createChoices(s);
+  const choicesHas = () => altsHas() || (!closed() && !sideBySide() && choices.paths().length > 0);
+  // What opens the panel by itself where it can stand: several alternatives, or a choice
+  // knob new to this browser.
+  const choicesWant = () => altsHas() || (choicesHas() && choices.newHere().length > 0);
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -159,7 +166,11 @@ export function createMargins(
     if (knobWants()) return "knob";
     if (talkWants() && !s.cardMin()) return "talk";
     // Floating, it would cover the design it is about: there it waits for the toggle.
-    if (altsHas() && (pinned() || fitWith(leftHas() && !folded(), true).right)) return "alts";
+    if (
+      choicesHas() &&
+      (pinned() || (choicesWant() && fitWith(leftHas() && !folded(), true).right))
+    )
+      return "alts";
     if (pinned() && !s.cardMin()) return "talk";
     return null;
   });
@@ -168,6 +179,15 @@ export function createMargins(
       () => s.curAsk()?.id,
       (id, was) => {
         if (id && id !== was) setShut(false);
+      },
+    ),
+  );
+  // A choice knob new since it was shut opens it again, as a new question does.
+  createEffect(
+    on(
+      () => choices.newHere(),
+      (now, was) => {
+        if (was && now.some((p) => !was.includes(p))) setShut(false);
       },
     ),
   );
@@ -257,7 +277,7 @@ export function createMargins(
     if (side()) return closeSide();
     setShut(false);
     if (knobWants()) return;
-    if (altsHas() && !talkWants()) return void setPinned(true);
+    if (choicesHas() && !talkWants()) return void setPinned(true);
     toggleSide("talk");
   }
   // A tab: what it shows, in the panel whether or not it stood open.
@@ -289,6 +309,8 @@ export function createMargins(
     side,
     talkHas,
     altsHas,
+    choices,
+    choicesHas,
     closed,
     leftDocked,
     rightDocked,
@@ -344,14 +366,17 @@ const TITLES: Record<Side, string> = {
   thread: "Activity",
   built: "Instances",
   knob: "Choices",
-  alts: "Alternatives",
+  alts: "Choices",
 };
 
 // The panel's toggle, in the top bar where it costs the design nothing. Only there while
 // the panel has something to open on.
 export function PanelToggle(props: { m: Margins }) {
   const m = props.m;
-  const label = () => (m.side() ? "Hide panel" : "Show panel");
+  // Shut, it carries the dot of a choice knob new to this browser.
+  const fresh = () => !m.side() && m.choicesHas() && m.choices.newHere().length > 0;
+  const label = () =>
+    m.side() ? "Hide panel" : fresh() ? "Show panel, something new" : "Show panel";
   return (
     <div class="mtabs">
       <button
@@ -364,6 +389,9 @@ export function PanelToggle(props: { m: Margins }) {
         onClick={() => m.togglePanel()}
       >
         <Icon name="panel" />
+        <Show when={fresh()}>
+          <i class="newdot" aria-hidden="true" />
+        </Show>
       </button>
     </div>
   );
@@ -544,8 +572,7 @@ export function RightMargin(props: {
       const k = h.at.knob ? knobName(h.at.knob) : "Looks";
       return `${k} · ${alternativeName(h.v.alternative)}`;
     }
-    if (side === "alts" && s.design()?.variants) return "Variants";
-    if (side === "alts" && s.design()?.set) return "Set";
+    if (side === "talk") return m.choicesHas() ? "Choices" : TITLES.talk;
     return TITLES[side];
   };
   return (
@@ -560,9 +587,6 @@ export function RightMargin(props: {
             <h2 title={title(side())}>{title(side())}</h2>
             <Show when={side() === "knob"}>
               <KnobViewToggle s={s} />
-            </Show>
-            <Show when={side() === "alts"}>
-              <AlternativesAs />
             </Show>
             <Show when={side() === "talk" && !m.closed() ? s.curAsk() : null}>
               {(ask) => (
@@ -591,7 +615,7 @@ export function RightMargin(props: {
               </Match>
               <Match when={side() === "alts"}>
                 <div class="rm-scroll">
-                  <AlternativesPanel s={s} sl={props.sl} />
+                  <ChoicesList s={s} c={m.choices} />
                   <AlternativesLine s={s} />
                   <WithThisSend s={s} m={m} />
                 </div>
@@ -630,14 +654,19 @@ export function RightMargin(props: {
 // goes is on screen before it goes.
 function Talk(props: { s: DesignScreenState; m: Margins; sl: Shortlists }) {
   const s = props.s;
-  const below = (): JSX.Element => <WithThisSend s={s} m={props.m} />;
+  const below = (): JSX.Element => (
+    <>
+      <ChoicesList s={s} c={props.m.choices} />
+      <WithThisSend s={s} m={props.m} />
+    </>
+  );
   return (
     <Show
       when={s.curAsk() && !props.m.closed()}
       fallback={
         <>
           <div class="qscroll rm-scroll">
-            <Show when={!s.flow().length && !s.sendable()}>
+            <Show when={!s.flow().length && !s.sendable() && !props.m.choicesHas()}>
               <p class="rm-none">Nothing to answer</p>
             </Show>
             {below()}
@@ -671,7 +700,7 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
     comments()
       .slice(0, i + 1)
       .filter((c) => c.anchor).length;
-  const tuned = () => tunedCount(s.draft()?.tunedOn);
+  const tuned = () => s.tunedFine();
   const borrowed = () => Object.keys(s.draft()?.borrowed ?? {}).length;
   const elsewhere = () => s.flow()[0];
   return (

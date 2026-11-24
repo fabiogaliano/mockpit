@@ -95,8 +95,8 @@ Rules of thumb:
 
 - One design per concept, with a stable kebab-case slug; publishing the same
   (design, state, alternative) again makes a new version.
-- Publish what varies as alternatives or a choice knob (a `select` the user can Spread into a
-  Sheet): the user compares, picks and presses Use without a question. An alternative decides
+- Publish what varies as alternatives or a choice knob (a `select` the user picks from in
+  Choices or compares on a Sheet): the user compares, picks and presses Use without a question. An alternative decides
   everything it differs on; don't re-ask it. Declare knobs for what is worth fine-tuning even
   unasked.
 - The html is the UI alone. Say what an alternative is in `description`, never as text

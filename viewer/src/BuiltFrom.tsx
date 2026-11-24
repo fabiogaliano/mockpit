@@ -7,13 +7,21 @@ import { createEffect, createMemo, createResource, For, Index, on, Show } from "
 import { api, surfaceUrl, type TreeNode } from "./api.ts";
 import { host, readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
-import { designWidth, knobPart, partLabel, screenPicture, versionName } from "./logic.ts";
+import {
+  designWidth,
+  knobPart,
+  partLabel,
+  screenPicture,
+  tuneListed,
+  versionName,
+} from "./logic.ts";
 import { linkClick, designPath } from "./route.ts";
 import { SaveLook } from "./Looks.tsx";
 import type { DesignScreenState } from "./state.ts";
 import { frameMode } from "./systemRev.ts";
 import { Thumb } from "./Thumb.tsx";
 import type { TuneState } from "./tune.ts";
+import { phoneLayout } from "./viewport.ts";
 
 // A tree node's design in use (else its newest live one), as a picture.
 function nodePicture(node: TreeNode): string | null {
@@ -47,9 +55,17 @@ export function BuiltFrom(props: {
   const me = () => bySlug().get(s.slug);
   const uses = () => (me()?.instances ?? []).flatMap((slug) => bySlug().get(slug) ?? []);
   const parts = () =>
-    t.components().filter((c) => c.paths.length || s.mixOpts().some((o) => o.part === c.part));
-  // The frame on stage's own: tuning one leaves its siblings as they were.
-  const tuned = () => Object.keys(s.knobContext().tuned).length;
+    t.components().filter((c) =>
+      tuneListed(
+        c,
+        s.design()?.asks ?? [],
+        s.mixOpts().map((o) => o.part),
+      ),
+    );
+  // The frame on stage's own: tuning one leaves its siblings as they were. Only what Tune
+  // lists counts: a value picked among choices is the Choices panel's.
+  const listedPaths = () => parts().flatMap((c) => c.paths);
+  const tuned = () => listedPaths().filter((p) => p in s.knobContext().tuned).length;
   const frameName = () => {
     const v = s.activeAlternative();
     return v && s.inState(v.state).length > 1 ? v.alternative : null;
@@ -66,6 +82,15 @@ export function BuiltFrom(props: {
             ?.querySelector(`[data-tune-part="${CSS.escape(part ?? "")}"]`)
             ?.scrollIntoView({ block: "nearest" }),
         );
+      },
+    ),
+  );
+  // Tune holding one group opens on it.
+  createEffect(
+    on(
+      () => (s.tool() === "tune" && parts().length === 1 ? parts()[0].part : undefined),
+      (only) => {
+        if (only !== undefined && s.tuneOpen() === false) s.openTune(only);
       },
     ),
   );
@@ -140,7 +165,7 @@ export function BuiltFrom(props: {
           <Show when={tuned()}>
             <div class="tunedbar" role="status">
               <span>{`${tuned()} tuned${frameName() ? ` on ${frameName()}` : ""}`}</span>
-              <button type="button" onClick={s.resetTuned}>
+              <button type="button" onClick={() => s.resetTuned(listedPaths())}>
                 Reset
               </button>
             </div>
@@ -210,8 +235,11 @@ function PartToggle(props: { s: DesignScreenState; part: string | null; label: s
 function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
   const s = props.s;
   const borrow = () => s.mixOpts().filter((o) => o.part === props.part);
+  // A phone has no Choices panel: its choice knobs stay here, each with its Compare.
   const spreads = () =>
-    s.sheet.available() ? s.sheet.choiceKnobs().filter((k) => knobPart(k.path) === props.part) : [];
+    phoneLayout() && s.sheet.available()
+      ? s.sheet.choiceKnobs().filter((k) => knobPart(k.path) === props.part)
+      : [];
   return (
     <div class="knobs">
       <div class="tune-knobs" ref={(el) => s.setTuneHost(el)} />
@@ -224,7 +252,7 @@ function PartKnobs(props: { s: DesignScreenState; part: string | null }) {
             onClick={() => s.sheet.spread(k.path)}
           >
             <span>{k.label}</span>
-            <span class="borrow-act">Spread</span>
+            <span class="borrow-act">Compare</span>
           </button>
         )}
       </For>

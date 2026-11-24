@@ -736,7 +736,8 @@ a delete can't be undone, so confirm first (\`mockpit move --help\`).
 
 Publish what varies; the user compares and decides without being asked. Each
 alternative is a frame. A choice knob (a \`select\` or \`image\` with options) is a value
-every frame can wear, which the user Spreads into a Sheet: frames down, values across.
+every frame can wear: the user picks it in Choices, for every alternative at once, or
+compares it on a Sheet: frames down, values across.
 In an idea they mark **Main**, **Keep** (bookmark) or **Delete** (ruled out in \`target.ruledOut\`),
 save knob values as named **looks**, and press Use. Add \`--set\` (MCP/HTTP \`set: true\`) when
 all frames ship together (e.g. morphing illustrations): each frame keeps its own per-knob Main

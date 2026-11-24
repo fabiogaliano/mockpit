@@ -3,6 +3,7 @@
 
 import { coverageOf, coverageText, flowLine } from "./coverage.ts";
 import { isShared } from "./library.ts";
+import type { KnobReads } from "./knobReads.ts";
 import { slotKnobs, slotsInSurfaces } from "./swaps.ts";
 import type { Mode } from "./themes.ts";
 import { mergeParts, type PartInfo, partsInSurfaces } from "./parts.ts";
@@ -201,6 +202,8 @@ export interface AlternativeViewOptions {
   kept?: Set<string>;
   // Whose alternatives: a product design's say where its Ready mark stands.
   design?: Pick<Design, "kind" | "ready">;
+  // The viewer's: the knobs each post's page reads (knobReads.ts), by post id.
+  reads?: Map<string, KnobReads>;
 }
 
 // An alternative's instances as they render now (nested ones included): each with the
@@ -276,6 +279,7 @@ export const alternativeView = (post: Post, opts: AlternativeViewOptions = {}) =
     ? { knobs: { ...slotKnobs(slotsInSurfaces(post.surfaces)), ...post.knobs } }
     : {}),
   ...(slotsInSurfaces(post.surfaces).length ? { swaps: slotsInSurfaces(post.surfaces) } : {}),
+  ...(opts.reads?.has(post.id) ? { reads: opts.reads.get(post.id)! } : {}),
   ...(post.description ? { description: post.description } : {}),
   // Included components as they render now (server/instances.ts); `publishedWith`
   // is what this version rendered with when it was published.

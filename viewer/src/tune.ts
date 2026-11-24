@@ -25,13 +25,16 @@ import { root } from "./host.ts";
 import { paletteNow } from "./PaletteTool.tsx";
 import {
   partLabel,
+  readsKnob,
   resolveKnobs,
   safeColor,
   type TuneComponent,
   tuneComponents,
+  tuneKnobs,
   tuneWrite,
 } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
+import { phoneLayout } from "./viewport.ts";
 
 const BRIDGE = `
 .up-root, .up-portal {
@@ -143,9 +146,12 @@ export function mountTunePane(panelId?: string) {
 export function createTune(s: DesignScreenState) {
   const components = createMemo(() => {
     const m = s.design();
-    const slots = (s.activeAlternative()?.swaps ?? []).map((sl) => sl.part);
+    const v = s.activeAlternative();
+    const slots = (v?.swaps ?? []).map((sl) => sl.part);
     const borrowable = s.mixOpts().map((o) => o.part);
-    return m ? tuneComponents(m, s.knobContext().knobs, slots, borrowable) : [];
+    const all = s.knobContext().knobs;
+    const reads = (path: string) => !v || readsKnob(v, s.frameVersionOf(v), path, all);
+    return m ? tuneComponents(m, tuneKnobs(all, reads, phoneLayout()), slots, borrowable) : [];
   });
   // A part clicked on the stage that has nothing to tune still shows, so it can
   // take a comment; the selector's list and ‹ › only walk the tunable ones.

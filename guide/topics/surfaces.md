@@ -123,5 +123,5 @@ drops it, so send one with each, or let the CLI or stdio server take the new one
 | several alternatives     | Focus's list of them; in an idea Pick, Main, Archive and Use         |
 | questions (`ask`)        | Questions: picture options on the frame in Focus, then Send          |
 | `data-part`              | Tune's component list and comments anchored on parts                 |
-| `knobs`                  | Tune's controls, live; a choice knob's Spread and Sheet              |
+| `knobs`                  | Tune's controls, live; a choice knob in Choices, and its Sheet       |
 | several states           | the states beside the frame in Focus, and frames across on the Board |
