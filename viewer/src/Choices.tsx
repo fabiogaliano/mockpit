@@ -322,15 +322,10 @@ function KnobTile(props: { c: Choices; g: ChoiceGroup; v: Value; picture: TilePi
     <TileShell
       label={props.v.label}
       on={c.isPicked(path(), props.v.value)}
-      kept={c.markOf(path(), props.v) === "keep"}
+      kept={false}
       onEnter={() => c.preview(props.g, props.v)}
       onLeave={() => c.unpreview(path(), props.v.value)}
       onPick={() => c.pick(path(), props.v.value)}
-      marks={
-        c.canMark(path(), props.v)
-          ? { keep: () => c.keep(props.g, props.v), ruleOut: () => c.ruleOut(props.g, props.v) }
-          : undefined
-      }
       over={
         <Show when={failed()}>
           {(f) => (

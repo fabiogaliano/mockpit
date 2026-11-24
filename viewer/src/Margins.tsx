@@ -706,8 +706,6 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
     comments()
       .slice(0, i + 1)
       .filter((c) => c.anchor).length;
-  const tuned = () => s.tunedFine();
-  const borrowed = () => Object.keys(s.draft()?.borrowed ?? {}).length;
   const elsewhere = () => s.flow()[0];
   return (
     <>
@@ -777,18 +775,6 @@ export function WithThisSend(props: { s: DesignScreenState; m: Margins }) {
               );
             }}
           </Index>
-        </div>
-      </Show>
-      <Show when={tuned() + borrowed() > 0 && props.m.builtHas()}>
-        <div class="tunedbar" role="status">
-          <span>
-            {[tuned() ? `${tuned()} tuned` : "", borrowed() ? `${borrowed()} borrowed` : ""]
-              .filter(Boolean)
-              .join(", ")}
-          </span>
-          <button type="button" onClick={() => props.m.toggleSide("built")}>
-            Show
-          </button>
         </div>
       </Show>
       <AnsweredLines s={s} />

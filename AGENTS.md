@@ -576,14 +576,16 @@ Stances reversed knowingly, so nobody restores them by accident:
     the mode, palette or system), and while it stands the group's stills aren't asked for
     again, with Check again to ask; a tile waiting for its still shimmers (over the cell's older still, as a Sheet cell shows one),
     the heading counting them in, "3 of 15", and one whose still failed says so, with Retry)
-    and Sheet; a colour with options is a row of swatches. A tile previews under a mouse, picks
-    on a click, and keeps or rules out from its corner with the Sheet's cell marks. An
+    and Sheet; a colour with options is a row of swatches. A tile previews under a mouse and picks
+    on a click: the stage is the answer, and Send carries what it shows, with no count of what
+    was changed and no marks on a knob's values (Main, Keep and Delete stay on alternatives and
+    on Sheet cells, where comparing is the point). An
     alternative's tile reads as a question's answer does (a rest of `HOLD_MS` holds it, a click
     makes it Main, the agent's suggestion wears an answer's dot; `holdPreview.ts`'s
     `createHold`). A knob's pick is written to the tune of every live frame of the state that
     reads it (`choiceWrites`; a knob a question decides answers it), so a value holds across
-    the alternatives. A choice knob is new to this browser until picked, kept, ruled out or
-    compared in (`choicesSeen.ts`, a project's first visit marking nothing): an accent dot on
+    the alternatives. A choice knob is new to this browser until picked or laid out on a
+    Sheet (`choicesSeen.ts`, a project's first visit marking nothing): an accent dot on
     its heading, or on the panel's toggle while it is shut, and it opens the panel where the
     panel can stand beside the design. Tune keeps the fine knobs the page reads (`tuneKnobs`,
     `tuneListed`), opening on its group when it has only one; or the user opens Spec (with Instances, `BuiltFrom`) or

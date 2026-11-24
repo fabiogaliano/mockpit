@@ -8,7 +8,7 @@ import { explicitKnob } from "../../server/knobs.ts";
 import { isLive, type KnobValue } from "../../server/types.ts";
 import type { AlternativeView } from "./api.ts";
 import { knownChoices, markChoiceKnown, ownFolds, setOwnFold } from "./choicesSeen.ts";
-import { canFrame, subjectOf } from "./frameActions.ts";
+import { subjectOf } from "./frameActions.ts";
 import { readonly } from "./host.ts";
 import {
   ALTERNATIVES_GROUP,
@@ -161,29 +161,7 @@ export function createChoices(s: DesignScreenState) {
     const f = frame();
     return f ? s.markOf(subjectOf({ v: f, col: column(path, v) })) : null;
   };
-  const canMark = (path: string, v: { value: string; label: string }) => {
-    const f = frame();
-    return !!f && canFrame(s, "keep", { v: f, col: column(path, v) });
-  };
   const shown = (g: ChoiceGroup) => g.values.filter((v) => markOf(g.path, v) !== "deleted");
-  // Every frame of the state, as the Sheet's column is: ruled out there too.
-  const subjects = (col: SheetColumn) => s.sheet.frames().map((v) => subjectOf({ v, col }));
-
-  // Kept on the frame on stage, as a Sheet cell is: a runner-up of this frame's.
-  function keep(g: ChoiceGroup, v: { value: string; label: string }) {
-    const f = frame();
-    if (!f) return;
-    settle(g.path);
-    s.toggleKeep(subjectOf({ v: f, col: column(g.path, v) }));
-  }
-  function ruleOut(g: ChoiceGroup, v: { value: string; label: string }) {
-    settle(g.path);
-    unpreview(g.path, v.value);
-    // The pick can't stay on what is ruled out: it moves to the first value left.
-    const next = isPicked(g.path, v.value) ? shown(g).find((x) => x.value !== v.value) : undefined;
-    void s.deleteCells(subjects(column(g.path, v)), `${g.label} · ${v.label}`);
-    if (next) pick(g.path, next.value);
-  }
   const canCompare = (path: string) => s.sheet.spreadable(path);
   function compare(path: string) {
     settle(path);
@@ -216,10 +194,7 @@ export function createChoices(s: DesignScreenState) {
     unpreview,
     cellOf,
     markOf,
-    canMark,
     shown,
-    keep,
-    ruleOut,
     canCompare,
     compare,
     alternativesCompare,
