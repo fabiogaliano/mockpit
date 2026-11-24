@@ -803,7 +803,7 @@ export function DesignScreen(props: {
             </Show>
           }
           panels={
-            <Show when={m.active() && (m.talkHas() || m.side())}>
+            <Show when={m.active() && (m.talkHas() || m.altsHas() || m.side())}>
               <PanelToggle m={m} />
             </Show>
           }

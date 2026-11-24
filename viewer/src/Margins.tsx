@@ -1,6 +1,7 @@
 // Focus's sides. The states (and alternatives, and ideas) stand on the left of the design
 // while there is more than one frame to go to; on the right a panel that opens for a
-// question and is not there without one. It shows one thing at a time: the question,
+// question, or for the state's alternatives while there are several and it can stand
+// beside the design. It shows one thing at a time: the question, the alternatives,
 // Spec (with its Instances) or Activity, the last two opened from the ⋯ menu. When a
 // margin would shrink the design past what marginLayout allows it stops standing there:
 // it opens floating over the canvas instead, which stays the size it was. The centre only
@@ -51,7 +52,7 @@ import { IdeasForList } from "./IdeasFor.tsx";
 import { OutlineRows } from "./Outlines.tsx";
 import { QuestionCard } from "./QuestionCard.tsx";
 import { Answered, listed } from "./Questions.tsx";
-import { AlternativeList } from "./Alternatives.tsx";
+import { AlternativesAs, AlternativesPanel } from "./Alternatives.tsx";
 import { AnswersAs, answeredRows, pictured } from "./SideBySide.tsx";
 import { REACTION_LABEL } from "./reactionRules.ts";
 import { SendTo } from "./SendTo.tsx";
@@ -64,7 +65,7 @@ import { CanvasTools } from "./VersionBar.tsx";
 import { NO_BOX, safeX, setCanvasBox, tabletLayout, win } from "./viewport.ts";
 
 // "built" is Tune's: the panel while Tune is on, with no tabs. "knob" is the Sheet cell's.
-export type Side = "talk" | "spec" | "built" | "thread" | "knob";
+export type Side = "talk" | "alts" | "spec" | "built" | "thread" | "knob";
 export type Margins = ReturnType<typeof createMargins>;
 
 // Past this many a list is names alone: every picture is a whole page loading, and
@@ -99,8 +100,8 @@ export function createMargins(
   const statesShown = () => walkable();
   const ideasFor = () => s.design()?.ideasFor ?? [];
   const alternativesHere = () => s.alternatives().filter((v) => v.state === s.activeState());
-  const leftHas = () =>
-    !sideBySide() && (statesShown() || ideasFor().length > 0 || alternativesHere().length > 1);
+  const leftHas = () => !sideBySide() && (statesShown() || ideasFor().length > 0);
+  const altsHas = () => !closed() && !sideBySide() && alternativesHere().length > 1;
   const page = () => {
     const kinds: readonly string[] =
       s.stageStep()?.kinds ?? s.activeAlternative()?.surfaces.map((x) => String(x.kind)) ?? [];
@@ -156,8 +157,10 @@ export function createMargins(
     if (s.panel() === "thread") return "thread";
     if (s.panel() === "spec") return "spec";
     if (knobWants()) return "knob";
-    if (s.cardMin()) return null;
-    if (talkWants() || pinned()) return "talk";
+    if (talkWants() && !s.cardMin()) return "talk";
+    // Floating, it would cover the design it is about: there it waits for the toggle.
+    if (altsHas() && (pinned() || fitWith(leftHas() && !folded(), true).right)) return "alts";
+    if (pinned() && !s.cardMin()) return "talk";
     return null;
   });
   createEffect(
@@ -254,6 +257,7 @@ export function createMargins(
     if (side()) return closeSide();
     setShut(false);
     if (knobWants()) return;
+    if (altsHas() && !talkWants()) return void setPinned(true);
     toggleSide("talk");
   }
   // A tab: what it shows, in the panel whether or not it stood open.
@@ -284,6 +288,7 @@ export function createMargins(
     specHas,
     side,
     talkHas,
+    altsHas,
     closed,
     leftDocked,
     rightDocked,
@@ -339,6 +344,7 @@ const TITLES: Record<Side, string> = {
   thread: "Activity",
   built: "Instances",
   knob: "Choices",
+  alts: "Alternatives",
 };
 
 // The panel's toggle, in the top bar where it costs the design nothing. Only there while
@@ -385,8 +391,6 @@ export function LeftMargin(props: { s: DesignScreenState; nav: FlowNav; m: Margi
         <Show when={m.statesShown()}>
           <StateList s={s} nav={props.nav} outlining={m.outlining()} />
         </Show>
-        <AlternativeList s={s} />
-        <AlternativesLine s={s} />
         <Show when={s.design()?.ideasFor}>
           {(ideas) => <IdeasForList project={s.project} ideas={ideas()} />}
         </Show>
@@ -540,6 +544,8 @@ export function RightMargin(props: {
       const k = h.at.knob ? knobName(h.at.knob) : "Looks";
       return `${k} · ${alternativeName(h.v.alternative)}`;
     }
+    if (side === "alts" && s.design()?.variants) return "Variants";
+    if (side === "alts" && s.design()?.set) return "Set";
     return TITLES[side];
   };
   return (
@@ -554,6 +560,9 @@ export function RightMargin(props: {
             <h2 title={title(side())}>{title(side())}</h2>
             <Show when={side() === "knob"}>
               <KnobViewToggle s={s} />
+            </Show>
+            <Show when={side() === "alts"}>
+              <AlternativesAs />
             </Show>
             <Show when={side() === "talk" && !m.closed() ? s.curAsk() : null}>
               {(ask) => (
@@ -579,6 +588,13 @@ export function RightMargin(props: {
               </Match>
               <Match when={side() === "talk"}>
                 <Talk s={s} m={m} sl={props.sl} />
+              </Match>
+              <Match when={side() === "alts"}>
+                <div class="rm-scroll">
+                  <AlternativesPanel s={s} sl={props.sl} />
+                  <AlternativesLine s={s} />
+                  <WithThisSend s={s} m={m} />
+                </div>
               </Match>
               <Match when={side() === "spec"}>
                 <div class="rm-scroll">

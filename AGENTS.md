@@ -549,10 +549,16 @@ Stances reversed knowingly, so nobody restores them by accident:
     to the Board, fit to the frame, selected. Focus's keys are behind a "?" at the canvas's
     corner and the ? key, listed for where the user is: one frame, the Sheet or a cell open
     from it (`FocusShortcuts`, `mockpit:focus-keys`). `Margins.tsx`: the states on the left (not
-    drawn ones dashed; the standard states a screen lacks wait behind New state) and the
-    state's alternatives (`Alternatives.tsx`; headed Set on a Set idea, Variants on a variants design,
-    archived ones folded); on the right one panel, there only while a question is open
-    (or something answered waits), a Sheet cell is open (`KnobChoicePanel.tsx`), or the user opens Spec (with Instances, `BuiltFrom`) or
+    drawn ones dashed; the standard states a screen lacks wait behind New state); on the
+    right one panel, there while a question is open (or something answered waits), a Sheet
+    cell is open (`KnobChoicePanel.tsx`), the state has two or more alternatives
+    (`AlternativesPanel` in `Alternatives.tsx`: titled Set on a Set idea, Variants on a
+    variants design, archived ones folded; it opens by itself only where it can stand
+    beside the design, and reads as a question's answers do: a mouse on a row previews it,
+    a rest of `HOLD_MS` holds it on stage, a click makes it Main, the agent's suggestion
+    wears an answer's dot, a row's other actions are its frame's, and List or Pictures is
+    kept per browser; `holdPreview.ts`'s `createHold` is the hover-and-rest rule both
+    share), or the user opens Spec (with Instances, `BuiltFrom`) or
     Activity (`Thread.tsx`) from ⋯ (`marginLayout` in `logic.ts` floats a margin as a tab
     when it would take the design below 80%). On an idea, the frame on stage carries
     a pill over its top corner, in the caption and always there, and a sheet cell one on hover

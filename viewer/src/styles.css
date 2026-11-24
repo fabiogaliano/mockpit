@@ -6648,14 +6648,6 @@ html:has(.design-screen) {
     background var(--ease),
     color var(--ease);
 }
-.lm-alts {
-  margin-top: 14px;
-}
-.lm-alt .lm-text b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .lm-fold {
   align-self: flex-start;
   margin: 4px 0 0 6px;
@@ -11162,8 +11154,7 @@ button.bmc {
   opacity: 0;
   transform: scale(0.7);
 }
-.sheet-l .sheet-star,
-.lm-mark {
+.sheet-l .sheet-star {
   display: inline-grid;
   flex: none;
   place-items: center;
@@ -11173,17 +11164,248 @@ button.bmc {
   margin-left: 5px;
   vertical-align: -2px;
 }
-.sheet-l .sheet-star .icon,
-.lm-mark .icon {
+.sheet-l .sheet-star .icon {
   width: 14px;
   height: 14px;
 }
-.lm-mark {
-  align-self: center;
-  margin-left: auto;
+
+/* ---------- The alternatives, in the panel ---------- */
+/* Rows read as a question's answers do: the ring is the Main, the dashed line what the
+   stage holds, the dot on the picture the agent's suggestion. */
+.altp {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
 }
-.lm-mark.main .icon {
+.altp-w {
+  position: relative;
+}
+/* What a row's ⋯ opens drops over the rows under it. */
+.altp-w:focus-within {
+  z-index: 4;
+}
+.altp-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--row);
+  box-shadow: inset 0 0 0 1.5px transparent;
+  color: var(--t3);
+  text-align: start;
+  transition:
+    background var(--ease),
+    box-shadow var(--ease);
+}
+.altp-row.on {
+  box-shadow: inset 0 0 0 1.5px var(--t2);
+  color: var(--t1);
+}
+.altp-row.resting,
+.altp-row.held {
+  outline: 1.5px dashed var(--t2);
+  outline-offset: -3px;
+}
+.altp-row.resting {
+  animation: held-in 750ms linear;
+}
+.altp-row.on.resting,
+.altp-row.on.held {
+  outline-offset: 2px;
+}
+.altp-pic {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 30px;
+  height: 52px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--frame);
+  box-shadow: 0 0 0 1px var(--edge);
+}
+.altp-pic.flat {
+  width: 52px;
+  height: 34px;
+}
+.altp-pic > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.altp-pick {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 0.9);
+}
+.altp-text {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.altp-text b {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.altp-text small {
+  flex: none;
+  color: var(--t5);
+  font-size: 12px;
+}
+.altp-mark {
+  display: inline-grid;
+  flex: none;
+  color: var(--keep-ink);
+}
+.altp-mark .icon {
+  width: 13px;
+  height: 13px;
   fill: currentColor;
+}
+/* On a dark disc: a design's own colours are under it. */
+.altp-main {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgb(15 15 15 / 0.82);
+  color: var(--keep-ink);
+}
+.altp-main .icon {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
+/* The frame's actions take the row's end, over the name. */
+.altp-w > .altacts {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  bottom: 2px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  padding: 0 2px 0 28px;
+  border-radius: 0 8px 8px 0;
+}
+.altp-w .altacts-row {
+  flex-wrap: nowrap;
+  gap: 1px;
+}
+.altp-w .markpill {
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+.altp-w .altacts-more .ib {
+  width: 26px;
+  height: 24px;
+  border-radius: 6px;
+}
+.altp-w .altacts-more .ib svg {
+  width: 16px;
+  height: 16px;
+}
+.altp-w .optmenu {
+  top: calc(100% + 4px);
+  right: 0;
+}
+@media (hover: hover) {
+  .altp-w:hover .altp-row {
+    background: var(--row-hover);
+  }
+  .altp-w > .altacts {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+  .altp-w:hover > .altacts,
+  .altp-w:focus-within > .altacts {
+    background: linear-gradient(to right, transparent, var(--row-hover) 24px);
+    opacity: 1;
+  }
+  /* Only the buttons take the pointer: the fade between them and the name is the row's. */
+  .altp-w:hover > .altacts .altacts-row,
+  .altp-w:focus-within > .altacts .altacts-row {
+    pointer-events: auto;
+  }
+  .altp-w:focus-within:not(:hover) > .altacts {
+    background: linear-gradient(to right, transparent, var(--row) 24px);
+  }
+}
+/* Without hover the actions always show, so a row keeps the two it has room for: the
+   rest are on the frame once it is on stage. */
+@media (hover: none) {
+  .altp-w .markpill .del,
+  .altp-w .markpill .mp-ask,
+  .altp-w .markpill i {
+    display: none;
+  }
+  .altp:not(.pics) .altp-row {
+    padding-right: 64px;
+  }
+}
+.altp.pics .altp-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 5px 5px 10px;
+  border-radius: 14px;
+}
+.altp.pics .altp-pic,
+.altp.pics .altp-pic.flat {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+  border-radius: 10px;
+}
+.altp.pics .altp-pick {
+  top: 7px;
+  left: 7px;
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.9);
+}
+.altp.pics .altp-main {
+  top: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+}
+.altp.pics .altp-main .icon {
+  width: 12px;
+  height: 12px;
+}
+.altp.pics .altp-text {
+  padding: 0 8px;
+}
+.altp.pics .altp-w > .altacts {
+  top: 9px;
+  right: 9px;
+  bottom: auto;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
+  box-shadow: 0 0 0 1px var(--line);
 }
 .altacts-row {
   align-items: center;

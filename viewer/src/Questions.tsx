@@ -42,12 +42,11 @@ import { Thumb } from "./Thumb.tsx";
 import { ArchivedGhost } from "./ArchivedGhost.tsx";
 import { Icon } from "./icons.tsx";
 import { PanelColorEditor } from "./PanelColorEditor.tsx";
+import { createHold } from "./holdPreview.ts";
 import { AnswerAlternativeTools, answerAlternative, answerFrame } from "./Alternatives.tsx";
 import { answerActions, FACE } from "./frameActions.ts";
 import type { Shortlists } from "./shortlist.ts";
 
-// Long enough that a pointer crossing the list on its way somewhere previews nothing.
-const HOLD_MS = 750;
 const LIST_ABOVE = 4;
 
 // A design the user archived: what that did, the way back, and why, if they want to say.
@@ -1023,36 +1022,19 @@ function OptionCard(props: {
   // Under the card, inside its outline: what Borrow opened.
   below?: JSX.Element;
 }) {
-  const [resting, setResting] = createSignal(false);
   const [menu, setMenu] = createSignal(false);
   const [writing, setWriting] = createSignal(false);
-  let timer = 0;
   let menuBtn: HTMLButtonElement | undefined;
   let menuEl: HTMLDivElement | undefined;
   let commentEl: HTMLTextAreaElement | undefined;
-  const stopRest = () => {
-    host().window.clearTimeout(timer);
-    setResting(false);
-  };
-  onCleanup(stopRest);
-  // A card can land under a mouse that hasn't moved, when new answers arrive or the
-  // list reflows. Only a mouse that moved means the user is looking at this one.
-  let hovering = false;
-  const hover = (e: PointerEvent) => {
-    if (e.pointerType !== "mouse" || hovering || (!e.movementX && !e.movementY)) return;
-    hovering = true;
-    props.onEnter();
-    startRest();
-  };
-  const startRest = () => {
-    const hold = props.onHold;
-    if (!hold || props.held) return;
-    setResting(true);
-    timer = host().window.setTimeout(() => {
-      setResting(false);
-      hold();
-    }, HOLD_MS);
-  };
+  const hold = createHold({
+    onEnter: () => props.onEnter(),
+    onLeave: () => props.onLeave(),
+    onHold: () => props.onHold,
+    held: () => !!props.held,
+  });
+  const resting = hold.resting;
+  const stopRest = hold.stop;
   const suggested = () =>
     props.pick
       ? props.why
@@ -1076,14 +1058,7 @@ function OptionCard(props: {
       aria-pressed={props.on}
       aria-keyshortcuts={props.shortcut}
       data-option={props.data}
-      onPointerEnter={hover}
-      onPointerMove={hover}
-      onPointerLeave={(e) => {
-        if (e.pointerType !== "mouse") return;
-        hovering = false;
-        stopRest();
-        props.onLeave();
-      }}
+      {...hold.on}
       onClick={() => {
         stopRest();
         props.onChoose();

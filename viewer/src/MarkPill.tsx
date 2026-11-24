@@ -3,7 +3,13 @@
 // (frameActions.ts says which the frame has). P, M and X do the same from the keyboard.
 
 import { For, Show } from "solid-js";
-import { type FrameAction, frameActions, type FrameRef, runFrameAction } from "./frameActions.ts";
+import {
+  type FrameAction,
+  type FrameActionId,
+  frameActions,
+  type FrameRef,
+  runFrameAction,
+} from "./frameActions.ts";
 import { Icon } from "./icons.tsx";
 import type { DesignScreenState } from "./state.ts";
 
@@ -14,8 +20,11 @@ export function MarkPill(props: {
   f: FrameRef;
   // In the panel's row or the stage's caption, always shown.
   inline?: boolean;
+  // An action its place already offers another way: a row whose click is Main.
+  without?: FrameActionId;
 }) {
-  const acts = () => frameActions(props.s, props.f).filter((a) => !a.menu);
+  const acts = () =>
+    frameActions(props.s, props.f).filter((a) => !a.menu && a.id !== props.without);
   const marks = () => acts().filter((a) => MARKS.has(a.id));
   const asks = () => acts().filter((a) => !MARKS.has(a.id));
   const button = (a: FrameAction) => (
