@@ -25,7 +25,7 @@ import { readonly } from "./host.ts";
 import { Icon } from "./icons.tsx";
 import { ALTERNATIVES_GROUP, alternativeName, safeColor, type VersionStep } from "./logic.ts";
 import type { DesignScreenState } from "./state.ts";
-import { type CropBox, groupCrop } from "./stillCrop.ts";
+import { type CropBox, groupLook } from "./stillCrop.ts";
 import { posterShown } from "./systemRev.ts";
 
 type Value = { value: string; label: string };
@@ -177,15 +177,35 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
   // on what differs, so a tile re-frames once rather than as each of the others arrives.
   const settled = () =>
     cells().length > 0 && cells().every((cell, i) => !cell || !!urls()[i] || c.stills.failed(cell));
-  const [crop] = createResource(
-    () => (settled() ? urls().filter((u): u is string => !!u) : null),
-    (list) => groupCrop(list, TILE_RATIO).then((box) => ({ box })),
+  // Framed, and judged: a knob the page names but whose every value draws the same picture
+  // here changes nothing on this frame, which a row of identical tiles would only hide.
+  const judged = createMemo(() => {
+    if (!settled()) return null;
+    const shots = cells().map((cell) => (cell ? c.stills.picture(cell) : null));
+    const stills = shots
+      .filter((p) => p?.exact)
+      .map((p) => ({ url: assetUrl(p!.asset), asset: p!.asset }));
+    const complete = stills.length === shots.length;
+    return { stills, complete, key: `${complete}:${stills.map((p) => p.asset).join(",")}` };
+  });
+  const [look] = createResource(judged, (src) =>
+    groupLook(src.stills, TILE_RATIO, src.complete).then((l) => ({ ...l, key: src.key })),
   );
+  // A resource keeps its last value while its source changes: only a look of these stills.
+  const current = () => {
+    const l = look();
+    return l && l.key === judged()?.key ? l : null;
+  };
+  const unchanged = () => !!current()?.same;
+  const crop = () => {
+    const l = current();
+    return l && !l.same ? l.box : null;
+  };
   const tileOf = (i: number): TilePicture => {
     const cell = cells()[i];
-    if (!pictured() || !cell) return { kind: "none" };
+    if (!pictured() || !cell || unchanged()) return { kind: "none" };
     const url = urls()[i];
-    if (url) return { kind: "shown", url, crop: crop()?.box ?? null };
+    if (url) return { kind: "shown", url, crop: crop() };
     return c.stills.failed(cell)
       ? { kind: "failed", retry: () => c.stills.want(cell, true, true) }
       : { kind: "waiting" };
@@ -209,6 +229,12 @@ function KnobGroup(props: { c: Choices; g: ChoiceGroup }) {
         compare={c.canCompare(props.g.path) ? { on: () => c.compare(props.g.path) } : undefined}
       />
       <Show when={open()}>
+        <Show when={unchanged()}>
+          <p class="chg-note">
+            {/* At rest: a value may still change how the page moves, which a still can't show. */}
+            {`No visible change on ${alternativeName(c.frame()?.alternative ?? "")} at rest: every value draws the same picture.`}
+          </p>
+        </Show>
         <div class="chg-tiles">
           <Index each={c.shown(props.g)}>
             {(v, i) => <KnobTile c={c} g={props.g} v={v()} picture={tileOf(i)} />}
