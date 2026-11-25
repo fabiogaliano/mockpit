@@ -375,10 +375,11 @@ export function DesignScreen(props: {
   const showingStage = () => !openingSheet() && !s.sheet.view();
   // The link was Focus's to open, so this entry is Focus's: the sheet or the marker
   // leaving the address must not take it to the Board.
+  const agentLink = new URLSearchParams(host().window.location.search).get("focus") === "1";
   {
     const w = host().window;
     const q = new URLSearchParams(w.location.search);
-    if (q.get("focus") === "1" || (sheetAsked.screen === "design" && sheetAsked.sheet)) {
+    if (agentLink || (sheetAsked.screen === "design" && sheetAsked.sheet)) {
       q.delete("focus");
       navigate(`${w.location.pathname}${q.size ? `?${q}` : ""}`, { replace: true, focus: true });
     }
@@ -425,6 +426,7 @@ export function DesignScreen(props: {
     () => (reading() ? READING_W : null),
     outlining,
     () => !!sideRow() || knobSideActive(),
+    agentLink,
   );
   // The tools act on a page, and a document isn't one.
   createEffect(() => {

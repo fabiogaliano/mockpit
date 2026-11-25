@@ -88,6 +88,9 @@ export function createMargins(
   // Answers side by side take the canvas: the design's frame, its states and its tools
   // step aside, and the question beside it stays.
   sideBySide: () => boolean,
+  // Opened from an agent's link: the user came to look at what changed, so Choices stands
+  // open beside the design even where it wouldn't open by itself.
+  agentLink = false,
 ) {
   const [folded, setFolded] = createSignal(false);
   const [over, setOver] = createSignal(false);
@@ -178,6 +181,14 @@ export function createMargins(
     if (pinned() && !s.cardMin()) return "talk";
     return null;
   });
+  if (agentLink) {
+    let done = false;
+    createEffect(() => {
+      if (done || !active() || !s.design() || alternativesHere().length === 0) return;
+      done = true;
+      if (choicesHas() && !tabletLayout()) setPinned(true);
+    });
+  }
   createEffect(
     on(
       () => s.curAsk()?.id,
