@@ -1,5 +1,42 @@
 # Changelog
 
+## 4.2.0
+
+### Minor Changes
+
+- 7fdbd99: Links agents send now open Focus on the design they name, at its state, alternative and version, and on its first waiting question when the link names no place. `read` of a design and each `feedback` batch carry the design's `url` too. Set `MOCKPIT_PUBLIC_URL` (e.g. `https://my-mac.tailnet.ts.net:8228`) when you open the viewer at another address than agents reach the server at, and their links use it.
+- 32b1f77: A state's alternatives now stand in the panel on the right, where a question's answers do, and work the same way: hover a row to preview it, rest on it to keep it on stage, click it to make it Main. The agent's suggestion carries the same dot as a suggested answer, and each row has Bookmark and Delete; the frame on stage keeps the rest, now in the order Main, Bookmark, Comment, More like this, Delete. List or Pictures, list by default.
+- 4ab3a28: No more undo toasts for knob picks, presets, deleted Sheet cells or archived alternatives. A knob changed from what the agent sent shows a dot and ↺ Reset on its own row; a deleted cell or column stays on the Sheet to restore, an archived alternative under Archived; removing one of your presets asks twice. Send's list, and the reply's lines, say a change in plain words: "dark: body.size 19" rather than "dark tuned: body.size 19".
+- c23095d: Choices: a knob's values are names, each shown on the design while you point at it, instead of a picture per value that took seconds each to capture. The panel takes no pictures of its own; the Sheet still pictures every value side by side, and an alternative shows its poster. Sheet stills are taken once more, now with a model's textures.
+- 4893b45: The panel beside the design is now Choices, one list: the open question, the alternatives, then every choice knob the frame on stage uses, each a group of pictures to pick from. Pointing at a picture previews it, a click picks it for every alternative at once, and its corner keeps or rules it out; Compare opens the Sheet. A knob the agent just added carries a small dot and opens the panel where it fits. Tune keeps the fine knobs, and a knob a page never reads no longer shows on it.
+- dd6172a: A colour knob can now carry `options`, so it spreads on the Sheet like a select. In a question whose answers all set one colour knob, you can add your own colour to compare and choose it before Send, and a comment or More like this made on a Sheet cell tells the agent which values the frame was wearing.
+- 9c672a3: Choices: the knobs that reshape a design lead, and every other knob it reads waits under a folded Fine-tune in the same panel, in its own control, so there is one place to choose; Tune stays for parts tapped on the design, phones and components. Two new knob declarations: `"when": {"<knob>": [values]}` hides a knob while another knob's value makes it do nothing, saying so in one line, and `{"type": "action"}` is a ▶ Play that the page hears as a `mockpit:action` event, to play a motion on the design.
+- 070bf47: Looks are now presets, a row of chips at the top of the knobs in the Choices panel (and in Tune) instead of a strip under the design: a mouse on one shows the design in it, a click applies it and flashes the knobs it set, and Save as preset keeps the design's own values. The API and storage still call them `looks`.
+- e5e8b21: Choices: on an idea, a knob's value chip has a quiet ✕ that rules the value out, as deleting its column on the Sheet does, so the agent hears it in `ruledOut` and won't offer it again. It leaves the chips for a "Ruled out · N" fold at the group's end, where Restore brings it back; the value on stage and the last one left can't be ruled out. The ✕ is reachable by keyboard, and always shown on touch screens.
+- 9e5e9b6: A `select` knob can be declared `"pictures": false` to stay a dropdown in Tune instead of a group of pictures in Choices and a Sheet: for what a still can't show, such as how a page moves on a click, whose every value would draw the same picture.
+- 0251c93: Choices: the stage is the answer. A click on a knob's value sets it and Send carries what the stage shows; the "N tuned · Show" banner and the Keep and Rule out corners on a knob's values are gone. Main, Keep and Delete stay on alternatives and on Sheet cells.
+
+### Patch Changes
+
+- 286a10a: An agent's link opens Focus with Choices beside the design, even where the design would otherwise be too wide for it to open by itself.
+- 7c90baa: Choices: an alternative's row is its poster and name; the agent's description moved out of the row, to the row's tooltip and the version caption on the stage.
+- b071399: Choices: the alternatives lead the panel as a list, each a row with its poster beside its name and what the agent says it is, instead of a grid of small tiles.
+- c7f8e1e: Each row under "Archived · N" (an alternative, or an answer) has an "add why" or "edit why", to write or change the reason any time after, on any device: a phone's History lists the archived alternatives too. The reason is stored as the note after archiving stores it, so the agent reads it in the same places.
+- 624dd51: The note an archived alternative (or a hidden answer) leaves in its place no longer has Undo: it says it was archived, takes a reason, and fades. Restore it from its row under Archived.
+- d50b43a: Choices: on a desktop the open panel stands beside the design, which fits the room left, instead of covering it.
+- fac9b4c: Choices: each knob says where a pick applies, "on all 3 alternatives", "on 2 of 3 alternatives" or "this alternative only", from the alternatives of the state that read it.
+- 3269a2e: Choices: the button on a knob's group (and on the alternatives, and on a phone's knob rows) that opens the Sheet now says Sheet, not Compare, which is the word for two versions in one frame.
+- ccfdb33: A publish can now drop a design knob: a path set to `null` in `knobs` (`--knobs '{"media": null}'`) takes it off the design, as when the knob moves to one alternative's `alternativeKnobs`. Knobs otherwise still add up across publishes, so `{}` changes nothing.
+- 6a7d6a7: A frame's page may now `fetch` the `blob:` and `data:` URLs it makes itself, so a three.js model's embedded textures load instead of the model drawing white. Both are bytes the page already holds: no new way out to the network.
+- 4d97395: A page reading a knob through `dataset.kMedia` (or `dataset["kMedia"]`) now shows that knob only, instead of every knob of the design, and `data-k-*` selectors match a path in any case. A page that builds the name in script, or listens for `mockpit:knobs`, still shows them all.
+- 942104a: Presets: Remove, asked for from a preset's ✕, stays until it's pressed or the user presses elsewhere or Escape, instead of vanishing as the pointer moves to it.
+- 95b08b8: Delete an entire Sheet column from its header. Undo restores the cells and their previous marks in one step.
+- aa1fd95: On a Tailwind project, frames now get the repo theme's own tokens (spacing, type sizes, line heights, radii, fonts, weights, motion) even when `mockpit init` had to strip the theme file from the Tailwind entry; colours that change with the mode stay the palette's. A page carrying its own copy still renders, and the publish nudge says those names are already in every frame.
+- 897023a: Hovering in the Choices panel no longer moves anything: an alternative's marks sit over its poster instead of its name, every row is one height with the name on one line, and pointing at an alternative of another height no longer rescales the design on the stage.
+- 7d67a70: Tablet in the width menu turns: Portrait (744) or Landscape (1133) under its row. An iPad held in landscape opens Tablet in landscape and follows the rotation, unless you flipped it by hand, which holds until you turn the iPad to match.
+- 14d7c81: Focus's top bar no longer overlaps on tablets: Use drops its target's name there, and Pick one | Keep all moves into the design's ⋯ menu.
+- 3afe407: On a touch screen, tapping a value in the Knob Choice Panel now picks it instead of flashing a preview.
+
 ## 4.1.1
 
 ### Patch Changes
